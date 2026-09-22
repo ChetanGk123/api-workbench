@@ -1,7 +1,7 @@
 {
   "name": "api-workbench",
-  "version": "0.0.1-m0",
-  "description": "Self-contained API Workbench bookmarklet — M0 feasibility",
+  "version": "0.1.0-m1",
+  "description": "Self-contained API Workbench bookmarklet — M1 foundation and panel shell",
   "scripts": {
     "build": "tsc && node scripts/build.mjs",
     "fixture": "node tests/fixtures/server.mjs",

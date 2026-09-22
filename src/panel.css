@@ -1,8 +1,0 @@
-:host { all: initial; position: fixed; z-index: 2147483647; right: 16px; top: 16px; width: min(460px, calc(100vw - 32px)); direction: ltr; color-scheme: dark; }
-.aw-root { max-height: calc(100vh - 32px); font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif; box-shadow: 0 12px 40px #0006; }
-.aw-body { overflow: auto; }
-[hidden] { display: none !important; }
-.aw-origin { overflow-wrap: anywhere; }
-.aw-code { white-space: pre-wrap; overflow-wrap: anywhere; font-family: ui-monospace, monospace; }
-p { margin: 0; }
-button:focus-visible, input:focus-visible { outline: 2px solid var(--aw-zinc-200); outline-offset: 2px; }

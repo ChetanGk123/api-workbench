@@ -2,6 +2,19 @@
 
 Date: 2026-09-23 · Platform: macOS (darwin 25.6.0) · Node v24.21.0
 
+## Status after M1 (2026-09-23)
+
+All 12 automated gates below were re-run unchanged against the M1 build and still pass
+(Chrome 153.0.8010.53). Two identifiers in this report moved with the M1 shell: the host element
+is now `#api-workbench` (was `#api-workbench-m0`) and the installer's first link is named
+**API Workbench** (was *API Workbench M0*). The manual checks at the end of this report are still
+**NOT RUN**, and the encoded bookmark URL grew from 27,348 to 47,138 characters, so the saved-bookmark
+and payload-probe steps matter more, not less.
+
+One build assertion was relaxed in M1: the "no absolute URL in the output" check now strips the literal
+`http://www.w3.org/2000/svg` before testing, because inline SVG icons need that XML namespace. It is an
+identifier, never fetched; every other `http(s)://` occurrence still fails the build.
+
 ## Toolchain
 
 | Tool | Version | Role |
@@ -86,7 +99,7 @@ npm run build
 npm run fixture          # leave running
 ```
 
-1. Open `http://127.0.0.1:4173/install.html`. Drag **API Workbench M0** to the bookmarks bar
+1. Open `http://127.0.0.1:4173/install.html`. Drag **API Workbench** (the first link) to the bookmarks bar
    (or create a bookmark and paste all of `dist/bookmarklet.txt`, including `javascript:`). Do not click the
    link on the installer page — that proves nothing about a saved bookmark.
 2. Open `http://127.0.0.1:4173/fixture` and click the saved bookmark. Record: does the panel appear, and what is the

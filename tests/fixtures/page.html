@@ -8,6 +8,7 @@
 </select></label>
 <p><button id="fetch">Fetch</button> <button id="xhr">XHR</button> <button id="abort">Cancel current requests</button></p>
 <label>XHR timeout (ms) <input id="timeout" type="number" value="0" min="0"></label>
+<p id="leak" class="aw-root aw-btn aw-card">Host element reusing aw- class names; the panel theme must not style it.</p>
 <pre id="outcome" aria-live="polite">Ready</pre>
 <p>Policy pages: <a href="/policy/strict">self-only network + Trusted Types + no style</a> · <a href="/policy/blocked">blocked network</a></p>
 <script src="/fixture.js"></script></html>

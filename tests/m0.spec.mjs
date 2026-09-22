@@ -41,7 +41,7 @@ test('build installer, encoded payload and no runtime downloads', async ({ page,
   expect(requests).toEqual([]);
   await page.screenshot({ path: 'test-results/m0-panel.png' });
   await page.goto('/install.html');
-  expect(await page.getByRole('link', { name: 'API Workbench M0', exact: true }).getAttribute('href')).toBe(bookmark);
+  expect(await page.getByRole('link', { name: 'API Workbench', exact: true }).getAttribute('href')).toBe(bookmark);
 });
 test('duplicate launch, minimize, close and exact hook restoration', async ({ page }) => {
   await page.evaluate(() => { window.original = { fetch, xhr: XMLHttpRequest }; });
@@ -50,7 +50,7 @@ test('duplicate launch, minimize, close and exact hook restoration', async ({ pa
   await page.getByRole('button', { name: 'Minimize', exact: true }).click();
   await launch(page);
   await expect(page.getByRole('checkbox')).toBeVisible();
-  expect(await page.locator('#api-workbench-m0').count()).toBe(1);
+  expect(await page.locator('#api-workbench').count()).toBe(1);
   expect(await page.evaluate(() => fetch === hooks.fetch && XMLHttpRequest === hooks.xhr)).toBe(true);
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   expect(await page.evaluate(() => fetch === original.fetch && XMLHttpRequest === original.xhr)).toBe(true);
@@ -181,7 +181,7 @@ test('CORS allows one origin and denies response access for the other route', as
 });
 test('policy operation checks under injected launch (not bookmark CSP proof)', async ({ page }) => {
   await page.goto('/policy/strict'); await launch(page);
-  expect(await page.locator('#api-workbench-m0 .aw-root').evaluate(e => getComputedStyle(e).backgroundColor)).toBe('rgb(9, 9, 11)');
+  expect(await page.locator('#api-workbench .aw-root:not(.aw-min)').evaluate(e => getComputedStyle(e).backgroundColor)).toBe('rgb(9, 9, 11)');
   expect(await page.evaluate(async () => (await fetch('/api/session')).status)).toBe(200);
   await page.goto('/policy/blocked'); await launch(page);
   expect(await page.evaluate(async () => { try { await fetch('/api/session'); } catch (e) { return e.name; } })).toBe('TypeError');

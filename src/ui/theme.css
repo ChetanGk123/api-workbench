@@ -1,0 +1,40 @@
+/* Runtime additions to the supplied reference theme. The reference file stays unmodified.
+ * No external asset references: the build asserts that both CSS inputs stay asset-free. */
+:host { all: initial; position: fixed; left: 0; top: 0; z-index: 2147483647; direction: ltr; color-scheme: dark; }
+
+/* System font stacks only; the reference screens' Geist web fonts are never requested. */
+.aw-root { font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif; }
+.aw-mono, .aw-code, .aw-ta, .aw-num, .aw-m, .aw-in.aw-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+.aw-root { width: 480px; height: 560px; min-width: 320px; min-height: 180px; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); box-shadow: 0 12px 40px #0006; resize: both; }
+/* ponytail: native CSS resize grip (bottom-right, pointer only). Custom handles only if
+ * keyboard resizing or edge handles become a requirement. */
+.aw-min { width: 400px; height: 52px; min-height: 52px; flex-direction: row; align-items: center; gap: 8px; padding: 0 8px 0 12px; border-radius: 14px; resize: none; }
+.aw-min .aw-sel { flex-shrink: 0; }
+.aw-min .aw-bd { flex-shrink: 1; overflow: hidden; }
+.aw-vsep { width: 1px; height: 20px; background: var(--aw-zinc-800); flex-shrink: 0; }
+
+.aw-tb, .aw-min { cursor: grab; touch-action: none; user-select: none; }
+.aw-dragging { cursor: grabbing; }
+.aw-tb > *, .aw-min > * { cursor: auto; }
+.aw-tb button, .aw-min button { cursor: pointer; }
+
+/* The reference body and code blocks clip content; real content must scroll. */
+.aw-body { overflow: auto; overscroll-behavior: contain; }
+.aw-code { overflow: auto; max-height: 160px; }
+.aw-wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+.aw-foot { justify-content: space-between; font-size: 12px; }
+
+/* Tabs and quick actions are buttons, not links: no host-page navigation. */
+button.aw-tt, button.aw-qa, button.aw-sel, button.aw-coll { font-family: inherit; cursor: pointer; }
+button.aw-tt { background: transparent; padding: 0; }
+button:disabled, button[disabled] { opacity: .5; cursor: not-allowed; }
+
+.aw-root :focus-visible { outline: 2px solid var(--aw-zinc-200); outline-offset: 2px; border-radius: 6px; }
+
+.aw-gap2 { gap: 2px; } .aw-gap10 { gap: 10px; } .aw-gap12 { gap: 12px; }
+.aw-plan { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.aw-self { align-self: flex-start; }
+.aw-profile { width: auto; height: 28px; font-size: 12px; gap: 6px; padding: 0 8px; }
+p { margin: 0; }
+[hidden] { display: none !important; }
