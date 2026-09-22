@@ -23,7 +23,7 @@ await writeFile('dist/api-workbench.min.js', code);
 await writeFile('dist/bookmarklet.txt', bookmark);
 const links = [[bookmark, 'API Workbench']];
 // Padding is inert and intentionally retained in these installation probes.
-for (const length of [65536, 262144, 1048576]) {
+for (const length of [131072, 262144, 1048576]) {
   const padded = bookmark + '%3B%2F*' + 'x'.repeat(Math.max(0, length - bookmark.length - 11)) + '*%2F';
   assert.equal(padded.length, length);
   await writeFile(`dist/bookmarklet-${length}.txt`, padded);

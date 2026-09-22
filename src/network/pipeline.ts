@@ -218,14 +218,12 @@ export function createPipeline(report: (message: string) => void) {
       if (!matchCondition(rule, url, headers)) continue;
       const delay = rule.delay ?? settings.delay;
       const reason = `${transport} ${method} · matched ${rule.id} · ${url.slice(0, 180)}`;
-      report(reason);
       return { provider: 'mock', ruleId: rule.id, delay, why: `matched ${rule.id} (${rule.priority})` };
     }
 
     if (!active) return null;
     const legacy = settings.enabled && method === 'GET' && getPathname(url) === '/api/mock-target' && getSearch(url) === '';
     const message = `${transport} ${method} · ${legacy ? 'mock / no network' : 'network'} · ${url.slice(0, 180)}`;
-    report(message);
     return legacy ? { provider: 'mock', ruleId: 'legacy-m0', delay: settings.delay, why: 'legacy M0 matcher' } : null;
   };
 

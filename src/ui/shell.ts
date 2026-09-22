@@ -10,6 +10,15 @@ export type ShellOptions = {
   setMock: (enabled: boolean) => void;
   setDelay: (ms: number) => void;
   onClose: () => void;
+  addEndpoint: Ctx['addEndpoint'];
+  updateEndpoint: Ctx['updateEndpoint'];
+  deleteEndpoint: Ctx['deleteEndpoint'];
+  updateProfile: Ctx['updateProfile'];
+  exportConfig: Ctx['exportConfig'];
+  runOnce: Ctx['runOnce'];
+  saveProfileAs: Ctx['saveProfileAs'];
+  selectProfile: Ctx['selectProfile'];
+  importConfig: Ctx['importConfig'];
 };
 
 export function createShell(options: ShellOptions) {
@@ -40,9 +49,9 @@ export function createShell(options: ShellOptions) {
   const profile = () => {
     const select = el('button', 'aw-sel aw-profile');
     select.type = 'button';
-    select.disabled = true;
     select.setAttribute('aria-label', 'Active profile');
-    select.title = 'Profiles arrive in M3';
+    select.title = 'Open profile settings';
+    select.addEventListener('click', () => go('settings'), { signal });
     select.append(el('span', '', 'Default'), icon('selector', 'aw-i12'));
     return select;
   };
@@ -96,6 +105,15 @@ export function createShell(options: ShellOptions) {
     setMock: options.setMock,
     setDelay: options.setDelay,
     signal,
+    addEndpoint: options.addEndpoint,
+    updateEndpoint: options.updateEndpoint,
+    deleteEndpoint: options.deleteEndpoint,
+    updateProfile: options.updateProfile,
+    exportConfig: options.exportConfig,
+    runOnce: options.runOnce,
+    saveProfileAs: options.saveProfileAs,
+    selectProfile: options.selectProfile,
+    importConfig: options.importConfig,
   };
 
   function go(id: ScreenId) {
@@ -154,6 +172,10 @@ export function createShell(options: ShellOptions) {
     counter.textContent = `${state.observed} request${state.observed === 1 ? '' : 's'} observed · ${location.origin}`;
     launcherState.lastChild!.textContent = state.mockEnabled ? 'M0 mock active' : 'No active modules';
     launcherDot.className = state.mockEnabled ? 'aw-dot aw-a' : 'aw-dot';
+    for (const control of root.querySelectorAll('.aw-profile')) {
+      const label = control.firstElementChild;
+      if (label) label.textContent = state.config.profile.name;
+    }
   });
 
   return {
