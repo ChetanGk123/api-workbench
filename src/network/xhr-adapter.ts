@@ -1,4 +1,4 @@
-import { mockBody, type Pipeline } from './pipeline';
+import { createRequestContext, mockBody, type Pipeline } from './pipeline';
 
 // Keep real native XHR objects, events, upload targets and synchronous transport.
 // Only a selected synthetic response overrides script-visible response fields.
@@ -17,6 +17,7 @@ export function xhrAdapter(Captured: typeof XMLHttpRequest, pipeline: Pipeline):
       let synthetic: { state: number; failed: boolean; response: unknown } | undefined;
       let cancel: (() => void) | undefined;
       let rescheduleTimeout = () => {};
+      let lifecycle: ReturnType<typeof pipeline.beginRequest> | undefined;
       const nativeGet = (key: string) => Reflect.get(Target.prototype, key, xhr);
       const invalid = () => new DOMException('Invalid XHR state', 'InvalidStateError');
       const text = () => synthetic && synthetic.state >= 3 && !synthetic.failed ? mockBody : '';
@@ -72,7 +73,9 @@ export function xhrAdapter(Captured: typeof XMLHttpRequest, pipeline: Pipeline):
       let fail = (_kind: 'abort' | 'timeout') => {};
       xhr.send = body => {
         if (xhr.readyState !== 1 || sent) throw invalid();
-        const decision = async ? pipeline.decide(method, url, 'XHR') : null;
+        const requestContext = createRequestContext({ kind: 'xhr', method, url, headers: {}, body: typeof body === 'string' ? body : undefined });
+        lifecycle = pipeline.beginRequest(requestContext, 'XHR');
+        const decision = async ? lifecycle.decision : null;
         if (!decision) { send(body); return; }
         sent = true;
         synthetic = { state: 1, failed: false, response: null };
@@ -96,6 +99,7 @@ export function xhrAdapter(Captured: typeof XMLHttpRequest, pipeline: Pipeline):
         cancel = clear;
         fail = kind => {
           clear(); sent = false; state.failed = true; state.state = 4;
+          lifecycle?.settle(kind === 'abort' ? 'abort' : 'error', kind);
           if (!emit('readystatechange') || !emit(kind) || !emit('loadend')) return;
           if (kind === 'abort') state.state = 0;
         };
@@ -108,6 +112,7 @@ export function xhrAdapter(Captured: typeof XMLHttpRequest, pipeline: Pipeline):
             xhr.responseType === 'arraybuffer' ? bytes.buffer :
             xhr.responseType === 'blob' ? new Blob([bytes], { type: 'application/json' }) : null;
           state.state = 4; sent = false;
+          lifecycle?.settle('response', 'synthetic mock response');
           if (!emit('readystatechange') || !emit('load')) return;
           emit('loadend');
         };

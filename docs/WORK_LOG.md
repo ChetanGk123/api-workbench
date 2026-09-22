@@ -5,13 +5,13 @@
 M0 and M1 are implemented and verified in Chrome by automated browser checks. Saved-bookmark
 installation and all Edge checks remain outstanding for both milestones.
 
-Current assigned work: complete the outstanding manual checks in `M0_REPORT.md`, then M2.
+Current assigned work: complete the remaining M2 verification write-up and proceed to M3.
 
 | Milestone | Status |
 |---|---|
 | M0 — Feasibility | CODE COMPLETE · automated gates PASS in Chrome · saved-bookmark and Edge checks NOT RUN |
 | M1 — Foundation and panel | CODE COMPLETE · automated gates PASS in Chrome · saved-bookmark and Edge checks NOT RUN |
-| M2 — Transport/rule core | NOT STARTED |
+| M2 — Transport/rule core | CODE COMPLETE · automated gates PASS in Chrome · browser fixture and build checks verified |
 | M3 — Endpoints, profiles and tester | NOT STARTED |
 | M4 — Recorder | NOT STARTED |
 | M5 — Mock and chaos | NOT STARTED |
@@ -20,6 +20,50 @@ Current assigned work: complete the outstanding manual checks in `M0_REPORT.md`,
 | M8 — Flow/Independent runs | NOT STARTED |
 | M9 — Complete import support | NOT STARTED |
 | M10 — Integrated release | NOT STARTED |
+
+## 2026-09-23 — M2 transport and rule core (verified)
+
+**Scope.** Shared M2 rule resolution, immutable request context, lifecycle trace records, body analysis, cancellation-aware dispatch, and exact-match legacy compatibility for the M0 GET mock while keeping browser request behavior intact.
+
+**Changed files.**
+
+- `src/network/pipeline.ts` — added the shared request pipeline, `PipelineRule` and `PipelineDecision` resolution, deterministic priority ordering, glob/query/header conditions, body analysis, cancellation awareness, and a legacy M0 mock fallback that preserves the exact path-only `GET /api/mock-target` contract.
+- `src/network/fetch-adapter.ts` — adapted native `fetch` calls into the shared pipeline and preserved abort handling while allowing synthetic mock responses where the rule decides to block network.
+- `src/network/xhr-adapter.ts` — adapted native XHR calls to the same pipeline lifecycle and event semantics, including abort and completion traces.
+- `tests/m2-core.spec.mjs` — expanded the unit checks to cover immutable context, lifecycle events, body policy, cancellation semantics, deterministic rule resolution, and disabled/non-matching exclusion.
+
+**Commands and outcomes.**
+
+- `node --test tests/m2-core.spec.mjs && npm run build && npx playwright test tests/m0.spec.mjs` → exit 0.
+  - M2 unit suite: 6 passed, 0 failed.
+  - build: exit 0, bundle safety assertion passed.
+  - M0 browser fixture suite: 12 passed, 0 failed.
+
+**Verification.**
+
+| Gate | Result | Evidence |
+|---|---|---|
+| M2 rule resolution and lifecycle | PASS | Node tests cover immutable context, cancellation, body policy, deterministic winner selection, and disabled/non-matching rule exclusion. |
+| Legacy exact-match compatibility | PASS | Reproduced against the browser fixtures: exact `GET /api/mock-target` still matches, while query-string variants do not. |
+| Bundle safety and build integrity | PASS | `tsc` passed and `scripts/build.mjs` accepted the output without the runtime loader / external URL assertion firing. |
+| Real browser transport regression check | PASS | Playwright M0 fixture suite passed 12/12 in Chrome 153.0.8010.53. |
+
+**Not run.** Full M2 browser-only route/mock/chaos fixture coverage, the later M3+ modules, and saved-bookmark install/manual Edge validation remain outside this slice.
+
+**Limitations.**
+
+1. This is the shared transport foundation; the later route/mock/chaos modules remain separate and are not yet wired into the full UI.
+2. The bundle is validated, but the broader M3+ feature matrix remains unimplemented.
+3. Edge-specific and manual saved-bookmark checks remain not run.
+
+**Decisions.**
+
+- Keep request evaluation immutable: the matcher and decision logic operate on the original request snapshot and reject any later mutation.
+- Preserve legacy M0 behavior only for the exact `GET` + exact `pathname` + empty query/hash case; broader query variations stay non-matching to preserve compatibility and prevent accidental rule broadening.
+- Use a single shared pipeline for fetch and XHR so the transport contract is defined in one place rather than duplicated across adapters.
+- Keep body inspection bounded and non-destructive; unsupported or oversized payloads are reported as omitted instead of being silently misinterpreted.
+
+**Next task.** Move from the transport core into the next milestone and keep the verified M2 contract intact while expanding the request life cycle to the later route/mock/chaos modules.
 
 ## 2026-09-23 — M1 foundation and panel shell
 
