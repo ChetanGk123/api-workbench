@@ -1,0 +1,17 @@
+{
+  "name": "api-workbench",
+  "version": "0.0.1-m0",
+  "description": "Self-contained API Workbench bookmarklet — M0 feasibility",
+  "scripts": {
+    "build": "tsc && node scripts/build.mjs",
+    "fixture": "node tests/fixtures/server.mjs",
+    "test": "npm run build && playwright test"
+  },
+  "type": "module",
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2"
+  },
+  "private": true
+}
