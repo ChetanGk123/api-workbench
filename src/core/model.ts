@@ -1,3 +1,4 @@
+import type { ContextBinding } from '../tester/expressions';
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS';
 export type BodyKind = 'none' | 'text' | 'json' | 'urlencoded';
 export type Check =
@@ -43,8 +44,8 @@ export type Profile = {
   settings: { bodyLimitKb: number; enabledModules: Record<string, boolean> };
 };
 
-export type ProfileSnapshot = { profile: Profile; endpoints: Endpoint[]; rules?: Rule[] };
-export type WorkbenchConfig = { profile: Profile; endpoints: Endpoint[]; rules?: Rule[]; savedProfiles?: ProfileSnapshot[] };
+export type ProfileSnapshot = { profile: Profile; endpoints: Endpoint[]; rules?: Rule[]; plan?: TestPlan };
+export type WorkbenchConfig = { profile: Profile; endpoints: Endpoint[]; rules?: Rule[]; plan?: TestPlan; savedProfiles?: ProfileSnapshot[] };
 
 export function createId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -321,4 +322,56 @@ export function defaultRouteRule(profileId: string, seq: number): RouteRule {
     matchOrigin: '', destinationOrigin: typeof location === 'undefined' ? '' : location.origin, pathRewrite: '', preservePath: true,
     credentials: 'same-origin', keepAuthorization: false,
   };
+}
+
+/* ── M8: test plans ────────────────────────────────────────────────────────── */
+
+export type ExecutionStrategy = 'flow' | 'independent';
+/** Setup runs once for the run; load repeats; skip keeps the endpoint out of this plan. */
+export type StepPhase = 'setup' | 'load' | 'skip';
+/** Direct uses the captured transport; rules routes tester traffic through the page pipeline. */
+export type TesterMode = 'direct' | 'rules';
+
+export type TestPlan = {
+  id: string;
+  profileId: string;
+  name: string;
+  strategy: ExecutionStrategy;
+  mode: TesterMode;
+  /** Endpoint ID to phase placement. An endpoint with no entry is a load step. */
+  phases: Record<string, 'setup' | 'load'>;
+  /** Endpoint IDs the plan lists but does not run. */
+  excluded: string[];
+  iterations: number;
+  concurrency: number;
+  /** Wait after a worker finishes one iteration or job, before it takes the next. */
+  delayMs: number;
+  rampUp: boolean;
+  onFailure: 'continue' | 'stop';
+  notifyOnComplete: boolean;
+  /** Page values chosen with Scan page; resolved again at every dispatch. */
+  bindings: ContextBinding[];
+};
+
+/** Suggested bounds, not platform guarantees: a browser tab is not a load generator. */
+export const MAX_ITERATIONS = 1000;
+export const MAX_CONCURRENCY = 20;
+/** Workers are admitted this far apart while ramp-up is on. */
+export const RAMP_STEP_MS = 250;
+/** Retained run summaries, per section 8.11. */
+export const MAX_RUN_SUMMARIES = 20;
+/** Latency samples kept per endpoint; P95 is exact within this bound and labelled by count. */
+export const MAX_SAMPLES_PER_ENDPOINT = 1000;
+
+export function defaultTestPlan(profileId: string): TestPlan {
+  return {
+    id: createId('plan'), profileId, name: 'Working Plan', strategy: 'flow', mode: 'direct',
+    phases: {}, excluded: [], iterations: 1, concurrency: 1, delayMs: 0, rampUp: false,
+    onFailure: 'continue', notifyOnComplete: false, bindings: [],
+  };
+}
+
+export function stepPhase(plan: TestPlan, endpointId: string): StepPhase {
+  if (plan.excluded.includes(endpointId)) return 'skip';
+  return plan.phases[endpointId] ?? 'load';
 }

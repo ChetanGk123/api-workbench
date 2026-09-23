@@ -2,12 +2,11 @@
 
 ## Current state
 
-M0–M7 are implemented and verified in Chrome by automated checks (100 checks). Saved-bookmark
+M0–M8 are implemented and verified in Chrome by automated checks (136 checks). Saved-bookmark
 installation and all Edge checks remain outstanding for every milestone.
 
-Current assigned work: M7 breakpoints complete and verified in Chrome, plus the M4 recorder review
-flow rework (own screen, selection, per-candidate editing, profile creation). M8 (Flow/Independent
-repeat runner) is next.
+Current assigned work: M8 (Flow/Independent repeat runner) complete and verified in Chrome. M9
+(complete import support) is next.
 
 ### Milestone status
 
@@ -24,9 +23,131 @@ when a later milestone lands.
 | M5 — Mock and chaos | CODE COMPLETE · all M5 acceptance gates PASS in Chrome · saved-bookmark and Edge checks NOT RUN |
 | M6 — Intercept and routing | CODE COMPLETE · all M6 acceptance gates PASS in Chrome (70 checks) · saved-bookmark and Edge checks NOT RUN |
 | M7 — Breakpoints | CODE COMPLETE · all M7 acceptance gates PASS in Chrome (88 checks) · saved-bookmark and Edge checks NOT RUN |
-| M8 — Flow/Independent runs | NOT STARTED |
+| M8 — Flow/Independent runs | CODE COMPLETE · all M8 acceptance gates PASS in Chrome (36 checks) · saved-bookmark and Edge checks NOT RUN |
 | M9 — Complete import support | NOT STARTED |
 | M10 — Integrated release | NOT STARTED |
+
+## 2026-09-23 — M8 Flow and Independent repeat runs
+
+**Scope.** The assigned milestone: the expression grammar and its built-ins, a restricted `$eval`
+parser, page-context discovery, the dependency DAG and preflight, Flow and Independent scheduling
+with concurrency, ramp-up, delay and cancellation, and the Results screen with latency statistics
+and JSON/CSV export.
+
+**Changed files.** New: `src/tester/expressions.ts`, `src/tester/plan.ts`, `src/tester/run.ts`,
+`src/tester/results.ts`, `src/tester/context.ts`, `src/ui/test-screens.ts`, `tests/m8-core.spec.mjs`,
+`tests/m8.spec.mjs`. Modified: `src/core/model.ts` (the `TestPlan` entity and its bounds),
+`src/core/storage.ts` (the plan travels with a profile export), `src/entry.ts` (run lifecycle,
+plan persistence, export), `src/tester/once.ts` (rebuilt on the expression engine; `executeOnce`
+kept), `src/ui/dom.ts` (the five form primitives moved here from `rule-screens.ts`, plus
+`downloadFile`), `src/ui/rule-screens.ts`, `src/ui/screens.ts`, `src/ui/shell.ts`,
+`tests/fixtures/page.html` (a `csrf-token` meta tag, so `$meta` can be checked end to end),
+`package.json`.
+
+### Behavior
+
+**Expressions.** `{{alias.path}}` reads a producer's response through a bounded own-property path
+(`items[0].id` and `items.0.id` are the same path); `__proto__`, `prototype` and `constructor` are
+rejected as segments and no getter is invoked. The built-ins from the photographs are all
+implemented: `$uuid`, `$timestamp`, `$counter`, `$randomInt`, `$cookie`, `$dom`, `$eval`,
+`$localStorage`, `$sessionStorage`, `$meta`, `$context`. Generated values are reserved once per
+prepared request, so the same expression twice inside one request is one value; counters are
+run-scoped and reserved in scheduler order, and a manual Run Once uses a separate transient session
+scope. Values are escaped by where they land — URL component, header (CR/LF stripped), JSON string
+content or raw text — and an expression occupying a whole JSON value keeps the producer's type, so
+`"id": "{{u.id}}"` sends the number.
+
+**`$eval`.** A hand-written tokenizer and Pratt parser over literals, arithmetic, comparison,
+boolean operators, a conditional and bounded binding paths. Statements, assignment, arrow
+functions, calls, `window`/`document` and unknown identifiers are refused before any value is
+produced. It is not implemented with `eval` or `new Function`; the build's assertion against both
+still passes.
+
+**Context discovery.** Scan page lists readable cookies, local and session storage, meta tags, named
+form fields and — only under explicitly typed roots — page globals, walking own data-property
+descriptors to depth 2 with a 40-entry cap per source. Previews are masked (`sup…e (18 chars)`), a
+password field's characters are never previewed, nothing is polled or exported, and a saved binding
+is resolved again at dispatch.
+
+**Plan and preflight.** A plan holds phase placement per endpoint, an exclusion list, strategy,
+iterations, concurrency, delay, ramp-up, failure policy, tester mode and its bindings, and is stored
+with the profile. The preflight builds the reference DAG and refuses to dispatch anything when it
+finds a cycle, a missing producer, a setup step reading a load-phase result, a duplicate alias, or —
+for Independent — a load step reading another load step; that last error names both remedies (switch
+to Flow, or promote the producer to setup). Before dispatch the screen states the planned request
+count, the destination origins, the tester mode and which selected endpoints can change data.
+
+**Scheduling.** Flow runs setup once in dependency order, then each iteration over its own copy of
+setup output, steps in dependency order, sequentially. Concurrency is simultaneous iterations, not
+parallel requests inside one. Independent gives each load endpoint its own queue and admits jobs
+round-robin under one global concurrency limit; each `(endpoint, repetition)` has its own context.
+Ramp-up admits one worker per 250 ms; delay waits after a worker finishes a job. A failed producer
+skips its dependents with a named reason while unrelated steps follow the continue/stop policy;
+setup failure blocks the load phase. Stop, the failure policy and switching profiles all end a run
+through one signal: owned requests abort and nothing further is scheduled.
+
+**Results.** Outcomes stay distinct (passed, failed checks, network error, timeout, aborted, skipped
+dependency, blocked before dispatch) and the Results screen shows the breakdown under the tiles
+rather than one "failed" total. P95 is nearest rank (`ceil(0.95 × n) − 1`), averages come from the
+underlying samples rather than an average of averages, and a statistic with no samples is shown as
+`—` instead of zero. JSON export carries the schema version, the configuration revision, the outcome
+counts and written definitions of every timing; CSV quotes separators, quotes and newlines and
+prefixes `=`, `+`, `-`, `@`, tab and CR with `'`.
+
+### Verification
+
+- `npm run build` → exit 0. raw 328,698 B, minified 188,550 B, encoded bookmark URL 269,632
+  characters (after M7: 266,752 / 154,856 / 220,022).
+- `npx playwright test` → **136 passed, 0 failed**, 1.2 min. Of those, M8 adds 24 unit checks
+  (`tests/m8-core.spec.mjs`) and 12 Chrome fixture checks (`tests/m8.spec.mjs`).
+- Versions: Node v24.21.0, TypeScript 7.0.2, esbuild 0.28.2, Playwright 1.63.0, Chrome
+  153.0.8010.53 on macOS (Darwin 25.6.0).
+- Measured, not asserted from the UI: the Chrome checks compare the fixture server's own hit
+  counters, read over a separate connection outside the page, against the planned counts. A Flow run
+  of 3 iterations produced exactly 3 producer hits and one hit each on `/api/m8-child-1..3`, proving
+  each iteration used its own producer value. The same plan with the producer promoted to setup
+  produced 1 producer hit and 3 hits on `/api/m8-setup-child-1`. An Independent plan reading another
+  load endpoint dispatched nothing at all; `/api/m8-indep-seed` was hit 0 times while the error was
+  displayed. A blocked built-in produced 0 hits on its endpoint rather than a request with an empty
+  header. `$meta` was checked end to end: the request carried the page's `csrf-token` to
+  `/api/echo-headers` and the echoed headers satisfied a `body-contains` check.
+
+### Two defects found and fixed during verification
+
+1. The whole-JSON-value pattern excluded `"`, so `"{{$counter("n",1,1)}}"` — a built-in with quoted
+   arguments — was substituted as a string instead of keeping its number type. The character class
+   cannot cross an expression boundary anyway, so the exclusion was wrong as well as harmful.
+2. The Load view was built once and never re-rendered, so moving a step between phases or adding a
+   context binding updated stored configuration while the preflight, the footer and the Run button
+   stayed stale. The screen now rebuilds the load panel whenever the plan, the live run or the
+   endpoint list changes; the scan results and the run history are built once and moved, so a plan
+   edit no longer clears a scan in progress and screen watchers are not accumulated per render.
+
+### Not run, and material limitations
+
+- Saved-bookmark installation is still unverified, and it now matters more: the encoded bookmark URL
+  is **269,632 characters**, which has passed the 262,144-character payload probe. The build now
+  emits only the 1,048,576 probe and warns that the two smaller ones were skipped. Whether Chrome
+  and Edge accept a bookmark URL of this size when saved, synced and restarted is untested and is
+  the single largest open risk to the distribution model.
+- No Edge run. No saved-bookmark run for any milestone.
+- The `rules` tester mode (dispatch through the page pipeline instead of the captured transport) is
+  implemented and selectable but is not covered by an automated check; every M8 gate above was
+  measured in Direct mode.
+- Browser completion notification is not implemented. `notifyOnComplete` writes the in-panel
+  activity line only, which is the documented default; the optional `Notification` permission path
+  was not built.
+- Latency samples are capped at 1,000 per endpoint. Past that the count keeps rising while P95 is
+  computed over the samples kept; the Results screen says so rather than presenting it as exact.
+- Ramp-up uses a fixed 250 ms step with no UI control, matching the reference's single switch.
+- Run summaries live in session state only, bounded to 20. They are not persisted to IndexedDB, so
+  they do not survive a page reload.
+- This is a browser-local repeated-request runner. Event-loop scheduling, tab throttling, connection
+  limits and one shared session make its numbers a comparison between runs in this tab, not a
+  statement about server capacity.
+
+**Next milestone.** M9 — the complete Import screen: every format in `Import.html`, paste/file
+detection, format-specific conversion, review, conflict handling and a transactional commit.
 
 ## 2026-09-23 — The delete confirmation is the panel's own dialog
 

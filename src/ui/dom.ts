@@ -439,13 +439,91 @@ export function confirmDialog(
   })
 }
 
-export function downloadJson(json: string, name: string): string {
-  const file = `${name.trim().replace(/[^\w.-]+/g, "-").replace(/^-|-$/g, "") || "profile"}.json`
-  const url = URL.createObjectURL(new Blob([json], { type: "application/json" }))
+export function downloadFile(text: string, name: string, extension: string, type: string): string {
+  const file = `${name.trim().replace(/[^\w.-]+/g, "-").replace(/^-|-$/g, "") || "profile"}.${extension}`
+  const url = URL.createObjectURL(new Blob([text], { type }))
   const link = el("a")
   link.href = url
   link.download = file
   link.click()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
   return file
+}
+
+export function downloadJson(json: string, name: string): string {
+  return downloadFile(json, name, "json", "application/json")
+}
+
+/* ── Small form primitives ─────────────────────────────────────────────────── */
+
+export function textField(label: string, value: string, onChange: (value: string) => void, signal: AbortSignal, mono = true) {
+  const input = el("input", `aw-in${mono ? " aw-mono" : ""}`)
+  input.value = value
+  input.setAttribute("aria-label", label)
+  input.addEventListener("input", () => onChange(input.value), { signal })
+  return { input, field: labeled(label, input) }
+}
+
+export function numberField(
+  label: string,
+  value: number,
+  onChange: (value: number) => void,
+  signal: AbortSignal,
+  min = 0,
+  max = 1000000,
+) {
+  const input = el("input", "aw-in aw-mono")
+  input.type = "number"
+  input.min = String(min)
+  input.max = String(max)
+  input.value = String(value)
+  input.setAttribute("aria-label", label)
+  const commit = () => {
+    const next = Math.min(max, Math.max(min, Math.round(Number(input.value) || 0)))
+    input.value = String(next)
+    onChange(next)
+  }
+  input.addEventListener("change", commit, { signal })
+  return { input, field: labeled(label, input) }
+}
+
+export function selectField<T extends string>(
+  label: string,
+  choices: readonly (readonly [T, string])[],
+  value: T,
+  onChange: (value: T) => void,
+  signal: AbortSignal,
+) {
+  const select = el("select", "aw-sel")
+  select.setAttribute("aria-label", label)
+  for (const [key, text] of choices) {
+    const option = el("option", "", text)
+    option.value = key
+    option.selected = key === value
+    select.append(option)
+  }
+  select.addEventListener("change", () => onChange(select.value as T), { signal })
+  return { select, field: labeled(label, select) }
+}
+
+export function checkField(label: string, checked: boolean, onChange: (value: boolean) => void, signal: AbortSignal) {
+  const wrapper = el("label", "aw-chk aw-xs")
+  const input = el("input")
+  input.type = "checkbox"
+  input.checked = checked
+  input.addEventListener("change", () => onChange(input.checked), { signal })
+  wrapper.append(input, document.createTextNode(label))
+  return { input, field: wrapper }
+}
+
+/** The reference's tick-box toggle: a button, so a row click never submits or navigates. */
+export function toggleBox(label: string, checked: boolean, onChange: (value: boolean) => void, signal: AbortSignal) {
+  const control = el("button", `aw-cb${checked ? " aw-on" : ""}`)
+  control.type = "button"
+  control.setAttribute("role", "checkbox")
+  control.setAttribute("aria-checked", String(checked))
+  control.setAttribute("aria-label", label)
+  control.append(icon("check", "aw-i12"))
+  control.addEventListener("click", () => onChange(!checked), { signal })
+  return control
 }

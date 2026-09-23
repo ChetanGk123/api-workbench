@@ -71,8 +71,8 @@ export async function replaceProfile(config: WorkbenchConfig, profile: Profile, 
 }
 
 export function exportConfig(config: WorkbenchConfig): string {
-  const { profile, endpoints, rules } = config;
-  return JSON.stringify({ schemaVersion: 1, profile, endpoints, rules }, null, 2);
+  const { profile, endpoints, rules, plan } = config;
+  return JSON.stringify({ schemaVersion: 1, profile, endpoints, rules, plan }, null, 2);
 }
 
 export function importConfig(serialized: string): WorkbenchConfig {

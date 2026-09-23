@@ -1,9 +1,11 @@
 import { el, icon, button, confirmDialog, iconButton, card, caption, group, labeled, labeledAction, formatJsonButton, disclosure, downloadJson, type IconName } from "./dom"
-import { nameFromHost, pageProfileName, type Endpoint, type HeaderValue, type Profile, type Rule, type RuleKind, type WorkbenchConfig } from "../core/model"
+import { nameFromHost, pageProfileName, type Endpoint, type HeaderValue, type Profile, type Rule, type RuleKind, type TestPlan, type WorkbenchConfig } from "../core/model"
 import type { RuleActivity } from "../network/rules"
 import type { PausedEntry } from "../breakpoints/registry"
 import { chaosScreen, interceptScreen, mockScreen, routeScreen } from "./rule-screens"
 import type { OnceResult } from "../tester/once"
+import type { RunState } from "../tester/run"
+import { resultsScreen, testScreen } from "./test-screens"
 import type { Recording } from "../recorder/recorder"
 import { candidatesFrom, type Candidate } from "../recorder/promote"
 
@@ -14,6 +16,7 @@ export type ScreenId =
   | "intercept"
   | "route"
   | "chaos"
+  | "results"
   | "endpoints"
   | "record"
   | "import"
@@ -39,6 +42,12 @@ export type UIState = {
   matched: RuleActivity[]
   /** Live continuations, not configuration: each entry disappears once it is resolved. */
   paused: PausedEntry[]
+  /** The run in progress, if any. */
+  run?: RunState
+  /** The run the Results screen is showing: the live one, or one picked from history. */
+  openRun?: RunState
+  /** Completed runs, newest first and bounded by MAX_RUN_SUMMARIES. */
+  runs: RunState[]
 }
 
 export type Ctx = {
@@ -79,6 +88,13 @@ export type Ctx = {
   /** Next creation sequence for a new rule; ties on priority resolve by it. */
   nextRuleSeq: () => number
   continueAllPaused: () => void
+  /** The active profile's single v1 test plan. */
+  plan: () => TestPlan
+  updatePlan: (plan: TestPlan) => void
+  startRun: () => void
+  stopRun: () => void
+  openRun: (id: string) => void
+  exportRun: (format: "json" | "csv") => void
 }
 
 type Screen = {
@@ -167,6 +183,15 @@ const SCREEN_DATA = {
       "Explicit bounded replay of real requests",
     ],
   },
+  results: {
+    label: "Results",
+    icon: "list",
+    tab: false,
+    reference: "Results.html",
+    milestone: "M8",
+    summary: "Run progress, outcome breakdown, latency statistics and export.",
+    points: [],
+  },
   endpoints: {
     label: "Endpoints",
     icon: "book",
@@ -225,7 +250,7 @@ export const SCREENS: Record<ScreenId, Screen> = SCREEN_DATA
 export const TABS = (Object.keys(SCREEN_DATA) as ScreenId[]).filter((id) => SCREENS[id].tab)
 
 const MODULES = [
-  { id: "test", title: "API Tester", milestone: "M3" },
+  { id: "test", title: "API Tester", milestone: "M3, M8" },
   { id: "mock", title: "Mock Server", milestone: "M5" },
   { id: "intercept", title: "API Interceptor", milestone: "M6, M7" },
   { id: "route", title: "Page Routing", milestone: "M6" },
@@ -538,53 +563,6 @@ function home(ctx: Ctx): HTMLElement {
   const experiment = disclosure("Fixture mock · developer controls", feasibility(ctx))
   experiment.open = true
   screen.append(modules, caption("Quick actions"), quick, caption("Run history"), runHistory(ctx), experiment)
-  return screen
-}
-
-function tester(ctx: Ctx): HTMLElement {
-  const screen = el("div", "aw-col aw-gap12")
-  const config = ctx.state().config
-  const selector = el("select", "aw-sel aw-grow")
-  selector.setAttribute("aria-label", "Endpoint to run")
-  for (const endpoint of config.endpoints) {
-    const option = el("option", "", `${endpoint.request.method} · ${endpoint.name}`)
-    option.value = endpoint.id
-    selector.append(option)
-  }
-  if (!config.endpoints.length) selector.append(el("option", "", "No endpoints yet"))
-  selector.disabled = !config.endpoints.length
-  const run = button("aw-btn aw-pri aw-sm", "Run Once", () => {
-    if (!selector.value || run.disabled) return
-    run.disabled = true
-    status.textContent = "Running request…"
-    ctx.runOnce(selector.value)
-  }, ctx.signal)
-  run.prepend(icon("play", "aw-i14"))
-  run.disabled = !config.endpoints.length
-  const result = card()
-  const status = el("div", "aw-hint", config.endpoints.length ? "Ready for a direct request." : "Add an endpoint before running the tester.")
-  status.setAttribute("role", "status")
-  const detail = el("pre", "aw-code aw-wrap", "No result yet.")
-  let previous = ctx.state().testerResult
-  const refresh = (current: OnceResult) => {
-    status.textContent = `${current.outcome}${current.status ? ` · HTTP ${current.status}` : ""} · ${current.durationMs} ms${current.error ? ` · ${current.error}` : ""}`
-    detail.textContent = `${current.body || current.error || "No response body."}\n\nChecks\n${current.checks.map(check => `${check.state} · ${check.detail}`).join("\n")}`
-  }
-  if (previous) refresh(previous)
-  ctx.watch(state => {
-    if (state.testerResult && state.testerResult !== previous) {
-      previous = state.testerResult
-      refresh(previous)
-      run.disabled = !config.endpoints.length
-    }
-  })
-  result.append(caption("Result"), status, detail)
-  const once = el("span", "aw-btn aw-on", "Once")
-  screen.append(group("aw-row", el("div", "aw-h aw-grow", "API Tester"), button("aw-btn aw-out aw-sm", "Endpoints", () => ctx.go("endpoints"), ctx.signal)),
-    group("aw-row aw-actions", group("aw-seg", once, unavailable("Load", "Load testing is not available yet")), el("span", "aw-bd", "Direct")),
-    el("p", "aw-hint", "One request using this page’s session. Direct execution bypasses active rules."),
-    group("aw-row", selector, run), result, caption("Run history"), runHistory(ctx),
-    el("p", "aw-hint", "Load, Flow and Independent execution are coming later."))
   return screen
 }
 
@@ -923,7 +901,8 @@ function importScreen(ctx: Ctx): HTMLElement {
 
 export function renderScreen(ctx: Ctx, id: ScreenId): HTMLElement {
   if (id === "home") return home(ctx)
-  if (id === "test") return tester(ctx)
+  if (id === "test") return testScreen(ctx)
+  if (id === "results") return resultsScreen(ctx)
   if (id === "endpoints") return endpoints(ctx)
   if (id === "settings") return settings(ctx)
   if (id === "record") return recordScreen(ctx)

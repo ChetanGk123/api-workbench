@@ -8,19 +8,26 @@ import {
   createId,
   defaultEndpoint,
   defaultProfile,
+  defaultTestPlan,
+  MAX_RUN_SUMMARIES,
   suggestProfileName,
   type Endpoint,
   type Profile,
   type ProfileSnapshot,
   type Rule,
+  type TestPlan,
   type WorkbenchConfig,
 } from "./core/model"
 import { importConfig as parseConfig, loadConfig, saveConfig, exportConfig } from "./core/storage"
 import { executeOnce } from "./tester/once"
+import { startRun, type RunState } from "./tester/run"
+import { runToCsv, runToJson } from "./tester/results"
+import { createScope } from "./tester/expressions"
+import { downloadFile } from "./ui/dom"
 import { createRecorder } from "./recorder/recorder"
 import { createBreakpoints } from "./breakpoints/registry"
 
-const version = "0.1.0-m7"
+const version = "0.1.0-m8"
 const key = "__api_workbench_7f49a1_v1__"
 type Instance = { version: string; restore: () => void }
 const registry = window as unknown as Record<string, Instance | undefined>
@@ -54,6 +61,7 @@ if (existing) {
     ruleCursors: {},
     matched: [],
     paused: [],
+    runs: [],
   })
   let configDirty = false
   let directFetch: typeof window.fetch = window.fetch
@@ -81,10 +89,14 @@ if (existing) {
     endpoints: Endpoint[],
     rules: Rule[],
     savedProfiles: ProfileSnapshot[],
+    plan?: TestPlan,
   ) => {
+    // Switching profiles stops owned tester work before the new configuration is installed.
+    stopRun()
     pipeline.setRules(rules)
     pipeline.engine.resetAll()
-    persist({ profile, endpoints, rules, savedProfiles })
+    persist({ profile, endpoints, rules, plan: plan ?? defaultTestPlan(profile.id), savedProfiles })
+    store.set({ run: undefined, openRun: undefined })
     store.set({ matched: [] })
     syncRuleStats()
   }
@@ -111,6 +123,37 @@ if (existing) {
     pipeline.setRules(rules)
     persist({ ...store.state.config, rules })
     syncRuleStats()
+  }
+
+  // v1 keeps one plan per profile; a missing plan is created on first read, not on load.
+  const planOf = (config: WorkbenchConfig): TestPlan => config.plan ?? defaultTestPlan(config.profile.id)
+  let runController: AbortController | undefined
+  const stopRun = () => {
+    runController?.abort()
+    runController = undefined
+  }
+  const beginRun = () => {
+    if (runController) return
+    const config = store.state.config
+    const plan = planOf(config)
+    runController = new AbortController()
+    // Direct uses the captured transport; Apply active rules goes through the page's wrappers.
+    const fetcher: typeof window.fetch = plan.mode === "rules" ? (...args) => window.fetch(...args) : directFetch
+    const publish = (run: RunState) => store.set({ run, openRun: run })
+    void startRun({
+      plan,
+      profile: config.profile,
+      endpoints: config.endpoints,
+      fetcher,
+      signal: runController.signal,
+      onProgress: publish,
+    }).then((run) => {
+      runController = undefined
+      publish(run)
+      store.set({ run: undefined, runs: [run, ...store.state.runs].slice(0, MAX_RUN_SUMMARIES) })
+      if (plan.notifyOnComplete)
+        report(`Run ${run.state}: ${run.counts.passed} passed of ${run.completed} requests`)
+    })
   }
 
   const shell = createShell({
@@ -147,7 +190,9 @@ if (existing) {
     runOnce: (endpointId) => {
       const endpoint = store.state.config.endpoints.find((item) => item.id === endpointId)
       if (!endpoint) return
-      void executeOnce(endpoint, store.state.config.profile, directFetch).then((testerResult) =>
+      // A manual send resolves plan bindings but keeps its own transient reservation scope.
+      const session = createScope({ bindings: planOf(store.state.config).bindings })
+      void executeOnce(endpoint, store.state.config.profile, directFetch, {}, session).then((testerResult) =>
         store.set({
           testerResult,
           testerHistory: [testerResult, ...store.state.testerHistory].slice(0, 10),
@@ -172,6 +217,7 @@ if (existing) {
             profile,
             endpoints: config.endpoints.map((endpoint) => ({ ...endpoint, profileId: profile.id })),
             rules: rulesOf(config).map((rule) => ({ ...rule, profileId: profile.id })),
+            plan: { ...planOf(config), profileId: profile.id },
           },
         ],
       })
@@ -180,7 +226,13 @@ if (existing) {
       const config = store.state.config
       const snapshot = config.savedProfiles?.find((item) => item.profile.id === id)
       if (!snapshot) return
-      activate(snapshot.profile, snapshot.endpoints, snapshot.rules ?? [], config.savedProfiles ?? [])
+      activate(
+        snapshot.profile,
+        snapshot.endpoints,
+        snapshot.rules ?? [],
+        config.savedProfiles ?? [],
+        snapshot.plan,
+      )
     },
     deleteProfile: (id) => {
       const config = store.state.config
@@ -194,6 +246,7 @@ if (existing) {
         next?.endpoints ?? [],
         next?.rules ?? [],
         savedProfiles,
+        next?.plan,
       )
     },
     importConfig: (serialized) => {
@@ -254,6 +307,22 @@ if (existing) {
     nextRuleSeq: () =>
       rulesOf(store.state.config).reduce((highest, rule) => Math.max(highest, rule.seq), 0) + 1,
     continueAllPaused: () => breakpoints.continueAll(),
+    plan: () => planOf(store.state.config),
+    updatePlan: (plan: TestPlan) => persist({ ...store.state.config, plan }),
+    startRun: () => beginRun(),
+    stopRun: () => stopRun(),
+    openRun: (id: string) => {
+      const run = store.state.runs.find((item) => item.id === id)
+      if (run) store.set({ openRun: run })
+    },
+    exportRun: (format) => {
+      const run = store.state.openRun
+      if (!run) return
+      const name = `${run.planName}-${run.id}`
+      if (format === "json")
+        downloadFile(runToJson(run, store.state.config.profile.revision), name, "json", "application/json")
+      else downloadFile(runToCsv(run), name, "csv", "text/csv")
+    },
     createProfileFromRecordings: (name, endpoints, hosts) => {
       const config = store.state.config
       const now = Date.now()
@@ -276,6 +345,7 @@ if (existing) {
           profile: config.profile,
           endpoints: config.endpoints,
           rules: rulesOf(config),
+          plan: planOf(config),
         })
       savedProfiles.push({ profile, endpoints: owned, rules: [] })
       activate(profile, owned, [], savedProfiles)
@@ -291,6 +361,7 @@ if (existing) {
   const wrappedXHR = xhrAdapter(capturedXHR, pipeline)
   const instance: Instance = { version, restore: () => shell.restore() }
   const close = () => {
+    stopRun()
     pipeline.close()
     shell.destroy()
     store.dispose()

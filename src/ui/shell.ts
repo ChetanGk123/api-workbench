@@ -32,6 +32,12 @@ export type ShellOptions = {
   resetSequence: Ctx["resetSequence"]
   nextRuleSeq: Ctx["nextRuleSeq"]
   continueAllPaused: Ctx["continueAllPaused"]
+  plan: Ctx["plan"]
+  updatePlan: Ctx["updatePlan"]
+  startRun: Ctx["startRun"]
+  stopRun: Ctx["stopRun"]
+  openRun: Ctx["openRun"]
+  exportRun: Ctx["exportRun"]
 }
 
 export function createShell(options: ShellOptions) {
@@ -228,6 +234,12 @@ export function createShell(options: ShellOptions) {
     resetSequence: options.resetSequence,
     nextRuleSeq: options.nextRuleSeq,
     continueAllPaused: options.continueAllPaused,
+    plan: options.plan,
+    updatePlan: options.updatePlan,
+    startRun: options.startRun,
+    stopRun: options.stopRun,
+    openRun: options.openRun,
+    exportRun: options.exportRun,
   }
 
   function go(id: ScreenId) {
