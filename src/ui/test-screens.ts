@@ -67,18 +67,28 @@ function switchBox(label: string, checked: boolean, onChange: (value: boolean) =
 }
 
 /** One endpoint row: included/excluded, the method, its alias, and which phase it sits in. */
+/**
+ * A control commits against the live plan, never against the one the form was drawn from. The form
+ * is rebuilt from the store, so a commit can land after the live plan has changed — a switch in the
+ * picker, or another field's edit — and writing a whole render-time snapshot back would resurrect
+ * the plan that was left and discard the one that replaced it.
+ */
+function editPlan(ctx: Ctx, change: (live: TestPlan) => Partial<TestPlan>) {
+  const live = ctx.plan()
+  ctx.updatePlan({ ...live, ...change(live) })
+}
+
 function stepRow(ctx: Ctx, plan: TestPlan, endpoint: Endpoint): HTMLElement {
   const phase = stepPhase(plan, endpoint.id)
   const included = phase !== "skip"
   const toggle = toggleBox(`Include ${endpoint.name}`, included, (next) =>
-    ctx.updatePlan({
-      ...plan,
-      excluded: next ? plan.excluded.filter((id) => id !== endpoint.id) : [...plan.excluded, endpoint.id],
-    }),
+    editPlan(ctx, (live) => ({
+      excluded: next ? live.excluded.filter((id) => id !== endpoint.id) : [...live.excluded, endpoint.id],
+    })),
   ctx.signal)
   const placement = plan.phases[endpoint.id] ?? "load"
   const move = button("aw-btn aw-gh aw-xs2", placement === "setup" ? "To load" : "To setup", () =>
-    ctx.updatePlan({ ...plan, phases: { ...plan.phases, [endpoint.id]: placement === "setup" ? "load" : "setup" } }),
+    editPlan(ctx, (live) => ({ phases: { ...live.phases, [endpoint.id]: placement === "setup" ? "load" : "setup" } })),
   ctx.signal)
   move.title = placement === "setup" ? "Move to the load phase" : "Run once per run, before the load phase"
   const row = group(
@@ -165,7 +175,7 @@ function contextCard(ctx: Ctx): HTMLElement {
       const add = button("aw-btn aw-gh aw-xs2", "Use", () => {
         const plan = ctx.plan()
         if (plan.bindings.some((item) => item.name === candidate.suggestedName)) return
-        ctx.updatePlan({ ...plan, bindings: [...plan.bindings, bindingFrom(candidate)] })
+        editPlan(ctx, (live) => ({ bindings: [...live.bindings, bindingFrom(candidate)] }))
       }, ctx.signal)
       results.append(
         group(
@@ -325,13 +335,13 @@ export function testScreen(ctx: Ctx): HTMLElement {
         ["independent", "Independent — one queue per endpoint"],
       ] as const,
       plan.strategy,
-      (value) => ctx.updatePlan({ ...plan, strategy: value }),
+      (value) => editPlan(ctx, () => ({ strategy: value })),
       ctx.signal,
     )
     strategy.select.classList.add("aw-grow")
-    const iterations = numberField("Iterations", plan.iterations, (value) => ctx.updatePlan({ ...plan, iterations: value }), ctx.signal, 1, MAX_ITERATIONS)
-    const concurrency = numberField("Concurrency", plan.concurrency, (value) => ctx.updatePlan({ ...plan, concurrency: value }), ctx.signal, 1, MAX_CONCURRENCY)
-    const delay = numberField("Batch delay", plan.delayMs, (value) => ctx.updatePlan({ ...plan, delayMs: value }), ctx.signal, 0, 60000)
+    const iterations = numberField("Iterations", plan.iterations, (value) => editPlan(ctx, () => ({ iterations: value })), ctx.signal, 1, MAX_ITERATIONS)
+    const concurrency = numberField("Concurrency", plan.concurrency, (value) => editPlan(ctx, () => ({ concurrency: value })), ctx.signal, 1, MAX_CONCURRENCY)
+    const delay = numberField("Batch delay", plan.delayMs, (value) => editPlan(ctx, () => ({ delayMs: value })), ctx.signal, 0, 60000)
     for (const field of [iterations, concurrency, delay]) field.input.style.width = "110px"
     const mode = selectField(
       "Mode",
@@ -340,7 +350,7 @@ export function testScreen(ctx: Ctx): HTMLElement {
         ["rules", "Apply active rules"],
       ] as const,
       plan.mode,
-      (value) => ctx.updatePlan({ ...plan, mode: value }),
+      (value) => editPlan(ctx, () => ({ mode: value })),
       ctx.signal,
     )
     mode.select.classList.add("aw-grow")
@@ -351,7 +361,7 @@ export function testScreen(ctx: Ctx): HTMLElement {
         ["stop", "Stop the run"],
       ] as const,
       plan.onFailure,
-      (value) => ctx.updatePlan({ ...plan, onFailure: value }),
+      (value) => editPlan(ctx, () => ({ onFailure: value })),
       ctx.signal,
     )
     onFailure.select.classList.add("aw-grow")
@@ -369,7 +379,7 @@ export function testScreen(ctx: Ctx): HTMLElement {
       separator(),
       group(
         "aw-row",
-        switchBox("Ramp-up", plan.rampUp, (value) => ctx.updatePlan({ ...plan, rampUp: value }), ctx.signal),
+        switchBox("Ramp-up", plan.rampUp, (value) => editPlan(ctx, () => ({ rampUp: value })), ctx.signal),
         el("span", "aw-lbl", "Ramp-up"),
         el("span", "aw-xs aw-mu", `Admit a worker every ${RAMP_STEP_MS} ms`),
       ),
@@ -418,7 +428,7 @@ export function testScreen(ctx: Ctx): HTMLElement {
 
     const notify = group(
       "aw-chk aw-xs",
-      toggleBox("Notify on complete", plan.notifyOnComplete, (value) => ctx.updatePlan({ ...plan, notifyOnComplete: value }), ctx.signal),
+      toggleBox("Notify on complete", plan.notifyOnComplete, (value) => editPlan(ctx, () => ({ notifyOnComplete: value })), ctx.signal),
       el("span", "", "Notify on complete"),
     )
     const historyPanel = disclosure("Load run history", history)

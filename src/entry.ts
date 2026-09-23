@@ -39,10 +39,12 @@ if (existing) {
       "Another API Workbench version is running. Close it or reload before launching this version.",
     )
 } else {
+  const initialProfile = defaultProfile()
   const initialConfig: WorkbenchConfig = {
-    profile: defaultProfile(),
+    profile: initialProfile,
     endpoints: [],
     savedProfiles: [],
+    plan: defaultTestPlan(initialProfile.id),
   }
   const store = createStore<UIState>({
     screen: "home",
@@ -63,10 +65,20 @@ if (existing) {
   })
   let configDirty = false
   let directFetch: typeof window.fetch = window.fetch
+  /**
+   * A live configuration always carries its plan. `planOf` falls back to a fresh `defaultTestPlan`,
+   * which mints a new id on every call, so a config without one has no stable plan identity: the
+   * picker, `selectPlan` and `savePlanAs` each read a different plan, and an edit made against one
+   * of them is lost when the next read invents another.
+   */
+  const withPlan = (config: WorkbenchConfig): WorkbenchConfig =>
+    config.plan ? config : { ...config, plan: defaultTestPlan(config.profile.id) }
+
   const persist = (config: WorkbenchConfig) => {
     configDirty = true
-    store.set({ config })
-    void saveConfig(config)
+    const next = withPlan(config)
+    store.set({ config: next })
+    void saveConfig(next)
   }
   const report = (message: string) =>
     store.set({ observed: store.state.observed + 1, activity: message })
@@ -256,7 +268,9 @@ if (existing) {
         next?.plan,
       )
     },
-    commitImport: async (next, activate) => {
+    commitImport: async (raw, activate) => {
+      // An imported profile need not carry a plan; the live configuration must.
+      const next = withPlan(raw)
       try {
         // A durable write: a failed commit reports the failure and saves nothing, so the review
         // and the draft stay intact for a retry.
@@ -427,7 +441,7 @@ if (existing) {
     void loadConfig()
       .then((config) => {
         if (!configDirty) {
-          store.set({ config })
+          store.set({ config: withPlan(config) })
           pipeline.setRules(config.rules ?? [])
           syncRuleStats()
         }

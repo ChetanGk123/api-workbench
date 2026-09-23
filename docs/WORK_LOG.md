@@ -83,6 +83,64 @@ are unchanged. Manual playground use: `npm run server`, then
 `http://127.0.0.1:4173/fixture`; import `http://127.0.0.1:4173/openapi.json` as a file
 or pasted JSON. Build remains `npm run build` when installer artifacts are needed.
 
+## 2026-09-24 — The live test plan gets one identity, and edits commit against it
+
+**Reported.** `tests/plans.spec.mjs:23` failed about half the time: an edit made to a stored plan
+came back as its pre-edit value after switching away and back. Two real defects were behind it,
+neither of them a test artifact.
+
+**Defect 1 — the live plan had no stable identity.** `planOf` falls back to
+`defaultTestPlan(profileId)`, which mints a **new id on every call**, and the initial configuration
+carried no plan. Until the first plan edit persisted one, every read invented a different plan:
+`refreshPlans` and `renderLoad` each minted their own inside the same render, so the picker, the
+form and `selectPlan` were addressing three different plans. Traced by reading the persisted
+configuration out of IndexedDB after each step, which showed the "Working Plan" id changing between
+two consecutive reads.
+
+**Defect 2 — a control wrote back a render-time snapshot of the whole plan.** Ten handlers in the
+Load view did `ctx.updatePlan({ ...plan, field: value })` with `plan` captured when the form was
+drawn. The form is rebuilt from the store, so a commit landing after the live plan changed wrote
+the old plan back whole. Instrumenting `numberField` and `renderLoad` caught it directly: after
+selecting the copy but before the repaint, editing iterations produced
+`live = Working Plan:06fqg2=9` — the plan that had just been switched *away from*, made live again
+with the edit that belonged to the copy. The switch was silently undone and the edit landed on the
+wrong plan.
+
+**Changed files.**
+
+- `src/entry.ts` — `withPlan()` guarantees a live configuration carries its plan, applied where a
+  configuration enters the store: the initial one, the one read from storage, a committed import,
+  and `persist()`, which covers every mutation. `planOf`'s fallback stays as a guard but no longer
+  fires in the running app.
+- `src/ui/test-screens.ts` — `editPlan(ctx, live => change)` reads the live plan at commit time and
+  applies the change to it. All ten snapshot writes now go through it, including the two that build
+  on a collection (`excluded`, `phases`, `bindings`), which now read that collection from the live
+  plan too. Three call sites already used this pattern by hand; it is now the only pattern.
+- `tests/plans.spec.mjs` — a new check pins defect 1: the live plan's id survives leaving and
+  re-entering the Load view, a trip through Home, and saving a copy. It fails on the code before
+  this change and passes after. The existing test now takes each option by exact name rather than
+  by position (the live plan is listed first, so positions move as the live plan changes) and waits
+  for the rename field, which the picker sync writes in the same callback that rebuilds the form,
+  to show the plan just selected. Two plans can hold identical numbers, so no field of theirs can
+  say which one is mounted; without that wait the test typed into the outgoing form.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0.
+- `npm run build` → exit 0.
+- `npx playwright test tests/plans.spec.mjs` → 8 consecutive green runs; the same test failed about
+  half the time before.
+- `npx playwright test` → **190 passed**, no failures, in 1.6 m, Chrome (channel `chrome`), macOS
+  darwin 25.6.0.
+
+**Not run.** Edge — not installed on this machine. Saved-bookmark installation, as before.
+
+**Limitations.** The Load form is still rebuilt whole whenever the plan changes, so an edit typed
+within the same frame as a plan switch can be dropped before it commits — the value is not written
+anywhere wrong, it is simply not written. A person cannot type that fast; a driver can. Fixing that
+means keeping the form's controls alive across a re-render instead of replacing them, which is a
+larger change and is not attempted here.
+
 ## 2026-09-24 — Edit intercept rule laid out as `InterceptRule.html`
 
 **Scope.** The intercept rule editor, against the reference screen. Two shared helpers changed with
