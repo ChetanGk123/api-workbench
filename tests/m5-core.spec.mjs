@@ -1,7 +1,7 @@
 import { test } from '@playwright/test';
 import assert from 'node:assert/strict';
 import { createRuleEngine, createRequestContext, matchRequest } from '../src/network/rules.ts';
-import { defaultChaosRule, defaultMockRule, defaultMockSlot } from '../src/core/model.ts';
+import { defaultChaosRule, defaultEndpoint, defaultMockRule, defaultMockSlot, labelFromEndpoint } from '../src/core/model.ts';
 
 const context = (overrides = {}) =>
   createRequestContext({ kind: 'fetch', method: 'GET', url: 'https://example.test/api/items', ...overrides });
@@ -186,4 +186,15 @@ test('M5 an inactive module applies nothing', () => {
   const plan = engine.plan(context());
   assert.equal(plan.provider, 'network');
   assert.equal(engine.hits('m'), 0);
+});
+
+test('M5 a rule label shortens a recorded endpoint name but keeps a renamed one', () => {
+  const endpoint = (name, path) => ({ ...defaultEndpoint('p'), name, request: { ...defaultEndpoint('p').request, method: 'GET', path } });
+  const label = (name, path) => labelFromEndpoint(endpoint(name, path));
+  assert.equal(label('GET /api/v1/table_data/MEMBERSHIP_TYPE', '/api/v1/table_data/MEMBERSHIP_TYPE'), 'MEMBERSHIP_TYPE');
+  // The recorded name drops the query the path keeps, so the two still count as unedited.
+  assert.equal(label('GET /api/fixture', '/api/fixture?again=1'), 'fixture');
+  assert.equal(label('Membership types', '/api/v1/table_data/MEMBERSHIP_TYPE'), 'Membership types');
+  assert.equal(label('GET /api/users/42', '/api/users/42'), 'users/42');
+  assert.equal(label('GET /', '/'), 'GET /');
 });

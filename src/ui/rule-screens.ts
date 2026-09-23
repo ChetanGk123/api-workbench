@@ -1,4 +1,4 @@
-import { el, icon, button, iconButton, card, caption, group, labeled, labeledAction, formatJsonButton, disclosure, textField, numberField, selectField, checkField, toggleBox } from "./dom"
+import { el, icon, button, iconButton, card, caption, group, labeled, labeledAction, formatJsonButton, prettyJson, disclosure, textField, numberField, selectField, checkField, toggleBox } from "./dom"
 import {
   CHAOS_PRESETS,
   defaultInterceptRule,
@@ -10,6 +10,7 @@ import {
   MAX_PAUSED_REQUESTS,
   PAUSE_DEADLINE_MS,
   defaultMockSlot,
+  labelFromEndpoint,
   matcherFromEndpoint,
   type ChaosFault,
   type ChaosRule,
@@ -429,7 +430,7 @@ function mockEditor(ctx: Ctx, screen: HTMLElement, original: MockRule, isNew: bo
         if (!recorded) return
         const slot = draft.slots[0]!
         slot.status = recorded.status
-        slot.body = recorded.body
+        slot.body = prettyJson(recorded.body) ?? recorded.body
         slot.headers = recorded.headers.map((header) => `${header.name}: ${header.value}`).join("\n")
         rebuild()
       },
@@ -492,7 +493,7 @@ export function mockScreen(ctx: Ctx): HTMLElement {
     const rule = defaultMockRule(ctx.state().config.profile.id, ctx.nextRuleSeq())
     if (endpoint) {
       rule.endpointId = endpoint.id
-      rule.label = `Mock ${endpoint.name}`
+      rule.label = labelFromEndpoint(endpoint)
       rule.matcher = matcherFromEndpoint(endpoint)
     }
     open(rule, true)
@@ -721,7 +722,7 @@ export function chaosScreen(ctx: Ctx): HTMLElement {
     if (preset) rule = CHAOS_PRESETS[preset]!(rule)
     if (endpoint) {
       rule.endpointId = endpoint.id
-      rule.label = `${rule.label} · ${endpoint.name}`
+      rule.label = `${rule.label} · ${labelFromEndpoint(endpoint)}`
       rule.matcher = { ...rule.matcher, ...matcherFromEndpoint(endpoint) }
     }
     open(rule, true)
@@ -1288,7 +1289,7 @@ export function interceptScreen(ctx: Ctx): HTMLElement {
     const rule = defaultInterceptRule(ctx.state().config.profile.id, ctx.nextRuleSeq())
     if (endpoint) {
       rule.endpointId = endpoint.id
-      rule.label = `Intercept ${endpoint.name}`
+      rule.label = labelFromEndpoint(endpoint)
       rule.matcher = matcherFromEndpoint(endpoint)
     }
     open(rule, true)

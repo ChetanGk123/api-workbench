@@ -2,7 +2,7 @@
 
 ## Current state
 
-M0–M8 are implemented and verified in Chrome by automated checks (136 checks). Saved-bookmark
+M0–M8 are implemented and verified in Chrome by automated checks (139 checks). Saved-bookmark
 installation and all Edge checks remain outstanding for every milestone.
 
 Current assigned work: M8 (Flow/Independent repeat runner) complete and verified in Chrome. M9
@@ -26,6 +26,60 @@ when a later milestone lands.
 | M8 — Flow/Independent runs | CODE COMPLETE · all M8 acceptance gates PASS in Chrome (36 checks) · saved-bookmark and Edge checks NOT RUN |
 | M9 — Complete import support | NOT STARTED |
 | M10 — Integrated release | NOT STARTED |
+
+## 2026-09-23 — Mock rule defaults: enabled, indented sample body, short label, label-only hover
+
+**Scope.** Four follow-ups on the user's reports about adding a mock rule. A new rule opened
+disabled, "Use recorded response" pasted the recorded body exactly as the server minified it, the
+label read `Mock GET /api/v1/table_data/MEMBERSHIP_TYPE`, and hovering a rule row underlined the
+whole button, meta line included.
+
+**Changed files.**
+
+- `src/core/model.ts` — `defaultMockRule` sets `enabled: true`. A rule is added to be served, and
+  the module's own Activate control is still the gate, so nothing intercepts traffic on its own.
+  New `labelFromEndpoint(endpoint)` returns a renamed endpoint's name as is, and shortens one that
+  still carries the recorded `METHOD /path` to its last path segment; a trailing numeric id keeps
+  its collection (`users/42`) rather than reading as `42`. Chaos, intercept and route rules keep
+  `enabled: false` — only the mock default was reported.
+- `src/ui/dom.ts` — `prettyJson` is exported. It already backed the Format JSON control; the
+  sample copy reuses it instead of a second `JSON.parse`/`stringify` pair.
+- `src/ui/rule-screens.ts` — "Use recorded response" writes `prettyJson(recorded.body) ?? body`,
+  so a JSON sample lands indented and a non-JSON one is untouched. The three endpoint-derived
+  labels call `labelFromEndpoint`: mock and intercept drop their kind prefix, since the screen and
+  section already name the module, and chaos keeps its preset name (`Slow API · MEMBERSHIP_TYPE`).
+- `src/ui/theme.css` — a rule row's button holds a label and a meta line, and a `text-decoration`
+  on the button propagates into both. `.aw-endpoint-name:has(.aw-endpoint-meta)` drops the
+  button's own underline on hover and underlines the label child instead. The single-line
+  endpoint-name buttons on Record and Endpoints have no meta line and are unchanged.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0.
+- `npm run build` → exit 0. raw 329,519 B, minified 189,089 B, encoded bookmark URL 270,411
+  characters.
+- `npx playwright test` → 139 passed in 1.2 min, Chrome, macOS darwin 25.6.0, Playwright 1.63.0,
+  Node v24.21.0.
+- Each fix was confirmed to fail before it: with the default and the pretty-print reverted, the new
+  UI test reported `unexpected value "unchecked"`; with the CSS reverted, the hover test read
+  `underline` on the button itself.
+
+**Checks added.** `tests/m5.spec.mjs` — one test records `/api/m5-from-endpoint`, creates a profile
+and adds a rule from that endpoint, then asserts the rule is enabled, the label reads
+`m5-from-endpoint` and the pasted body is indented; a second hovers a rule row and asserts the
+computed `text-decoration-line` is `none` on the button, `underline` on the label and `none` on the
+meta line. `tests/m5-core.spec.mjs` — `labelFromEndpoint` over a recorded name, a recorded name
+whose path carries a query, a renamed endpoint and a trailing id.
+
+**Not run.** No Edge check; `:has()` is a Chromium feature shared with Edge, but that is reasoning,
+not measurement. No saved-bookmark check.
+
+**Limitations.** The label is derived only when a rule is created from an endpoint; existing rules
+keep the labels they were saved with. `labelFromEndpoint` compares the endpoint's name against the
+recorded `METHOD /path` form to decide whether it was renamed, so a user who types that exact
+string by hand gets the shortened label.
+
+**Next task.** M9 — complete import support, unchanged by this entry.
 
 ## 2026-09-23 — M8 Flow and Independent repeat runs
 

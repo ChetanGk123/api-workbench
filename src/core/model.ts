@@ -203,8 +203,9 @@ export function defaultMockSlot(): MockSlot {
   return { status: 200, headers: 'Content-Type: application/json', body: '{}', delayMs: 0, fault: 'none' };
 }
 
+/** A new mock rule starts enabled: the user adds one to serve it, not to leave it off. */
 export function defaultMockRule(profileId: string, seq: number): MockRule {
-  return { ...ruleBase(profileId, seq, 'New mock rule'), kind: 'mock', mode: 'static', slots: [defaultMockSlot()], exhaustion: 'repeat-last' };
+  return { ...ruleBase(profileId, seq, 'New mock rule'), enabled: true, kind: 'mock', mode: 'static', slots: [defaultMockSlot()], exhaustion: 'repeat-last' };
 }
 
 export function defaultChaosRule(profileId: string, seq: number): ChaosRule {
@@ -227,6 +228,22 @@ export const CHAOS_PRESETS: Record<string, (rule: ChaosRule) => ChaosRule> = {
   'Malformed JSON': rule => ({ ...rule, label: 'Malformed JSON', mode: 'synthetic', fault: { kind: 'malformed-json' } }),
   'Request replay': rule => ({ ...rule, label: 'Request replay', mode: 'real', fault: { kind: 'replay', copies: 1, gapMs: 0 } }),
 };
+
+/**
+ * A rule's default label. A renamed endpoint lends its name as is; one still carrying the recorded
+ * `METHOD /path` is shortened to its last path segment, since every rule row already prints the
+ * method and full URL beneath the label.
+ */
+export function labelFromEndpoint(endpoint: Endpoint): string {
+  const name = endpoint.name.trim();
+  const path = endpoint.request.path.split(/[?#]/)[0] ?? '';
+  if (name && name !== `${endpoint.request.method} ${path}`) return name;
+  const segments = path.split('/').filter(Boolean);
+  const last = segments.at(-1);
+  if (!last) return name || endpoint.request.method;
+  // A trailing id reads as nothing on its own, so it keeps the collection it belongs to.
+  return /^\d+$/.test(last) && segments.length > 1 ? `${segments.at(-2)}/${last}` : last;
+}
 
 /** A rule derived from an endpoint copies its method and path; editing either detaches on save. */
 export function matcherFromEndpoint(endpoint: Endpoint): RuleMatcher {

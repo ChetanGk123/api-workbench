@@ -344,3 +344,38 @@ test('M5 the chaos editor switches mode and fault type, and refuses a synthetic 
   await expect(panel(page).locator('.aw-endpoint-name')).toHaveCount(1);
   await expect(panel(page).locator('.aw-endpoint-meta')).toContainText('real · Request replay · 100%');
 });
+
+test('M5 a rule added from an endpoint starts enabled and pastes the recorded body indented', async ({ page }) => {
+  const path = '/api/m5-from-endpoint';
+  await panel(page).getByRole('button', { name: 'Record', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Start recording', exact: true }).click();
+  await page.evaluate(target => fetch(target).then(response => response.text()), path);
+  await panel(page).getByRole('button', { name: 'Stop recording', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Create profile', exact: true }).click();
+  await expect(panel(page).locator('.aw-h')).toHaveText('Endpoints');
+
+  await goHome(page);
+  await panel(page).getByRole('button', { name: 'Mock', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Add rule from endpoint', exact: true }).click();
+  await expect(panel(page).getByRole('checkbox', { name: 'Rule enabled', exact: true })).toBeChecked();
+  await expect(panel(page).getByRole('textbox', { name: 'Label', exact: true })).toHaveValue('m5-from-endpoint');
+
+  await panel(page).getByRole('button', { name: 'Use recorded response', exact: true }).click();
+  const body = await panel(page).getByRole('textbox', { name: 'Body 1', exact: true }).inputValue();
+  expect(body).toContain('\n  "source": "network"');
+  expect(JSON.parse(body).path).toBe(path);
+});
+
+test('M5 hovering a rule row underlines its label, not the method, URL and status line', async ({ page }) => {
+  await install(page, [mockRule('Hover target', '/api/m5-hover')]);
+  await goHome(page);
+  await panel(page).getByRole('button', { name: 'Mock', exact: true }).click();
+  const open = panel(page).locator('.aw-endpoint-name').first();
+  await open.hover();
+  const decoration = await open.evaluate(node => [
+    getComputedStyle(node).textDecorationLine,
+    getComputedStyle(node.firstElementChild).textDecorationLine,
+    getComputedStyle(node.querySelector('.aw-endpoint-meta')).textDecorationLine,
+  ]);
+  expect(decoration).toEqual(['none', 'underline', 'none']);
+});

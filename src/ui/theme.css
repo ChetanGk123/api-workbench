@@ -255,6 +255,14 @@
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+/* A rule row's button carries a meta line under its label; hovering underlines the label only. */
+.aw-endpoint-name:has(.aw-endpoint-meta):hover {
+  text-decoration: none;
+}
+.aw-endpoint-name:has(.aw-endpoint-meta):hover > :first-child {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 .aw-endpoint-meta {
   padding-left: 54px;
   gap: 10px;

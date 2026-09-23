@@ -327,7 +327,7 @@ export function labeledAction(label: string, input: HTMLElement, action: HTMLEle
 }
 
 /** The indented form of `value`, or null when it is not JSON or is already indented. */
-function prettyJson(value: string): string | null {
+export function prettyJson(value: string): string | null {
   if (!value.trim()) return null
   let pretty: string
   try {
