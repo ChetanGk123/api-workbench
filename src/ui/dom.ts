@@ -39,6 +39,7 @@ export const ICONS = {
   trash: [p('M3 6h18'), p('M19 6v14c0 1-1 2-2 2H7c-1 0-2-2-2-2V6'), p('M8 6V4c0-1 2-2 2-2h4c1 0 2 1 2 2v2')],
   link: [p('M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'), p('M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71')],
   list: [p('m3 17 2 2 4-4'), p('m3 7 2 2 4-4'), p('M13 6h8'), p('M13 12h8'), p('M13 18h8')],
+  check: [p('M20 6 9 17l-5-5')],
   globe: [circle('12', '12', '10'), p('M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20'), p('M2 12h20')],
 } satisfies Record<string, readonly Shape[]>;
 export type IconName = keyof typeof ICONS;
@@ -69,4 +70,113 @@ export function iconButton(className: string, name: IconName, label: string, onC
   element.title = label;
   element.append(icon(name));
   return element;
+}
+
+export type Choice = { value: string; label: string };
+
+/**
+ * A shadcn-style menu: a trigger plus a floating list of single-choice items. The menu is mounted
+ * outside the panel so `.aw-root { overflow: hidden }` cannot clip it, and positioned from the
+ * trigger's viewport rect. Escape, outside pointerdown, arrow keys, Home/End and Enter/Space are
+ * handled here; the browser's own select popup is not used because it cannot be themed.
+ */
+export function dropdown(options: {
+  label: string;
+  triggerClass: string;
+  layer: ParentNode;
+  onSelect: (value: string) => void;
+  signal: AbortSignal;
+}) {
+  const { signal } = options;
+  const trigger = el('button', `aw-sel ${options.triggerClass}`.trim());
+  trigger.type = 'button';
+  trigger.setAttribute('aria-label', options.label);
+  trigger.setAttribute('aria-haspopup', 'menu');
+  trigger.setAttribute('aria-expanded', 'false');
+  const text = el('span', 'aw-tr');
+  trigger.append(text, icon('selector', 'aw-i12'));
+
+  const menu = el('div', 'aw-menu');
+  menu.setAttribute('role', 'menu');
+  menu.setAttribute('aria-label', options.label);
+  menu.hidden = true;
+  options.layer.append(menu);
+
+  let choices: Choice[] = [];
+  let current = '';
+  const items = () => Array.from(menu.querySelectorAll<HTMLButtonElement>('.aw-mi'));
+
+  const place = () => {
+    const box = trigger.getBoundingClientRect();
+    menu.style.minWidth = `${Math.max(box.width, 160)}px`;
+    // Measure before clamping, then flip above the trigger when there is no room below.
+    const size = menu.getBoundingClientRect();
+    const below = window.innerHeight - box.bottom - 8;
+    const flip = below < size.height && box.top - 8 > below;
+    menu.style.top = flip ? `${Math.max(8, box.top - 4 - size.height)}px` : `${box.bottom + 4}px`;
+    menu.style.left = `${Math.min(Math.max(8, box.left), Math.max(8, window.innerWidth - size.width - 8))}px`;
+  };
+
+  const close = (restoreFocus = false) => {
+    if (menu.hidden) return;
+    menu.hidden = true;
+    trigger.setAttribute('aria-expanded', 'false');
+    if (restoreFocus) trigger.focus({ preventScroll: true });
+  };
+  const open = () => {
+    if (!choices.length) return;
+    menu.hidden = false;
+    trigger.setAttribute('aria-expanded', 'true');
+    place();
+    (items().find(item => item.dataset.value === current) ?? items()[0])?.focus({ preventScroll: true });
+  };
+
+  trigger.addEventListener('click', () => (menu.hidden ? open() : close(true)), { signal });
+  trigger.addEventListener('keydown', event => {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); open(); }
+  }, { signal });
+
+  const move = (from: HTMLElement, step: number) => {
+    const list = items();
+    const next = list[(list.indexOf(from as HTMLButtonElement) + step + list.length) % list.length];
+    next?.focus({ preventScroll: true });
+  };
+  menu.addEventListener('keydown', event => {
+    const target = event.target as HTMLElement;
+    if (event.key === 'Escape') { event.preventDefault(); close(true); }
+    else if (event.key === 'ArrowDown') { event.preventDefault(); move(target, 1); }
+    else if (event.key === 'ArrowUp') { event.preventDefault(); move(target, -1); }
+    else if (event.key === 'Home') { event.preventDefault(); items()[0]?.focus({ preventScroll: true }); }
+    else if (event.key === 'End') { event.preventDefault(); items().at(-1)?.focus({ preventScroll: true }); }
+    else if (event.key === 'Tab') close(true);
+  }, { signal });
+  // A pointerdown anywhere else dismisses; the composed path sees into the shadow root.
+  document.addEventListener('pointerdown', event => {
+    const path = event.composedPath();
+    if (!path.includes(menu) && !path.includes(trigger)) close();
+  }, { signal, capture: true });
+  window.addEventListener('resize', () => close(), { signal });
+
+  return {
+    trigger,
+    menu,
+    close,
+    set(next: Choice[], value: string) {
+      choices = next;
+      current = value;
+      text.textContent = next.find(choice => choice.value === value)?.label ?? '';
+      menu.replaceChildren();
+      for (const choice of next) {
+        const item = el('button', 'aw-mi');
+        item.type = 'button';
+        item.setAttribute('role', 'menuitemradio');
+        item.setAttribute('aria-checked', String(choice.value === value));
+        item.dataset.value = choice.value;
+        item.append(icon('check', 'aw-i14'), el('span', 'aw-tr', choice.label));
+        item.title = choice.label;
+        item.addEventListener('click', () => { close(true); options.onSelect(choice.value); }, { signal });
+        menu.append(item);
+      }
+    },
+  };
 }

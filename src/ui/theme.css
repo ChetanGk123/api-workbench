@@ -6,37 +6,128 @@
 .aw-root { font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif; }
 .aw-mono, .aw-code, .aw-ta, .aw-num, .aw-m, .aw-in.aw-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 
-.aw-root { width: 480px; height: 560px; min-width: 320px; min-height: 180px; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); box-shadow: 0 12px 40px #0006; resize: both; }
+.aw-root { width: 480px; height: 560px; min-width: min(320px, calc(100vw - 16px)); min-height: min(180px, calc(100vh - 16px)); max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); box-shadow: 0 12px 40px #0006; resize: both; container-type: inline-size; }
 /* ponytail: native CSS resize grip (bottom-right, pointer only). Custom handles only if
  * keyboard resizing or edge handles become a requirement. */
 .aw-min { width: 400px; height: 52px; min-height: 52px; flex-direction: row; align-items: center; gap: 8px; padding: 0 8px 0 12px; border-radius: 14px; resize: none; }
-.aw-min .aw-sel { flex-shrink: 0; }
-.aw-min .aw-bd { flex-shrink: 1; overflow: hidden; }
+.aw-min .aw-sel { max-width: 132px; }
+.aw-min .aw-bd { flex-shrink: 1; min-width: 0; overflow: hidden; }
+/* Reference launcher: one tile per module with a dot when it is active. */
+.aw-min .aw-modules { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.aw-min .aw-modules .aw-ind { color: var(--aw-zinc-400); display: inline-flex; }
+.aw-min .aw-modules .aw-ind > .aw-dot { top: -2px; right: -3px; }
 .aw-vsep { width: 1px; height: 20px; background: var(--aw-zinc-800); flex-shrink: 0; }
 
 .aw-tb, .aw-min { cursor: grab; touch-action: none; user-select: none; }
 .aw-dragging { cursor: grabbing; }
 .aw-tb > *, .aw-min > * { cursor: auto; }
 .aw-tb button, .aw-min button { cursor: pointer; }
+.aw-tb .aw-brand { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.aw-tb .aw-ic, .aw-min .aw-ic { flex-shrink: 0; }
+.aw-tb .aw-profile { min-width: 44px; }
+/* In the launcher the status badge yields width first; the profile name stays readable. */
+.aw-min .aw-profile { min-width: 0; }
+/* Dropdown menu. Mounted beside .aw-root rather than inside it, so the panel's overflow:hidden
+ * cannot clip it; position:fixed then resolves against the viewport. */
+.aw-menu {
+  position: fixed; z-index: 1; margin: 0; padding: 4px; max-height: 280px; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 2px;
+  background: var(--aw-zinc-925); border: 1px solid var(--aw-zinc-800); border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .6), 0 2px 8px rgba(0, 0, 0, .45);
+  /* The menu sits outside .aw-root, and :host { all: initial } resets the font to the browser
+   * default, so the type stack is restated here rather than inherited from the host page. */
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 13px; line-height: 1.45; -webkit-font-smoothing: antialiased; color: var(--aw-zinc-50);
+  scrollbar-width: thin; scrollbar-color: var(--aw-zinc-700) transparent;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .aw-menu { animation: aw-menu-in 110ms ease-out; }
+  @keyframes aw-menu-in { from { opacity: 0; transform: translateY(-4px) scale(.98); } }
+}
+.aw-menu, .aw-menu * { box-sizing: border-box; }
+.aw-mi {
+  position: relative; display: flex; align-items: center; width: 100%; height: 30px;
+  padding: 0 10px 0 28px; border: 0; border-radius: 6px; background: transparent; color: inherit;
+  font: inherit; text-align: left; cursor: pointer; white-space: nowrap;
+}
+.aw-mi:hover, .aw-mi:focus { background: var(--aw-zinc-800); outline: none; }
+.aw-mi > .aw-i { position: absolute; left: 8px; }
+.aw-mi[aria-checked="false"] > .aw-i { visibility: hidden; }
+.aw-tl { grid-template-columns: repeat(6, minmax(72px, 1fr)); overflow-x: auto; overscroll-behavior-x: contain; }
+.aw-sub > :first-child { justify-self: start; }
+.aw-sub > :last-child { justify-self: end; }
 
 /* The reference body and code blocks clip content; real content must scroll. */
-.aw-body { overflow: auto; overscroll-behavior: contain; }
+.aw-body { overflow: auto; overscroll-behavior: contain; min-width: 0; scrollbar-width: thin; scrollbar-color: var(--aw-zinc-700) transparent; }
+.aw-body > * { flex-shrink: 0; min-width: 0; }
+.aw-col, .aw-row, .aw-card, .aw-inset, .aw-code, .aw-ta { min-width: 0; }
 .aw-code { overflow: auto; max-height: 160px; }
 .aw-wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
 .aw-foot { justify-content: space-between; font-size: 12px; }
+/* Reference row: method badge, name and controls on one line, path indented beneath the name. */
 .aw-endpoint-row { padding: 8px 6px 8px 12px; }
+.aw-endpoint-name { background: none; border: 0; padding: 0; margin: 0; font: inherit; font-weight: 500; color: var(--aw-zinc-50); text-align: left; cursor: pointer; }
+.aw-endpoint-name:hover { color: var(--aw-zinc-200); text-decoration: underline; text-underline-offset: 2px; }
+.aw-endpoint-meta { padding-left: 54px; gap: 10px; color: var(--aw-zinc-400); }
 .aw-subtitle { font-size: 13.5px; font-weight: 600; gap: 7px; }
 
 /* Tabs and quick actions are buttons, not links: no host-page navigation. */
 button.aw-tt, button.aw-qa, button.aw-sel, button.aw-coll { font-family: inherit; cursor: pointer; }
-button.aw-tt { background: transparent; padding: 0; }
-button:disabled, button[disabled] { opacity: .5; cursor: not-allowed; }
+button.aw-tt { padding: 0; }
+button.aw-tt:not(.aw-on) { background: transparent; }
+/* A faded white primary reads as grey-on-grey; disabled controls drop to the muted surface. */
+button:disabled, button[disabled], .aw-root :disabled { cursor: not-allowed; }
+.aw-btn:disabled { background: var(--aw-zinc-900); border-color: var(--aw-zinc-800); color: var(--aw-zinc-500); box-shadow: none; }
+/* A ghost button must stay flat when disabled, or it outranks the enabled ones beside it. */
+.aw-btn.aw-gh:disabled { background: transparent; border-color: transparent; }
+.aw-in:disabled, .aw-ta:disabled, select:disabled { opacity: .6; }
+
+/* Native form controls are unstyled inside the shadow root; give them the reference look.
+ * The chevron and tick are drawn with gradients and borders, so no external asset is referenced. */
+.aw-root select.aw-sel {
+  display: block; appearance: none; padding-right: 26px; line-height: 32px;
+  background-color: rgba(39, 39, 42, .3);
+  background-image: linear-gradient(45deg, transparent 50%, var(--aw-zinc-500) 50%), linear-gradient(135deg, var(--aw-zinc-500) 50%, transparent 50%);
+  background-position: calc(100% - 16px) calc(50% + 1px), calc(100% - 11px) calc(50% + 1px);
+  background-size: 5px 5px; background-repeat: no-repeat;
+}
+.aw-root select.aw-sel:focus { border-color: var(--aw-zinc-500); box-shadow: 0 0 0 3px rgba(161, 161, 170, .2); }
+.aw-root select.aw-sel option { background: var(--aw-zinc-925); color: var(--aw-zinc-50); }
+.aw-root input[type="checkbox"] { appearance: none; margin: 0; width: 16px; height: 16px; border-radius: 4px; border: 1px solid var(--aw-zinc-600); background: transparent; flex-shrink: 0; cursor: pointer; position: relative; }
+.aw-root input[type="checkbox"]:checked { background: var(--aw-zinc-50); border-color: var(--aw-zinc-50); }
+.aw-root input[type="checkbox"]:checked::after { content: ''; position: absolute; left: 5px; top: 1px; width: 4px; height: 8px; border: solid var(--aw-zinc-900); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.aw-root input[type="number"] { appearance: textfield; }
+.aw-root input[type="file"] { display: none; }
+/* A <label> carrying .aw-btn wraps the hidden file input. */
+label.aw-btn { cursor: pointer; }
 
 .aw-root :focus-visible { outline: 2px solid var(--aw-zinc-200); outline-offset: 2px; border-radius: 6px; }
+.aw-root .aw-body:focus-visible { outline: none; }
+.aw-root .aw-tt:focus-visible { outline-offset: -3px; }
+
+.aw-header-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+.aw-actions { flex-wrap: wrap; }
+.aw-preview-note { font-size: 12px; color: var(--aw-zinc-400); line-height: 1.5; overflow-wrap: anywhere; }
+details > summary.aw-coll { list-style: none; }
+details > summary.aw-coll::-webkit-details-marker { display: none; }
+details[open] > summary.aw-coll > .aw-i:first-child { transform: rotate(90deg); }
+
+@container (max-width: 380px) {
+  .aw-tb { gap: 4px; padding-left: 8px; }
+  .aw-tb .aw-profile { max-width: 76px; }
+  .aw-g3 { gap: 6px; }
+}
 
 .aw-gap2 { gap: 2px; } .aw-gap10 { gap: 10px; } .aw-gap12 { gap: 12px; }
 .aw-plan { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
 .aw-self { align-self: flex-start; }
-.aw-profile { width: auto; height: 28px; font-size: 12px; gap: 6px; padding: 0 8px; }
+.aw-profile { width: auto; max-width: 140px; height: 28px; font-size: 12px; gap: 6px; padding: 0 8px; }
+/* The title-bar profile is a <select>; keep it on the shorter chrome height and let a long
+ * profile name end in an ellipsis rather than a clipped word. */
+button.aw-profile { justify-content: space-between; }
 p { margin: 0; }
 [hidden] { display: none !important; }
+
+/* Import format legend: equal-width badges so the notes line up like the reference. */
+.aw-format { gap: 10px; align-items: center; }
+.aw-format > .aw-bd { width: 132px; justify-content: center; flex-shrink: 0; }

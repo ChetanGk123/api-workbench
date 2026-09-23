@@ -6,6 +6,9 @@ const launch = page => page.evaluate(source); // Transport/UI tests only; NOT sa
 const panel = '#api-workbench .aw-root:not(.aw-min)';
 const launcher = '#api-workbench .aw-min';
 const TABS = ['Home', 'Test', 'Mock', 'Intercept', 'Route', 'Chaos'];
+// A module screen is headed by its full product name; a non-tab screen by the Back sub-header.
+const MODULE_TITLE = { Test: 'API Tester', Mock: 'Mock Server', Intercept: 'API Interceptor', Route: 'Page Routing', Chaos: 'Chaos Engineering' };
+const subTitle = page => page.locator(`${panel} .aw-sub .aw-subtitle`);
 const box = (page, selector) => page.locator(selector).boundingBox();
 const styles = page => page.evaluate(() => {
   const read = selector => {
@@ -33,8 +36,10 @@ test('tabs and links navigate inside the panel without touching the host page', 
   for (const label of TABS.slice(1)) {
     await page.getByRole('button', { name: label, exact: true }).click();
     await expect(page.getByRole('button', { name: label, exact: true })).toHaveAttribute('aria-current', 'page');
-    await expect(page.locator(`${panel} .aw-body .aw-h`)).toHaveText(label);
-    await expect(page.getByRole('button', { name: 'Back to Home' })).toBeVisible();
+    await expect(page.locator(`${panel} .aw-body .aw-h`).first()).toHaveText(MODULE_TITLE[label]);
+    // The tab strip is the way back; a duplicate in-body control would only add chrome.
+    await expect(page.locator(`${panel} .aw-tabs`)).toBeVisible();
+    await expect(page.locator(`${panel} .aw-sub`)).toBeHidden();
   }
   await page.getByRole('button', { name: 'Home', exact: true }).click();
   await expect(page.getByRole('checkbox')).toBeVisible();
@@ -42,12 +47,13 @@ test('tabs and links navigate inside the panel without touching the host page', 
   // Header icon buttons and Home quick actions both reach the non-tab screens.
   for (const control of ['Settings', 'Import']) {
     await page.locator(`${panel} .aw-tb`).getByRole('button', { name: control, exact: true }).click();
-    await expect(page.locator(`${panel} .aw-body .aw-h`)).toHaveText(control);
+    await expect(subTitle(page)).toHaveText(control);
+    await expect(page.locator(`${panel} .aw-tabs`)).toBeHidden();
     await page.getByRole('button', { name: 'Back to Home' }).click();
   }
   for (const action of ['Endpoints', 'Import', 'Settings']) {
     await page.locator(`${panel} .aw-body`).getByRole('button', { name: action, exact: true }).click();
-    await expect(page.locator(`${panel} .aw-body .aw-h`)).toHaveText(action);
+    await expect(subTitle(page)).toHaveText(action);
     await page.getByRole('button', { name: 'Back to Home' }).click();
   }
 
@@ -70,7 +76,7 @@ test('minimize shows the launcher, restore and relaunch bring the same screen ba
 
   await page.getByRole('button', { name: 'Restore', exact: true }).click();
   await expect(page.locator(panel)).toBeVisible();
-  await expect(page.locator(`${panel} .aw-body .aw-h`)).toHaveText('Mock');
+  await expect(page.locator(`${panel} .aw-body .aw-h`).first()).toHaveText('Mock Server');
 
   await page.getByRole('button', { name: 'Minimize', exact: true }).click();
   await launch(page);

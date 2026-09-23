@@ -5,7 +5,123 @@
 M0 and M1 are implemented and verified in Chrome by automated browser checks. Saved-bookmark
 installation and all Edge checks remain outstanding for both milestones.
 
-Current assigned work: M4 recorder complete; M5 is next.
+Current assigned work: M4 recorder complete. A UI/UX pass against the reference screens
+followed (no new features); M5 is next.
+
+## 2026-09-23 — UI/UX pass against the reference screens (no new features)
+
+**Scope.** Side-by-side comparison of every built screen against `design/reference/screens/*` in
+parallel browser pages, then closing the gaps. UI and interaction only: no module behaviour was
+added, activated or removed.
+
+**Changed files.** `src/ui/theme.css`, `src/ui/shell.ts`, `src/ui/screens.ts`, `tests/m1.spec.mjs`,
+`tests/m3.spec.mjs`, `tests/ui.spec.mjs`.
+
+**Defects found and fixed.**
+
+- Endpoint rows rendered the name as an unstyled user-agent button (a grey block) because
+  `.aw-endpoint-name` and `.aw-endpoint-meta` had no rules; `:host { all: initial }` does not reach
+  descendants. Both are now styled, with the path indented under the name as in the reference.
+- `select`, `input[type=checkbox]` and `input[type=file]` kept their user-agent appearance inside the
+  shadow root. Selects and checkboxes now carry the reference look; the chevron and tick are drawn
+  with gradients and borders, so the build's no-external-asset assertion still holds. The file input
+  is hidden behind a styled `Choose file` label that remains the real control.
+- Disabled primary buttons were a 50 %-opacity white fill with dark text — grey on grey, unreadable.
+  Disabled controls now drop to the muted surface, and ghost buttons stay flat so a disabled icon
+  button no longer outranks the enabled ones beside it.
+- `Back` inside the endpoint editor returned to Home, skipping the endpoint list and discarding the
+  draft two levels up. The sub-header now carries the endpoint name and `Back` returns to the list.
+- The minimized launcher truncated the profile name to `Impo` with no ellipsis: `.aw-sel`'s label is
+  a flex box, where `text-overflow` never applies, and a `@container (max-width: 380px)` rule
+  clamped it to 64 px — the launcher's content box is exactly 380 px, so the rule always matched.
+- Settings showed three adjacent text inputs with accessible names but no visible labels.
+- The title-bar profile control was a `<button>` wearing a dropdown chevron that navigated to
+  Settings: the affordance promised a profile list and delivered a second copy of the gear button.
+  It is now a themed menu listing the active profile and every saved snapshot. Choosing a profile
+  switches to it and re-renders the mounted screen; a selection the store refuses re-syncs rather
+  than leaving a stale name on screen.
+
+  A native `<select>` was tried first and rejected on review: its popup cannot carry the panel's
+  surface, radius, elevation or check marks, so it read as browser chrome sitting on a themed panel.
+  `dropdown()` in `src/ui/dom.ts` builds the shadcn-style equivalent — a trigger plus a floating
+  `role="menu"` of `menuitemradio` items, with a check mark on the active one. It is mounted beside
+  `.aw-root` rather than inside it, because `.aw-root { overflow: hidden }` would clip a menu
+  rendered in the panel; `position: fixed` then resolves against the viewport from the trigger's
+  rect, flipping above the trigger when there is no room below. Escape, outside `pointerdown`
+  (matched through `composedPath()`, since the shadow root hides the real target), `ArrowUp`/`Down`,
+  `Home`/`End`, `Enter`/`Space` and `Tab` are handled explicitly, focus opens on the checked item
+  and returns to the trigger on close, and `aria-expanded`/`aria-haspopup` track the state. The menu
+  closes on navigation, minimize, restore and window resize.
+
+  The menu needed its own type stack: it sits outside `.aw-root`, and `:host { all: initial }`
+  resets the font, so it first rendered in the host page's serif. Caught in a screenshot, not by a
+  test.
+
+- The Settings profile select was labelled `Active profile` on screen but exposed `Saved profile`
+  as its accessible name (WCAG 2.5.3). The `<label>` wrapper now supplies the name.
+
+**Design alignment.**
+
+- `Settings` and `Import` are reached from the title bar, not the tab strip, so they showed a tab
+  strip with nothing selected. Every non-tab screen now gets the reference `Back` sub-header, driven
+  from `SCREENS[id]`.
+- The reference uses the footer as each screen's action bar (`Save`/`Cancel`, `Save rule`/`Delete`).
+  Added a `ctx.chrome({ title, onBack, actions })` slot: screens fill the footer, and it resets to
+  the build-and-traffic status line on navigation. This replaced the `.aw-editor-footer` sticky hack
+  and the duplicated in-body `Back to Home` buttons.
+- Home module cards gained the reference shape: status dot badge, a stat line and the module's own
+  actions (`Run`/`History`, `Manage rules`, `Configure`).
+- Module screens are headed by their product name (`Mock Server`, `API Interceptor`, `API Tester`)
+  rather than the short tab label.
+- Collapsible sections had no affordance; `disclosure()` now prepends the chevron that the existing
+  open-state rotation rule expected. `ruleDisclosure` pointed its chevron the wrong way when open.
+- Import format badges are colour-coded and the notes align; Route form fields carry the
+  reference placeholders.
+
+**Commands and outcomes.**
+
+- `npm run build` → exit 0. raw 135,647 B, minified 86,844 B, encoded bookmark URL 122,756
+  characters. The menu primitive costs about 3.3 KB minified. The no-external-asset and no-`eval` assertions still pass.
+- `npx playwright test` → 33 passed in 13.7 s. Chrome 153.0.8010.53, Playwright 1.63.0,
+  Node v24.21.0, macOS darwin 25.6.0.
+- Scratch harnesses (not committed): a side-by-side capture of all 15 reference screens against the
+  live panel with the Geist web font blocked on both sides, and an interaction sweep that clicks
+  every enabled body control on all six tab screens and re-checks vertical scroll, horizontal
+  overflow, tab order and the resize affordance. Sweep result: no page errors, no failed clicks, no
+  horizontal overflow, every screen scrolls vertically, `resize: both` present.
+
+**Tests changed.** `m1.spec` asserted the old chrome (short tab labels, an in-body `Back to Home`,
+a body heading on non-tab screens); it now asserts the module titles, the tab strip on tab screens
+and the sub-header on the rest. `m3.spec` used `getByLabel('Name')`, which became ambiguous once
+the pre-existing uncommitted work added `aria-label` to the other name fields — now matched exactly
+— and asserted a body heading on Settings. Its profile assertions targeted a button that is now a
+combobox, and `panel select` first-matched the new title-bar control, so both are scoped explicitly.
+Added two tests in `ui.spec`: one covering the footer action bar, the retitled sub-header and `Back`
+returning to the list; one covering the title-bar profile menu — open/close state, the check mark on
+the active item, focus opening on it, `ArrowDown`+`Enter` switching profile and re-rendering the
+mounted screen, Escape restoring focus without selecting, outside-click dismissal, and the menu
+rendering past the panel's bottom edge to prove it is not clipped.
+
+**Not run.** Saved-bookmark installation and restart persistence — unchanged from earlier
+milestones, and the automated launch still injects the decoded source, which is not evidence of
+saved-bookmark behaviour. All Edge checks — Edge is not installed on this machine. No manual visual
+review on a real page other than the local fixture. No screen-reader or contrast-ratio audit.
+
+**Known remaining gaps against the reference.** These are behaviour the milestones have not built,
+not styling defects: no active-module dots on the tabs, in the title bar or in the launcher (no
+module can activate yet); the title-bar switcher can only reach profiles held as saved snapshots, so
+a profile that was never saved via `Save as profile` disappears from the list once another is made
+active — `selectProfile` resolves against `savedProfiles` only, which Settings has always done too;
+the in-body selects (endpoint method, environment, Settings' own `Active profile`, the rule-editor
+fields) are still native `<select>`s with the gradient chevron, so Settings' profile picker does not
+match the title-bar menu directly above it — converting them needs the menu to re-anchor or close on
+body scroll, which is a separate pass; no plan selector, load config or phase lists on Test; no populated rule
+lists, `Re-analyze`, header `Presets…`, `Promote common` or module toggles in Settings. The select
+chevron is a small filled triangle rather than the reference's stroked chevron, because a stroked
+one needs an asset the bundle may not reference.
+
+**Next task.** M5 — mock server and chaos rule engines. Wire the rule screens to real storage and
+matching, at which point the active-module indicators and rule lists above become implementable.
 
 ## 2026-09-23 — M4 recorder (complete)
 
@@ -96,19 +212,19 @@ Current assigned work: M4 recorder complete; M5 is next.
 
 **Next task.** Finish M3 profile/environment selection, variable entry and visible check details, then add native JSON import UI and result history before moving to M4.
 
-| Milestone | Status |
-|---|---|
-| M0 — Feasibility | CODE COMPLETE · automated gates PASS in Chrome · saved-bookmark and Edge checks NOT RUN |
-| M1 — Foundation and panel | CODE COMPLETE · automated gates PASS in Chrome · saved-bookmark and Edge checks NOT RUN |
-| M2 — Transport/rule core | CODE COMPLETE · automated gates PASS in Chrome · browser fixture and build checks verified |
-| M3 — Endpoints, profiles and tester | CODE COMPLETE · automated gates PASS in Chrome · saved-bookmark and Edge checks NOT RUN |
-| M4 — Recorder | CODE COMPLETE · focused unit and Chrome browser gates PASS · saved-bookmark, Edge, XHR and durable recovery checks NOT RUN |
-| M5 — Mock and chaos | NOT STARTED |
-| M6 — Intercept and routing | NOT STARTED |
-| M7 — Breakpoints | NOT STARTED |
-| M8 — Flow/Independent runs | NOT STARTED |
-| M9 — Complete import support | NOT STARTED |
-| M10 — Integrated release | NOT STARTED |
+| Milestone                           | Status                                                                                                                     |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| M0 — Feasibility                    | CODE COMPLETE · automated gates PASS in Chrome · saved-bookmark and Edge checks NOT RUN                                    |
+| M1 — Foundation and panel           | CODE COMPLETE · automated gates PASS in Chrome · saved-bookmark and Edge checks NOT RUN                                    |
+| M2 — Transport/rule core            | CODE COMPLETE · automated gates PASS in Chrome · browser fixture and build checks verified                                 |
+| M3 — Endpoints, profiles and tester | CODE COMPLETE · automated gates PASS in Chrome · saved-bookmark and Edge checks NOT RUN                                    |
+| M4 — Recorder                       | CODE COMPLETE · focused unit and Chrome browser gates PASS · saved-bookmark, Edge, XHR and durable recovery checks NOT RUN |
+| M5 — Mock and chaos                 | NOT STARTED                                                                                                                |
+| M6 — Intercept and routing          | NOT STARTED                                                                                                                |
+| M7 — Breakpoints                    | NOT STARTED                                                                                                                |
+| M8 — Flow/Independent runs          | NOT STARTED                                                                                                                |
+| M9 — Complete import support        | NOT STARTED                                                                                                                |
+| M10 — Integrated release            | NOT STARTED                                                                                                                |
 
 ## 2026-09-23 — M2 transport and rule core (verified)
 
@@ -130,12 +246,12 @@ Current assigned work: M4 recorder complete; M5 is next.
 
 **Verification.**
 
-| Gate | Result | Evidence |
-|---|---|---|
-| M2 rule resolution and lifecycle | PASS | Node tests cover immutable context, cancellation, body policy, deterministic winner selection, and disabled/non-matching rule exclusion. |
-| Legacy exact-match compatibility | PASS | Reproduced against the browser fixtures: exact `GET /api/mock-target` still matches, while query-string variants do not. |
-| Bundle safety and build integrity | PASS | `tsc` passed and `scripts/build.mjs` accepted the output without the runtime loader / external URL assertion firing. |
-| Real browser transport regression check | PASS | Playwright M0 fixture suite passed 12/12 in Chrome 153.0.8010.53. |
+| Gate                                    | Result | Evidence                                                                                                                                 |
+| --------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| M2 rule resolution and lifecycle        | PASS   | Node tests cover immutable context, cancellation, body policy, deterministic winner selection, and disabled/non-matching rule exclusion. |
+| Legacy exact-match compatibility        | PASS   | Reproduced against the browser fixtures: exact `GET /api/mock-target` still matches, while query-string variants do not.                 |
+| Bundle safety and build integrity       | PASS   | `tsc` passed and `scripts/build.mjs` accepted the output without the runtime loader / external URL assertion firing.                     |
+| Real browser transport regression check | PASS   | Playwright M0 fixture suite passed 12/12 in Chrome 153.0.8010.53.                                                                        |
 
 **Not run.** Full M2 browser-only route/mock/chaos fixture coverage, the later M3+ modules, and saved-bookmark install/manual Edge validation remain outside this slice.
 
@@ -195,17 +311,17 @@ navigation, drag, resize, minimize/restore. No engine, storage or rule work — 
 
 **Verification — M1 gates.**
 
-| Gate | Result | Evidence |
-|---|---|---|
-| No runtime external assets | PASS | Build asserts zero bundle imports and no absolute URL except the inline-SVG XML namespace; M0's zero-request check still passes; panel and code-block `font-family` contain no `Geist`, so the reference screens' web font is never requested. |
-| Repeated invocation creates one instance | PASS | Re-run of the M0 double-launch gate: one `#api-workbench` node, `fetch`/`XMLHttpRequest` identities unchanged. Relaunch while minimized restores the panel instead of mounting a second one. |
-| No host navigation | PASS | Every tab, header icon button and quick action is a `<button>`; the shadow root contains zero `<a>` elements; after visiting all nine screens `page.url()` is unchanged and no `framenavigated` event fired. |
-| No style leakage | PASS | Full computed-style strings of `#leak` (which deliberately reuses `aw-root`/`aw-btn`/`aw-card`), `h1`, `#login` and `body` are byte-identical before and after launch; `document.styleSheets`, `document.adoptedStyleSheets` and `document.head` child counts are unchanged; the panel's one sheet lives on the shadow root. |
-| Screen navigation | PASS | Six tabs mount their own screen, set `aria-current="page"`, and the four non-tab screens are reachable from the header and from Home. |
-| Drag | PASS | Header drag moves the panel; dragging past the top-left clamps to ≥ 8 px and past the bottom-right keeps the panel fully inside the viewport; a pointer-down on a header control acts instead of dragging. |
-| Resize | PASS | Computed `resize` is `both`; `max-width`/`max-height` stay within the viewport; at 340×220 px the header, tab bar and footer are still in the viewport, Close is still visible, and `.aw-body` scrolls (`overflow-y: auto`, `scrollHeight > clientHeight`). |
-| Minimize | PASS | Minimize hides the panel and shows the launcher; Restore returns to the screen that was open; the launcher reports `M0 mock active` while the feasibility mock is on, so activity is visible when minimized. |
-| Typed store batching | PASS | With a `MutationObserver` on the footer, 50 concurrent fetches produce fewer than 50 DOM mutations and the final text still reads `50 requests observed`. |
+| Gate                                     | Result | Evidence                                                                                                                                                                                                                                                                                                                     |
+| ---------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No runtime external assets               | PASS   | Build asserts zero bundle imports and no absolute URL except the inline-SVG XML namespace; M0's zero-request check still passes; panel and code-block `font-family` contain no `Geist`, so the reference screens' web font is never requested.                                                                               |
+| Repeated invocation creates one instance | PASS   | Re-run of the M0 double-launch gate: one `#api-workbench` node, `fetch`/`XMLHttpRequest` identities unchanged. Relaunch while minimized restores the panel instead of mounting a second one.                                                                                                                                 |
+| No host navigation                       | PASS   | Every tab, header icon button and quick action is a `<button>`; the shadow root contains zero `<a>` elements; after visiting all nine screens `page.url()` is unchanged and no `framenavigated` event fired.                                                                                                                 |
+| No style leakage                         | PASS   | Full computed-style strings of `#leak` (which deliberately reuses `aw-root`/`aw-btn`/`aw-card`), `h1`, `#login` and `body` are byte-identical before and after launch; `document.styleSheets`, `document.adoptedStyleSheets` and `document.head` child counts are unchanged; the panel's one sheet lives on the shadow root. |
+| Screen navigation                        | PASS   | Six tabs mount their own screen, set `aria-current="page"`, and the four non-tab screens are reachable from the header and from Home.                                                                                                                                                                                        |
+| Drag                                     | PASS   | Header drag moves the panel; dragging past the top-left clamps to ≥ 8 px and past the bottom-right keeps the panel fully inside the viewport; a pointer-down on a header control acts instead of dragging.                                                                                                                   |
+| Resize                                   | PASS   | Computed `resize` is `both`; `max-width`/`max-height` stay within the viewport; at 340×220 px the header, tab bar and footer are still in the viewport, Close is still visible, and `.aw-body` scrolls (`overflow-y: auto`, `scrollHeight > clientHeight`).                                                                  |
+| Minimize                                 | PASS   | Minimize hides the panel and shows the launcher; Restore returns to the screen that was open; the launcher reports `M0 mock active` while the feasibility mock is on, so activity is visible when minimized.                                                                                                                 |
+| Typed store batching                     | PASS   | With a `MutationObserver` on the footer, 50 concurrent fetches produce fewer than 50 DOM mutations and the final text still reads `50 requests observed`.                                                                                                                                                                    |
 
 **Not run.** Saved-bookmark installation, restart persistence, bookmark launch under CSP, and the
 enlarged payload probes — still no automatable path to the bookmark UI, and the encoded URL is now

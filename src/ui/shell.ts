@@ -1,6 +1,6 @@
 import theme from '../../design/reference/aw-theme.css';
 import additions from './theme.css';
-import { el, icon, button, iconButton } from './dom';
+import { el, icon, button, iconButton, dropdown } from './dom';
 import type { Store } from '../core/store';
 import { SCREENS, TABS, renderScreen, type Ctx, type ScreenId, type UIState } from './screens';
 
@@ -46,20 +46,51 @@ export function createShell(options: ShellOptions) {
   launcher.setAttribute('aria-label', 'API Workbench (minimized)');
   launcher.hidden = true;
 
-  const minimize = () => { store.set({ minimized: true }); apply(); };
-  const restore = () => { store.set({ minimized: false }); apply(); };
+  let panelFocus: HTMLElement | null = null;
+  const minimize = () => {
+    panelFocus = root.activeElement instanceof HTMLElement ? root.activeElement : null;
+    store.set({ minimized: true });
+    apply();
+    restoreButton.focus({ preventScroll: true });
+  };
+  const restore = () => {
+    store.set({ minimized: false });
+    apply();
+    (panelFocus?.isConnected ? panelFocus : body).focus({ preventScroll: true });
+  };
   const close = () => options.onClose();
 
   const logo = () => { const badge = el('div', 'aw-logo'); badge.append(icon('bolt')); return badge; };
+  // The chevron promised a profile list, so the trigger opens one. A themed menu rather than a
+  // native <select>: the browser's popup cannot carry the panel's surface, radius or check marks.
+  const profileMenus: Array<ReturnType<typeof dropdown>> = [];
   const profile = () => {
-    const select = el('button', 'aw-sel aw-profile');
-    select.type = 'button';
-    select.setAttribute('aria-label', 'Active profile');
-    select.title = 'Open profile settings';
-    select.addEventListener('click', () => go('settings'), { signal });
-    select.append(el('span', '', 'Default'), icon('selector', 'aw-i12'));
-    return select;
+    const control = dropdown({
+      label: 'Active profile',
+      triggerClass: 'aw-profile',
+      layer: root,
+      signal,
+      onSelect: value => {
+        options.selectProfile(value);
+        // Re-render so the screen shows the newly active profile's endpoints, then re-sync the
+        // trigger: a selection the store refused must not leave a stale name on screen.
+        go(store.state.screen);
+        syncProfiles();
+      },
+    });
+    control.trigger.title = 'Switch profile';
+    profileMenus.push(control);
+    return control.trigger;
   };
+  let profileKey = '';
+  function syncProfiles() {
+    const config = store.state.config;
+    const list = [config.profile, ...(config.savedProfiles ?? []).map(item => item.profile).filter(item => item.id !== config.profile.id)];
+    const key = `${config.profile.id}|${list.map(item => `${item.id}:${item.name}`).join(',')}`;
+    if (key === profileKey) return;
+    profileKey = key;
+    for (const control of profileMenus) control.set(list.map(item => ({ value: item.id, label: item.name })), config.profile.id);
+  }
 
   // Header
   const header = el('header', 'aw-tb');
@@ -85,39 +116,55 @@ export function createShell(options: ShellOptions) {
   nav.append(list);
 
   const subheader = el('div', 'aw-sub');
-  const back = button('aw-btn aw-gh aw-sm', 'Back', () => go('home'), signal); back.setAttribute('aria-label', 'Back to Home'); back.prepend(icon('back', 'aw-i14'));
-  const subTitle = el('div', 'aw-row');
-  subTitle.append(icon('book', 'aw-i14'), el('span', '', 'Endpoints'));
-  subTitle.classList.add('aw-subtitle');
+  // The back target follows the screen: an editor returns to its list, a screen returns Home.
+  let backTo: () => void = () => go('home');
+  const back = button('aw-btn aw-gh aw-sm', 'Back', () => backTo(), signal); back.prepend(icon('back', 'aw-i14'));
+  const subTitle = el('div', 'aw-row aw-subtitle');
+  let subIcon = icon('book', 'aw-i14');
+  const subLabel = el('span', '', 'Endpoints');
+  subTitle.append(subIcon, subLabel);
+  // The reference leaves the right slot empty; the tester shortcut is useful from Endpoints only.
   const subTest = iconButton('aw-btn aw-gh aw-ic aw-sm', 'flask', 'Test', () => go('test'), signal);
   subheader.append(back, subTitle, subTest);
 
   const body = el('main', 'aw-body');
+  body.tabIndex = -1;
+  // The reference footer is the screen's action bar; it falls back to build and traffic status.
   const footer = el('footer', 'aw-foot');
+  const status = el('div', 'aw-row aw-grow aw-gap8');
   const counter = el('span', 'aw-xs aw-mu aw-grow aw-tr');
-  footer.append(el('span', 'aw-bd aw-s', options.version), counter);
+  status.append(el('span', 'aw-bd aw-s', options.version), counter);
+  footer.append(status);
   panel.append(header, nav, subheader, body, footer);
 
   // Minimized launcher
   const launcherState = el('span', 'aw-bd');
   const launcherDot = el('span', 'aw-dot');
-  launcherState.append(launcherDot, document.createTextNode('No active modules'));
+  const launcherLabel = el('span', 'aw-tr', 'No active modules');
+  launcherState.append(launcherDot, launcherLabel);
+  const restoreButton = iconButton('aw-btn aw-gh aw-ic aw-sm', 'expand', 'Restore', restore, signal);
   launcher.append(logo(), el('span', 'aw-brand', 'AW'), launcherState, el('div', 'aw-grow'), profile(),
     el('div', 'aw-vsep'),
-    iconButton('aw-btn aw-gh aw-ic aw-sm', 'expand', 'Restore', restore, signal),
+    restoreButton,
     iconButton('aw-btn aw-gh aw-ic aw-sm', 'close', 'Close', close, signal));
   root.append(panel, launcher);
 
   // Screen mounting: watchers registered by a screen are dropped when it is replaced.
   let screenWatchers: Array<() => void> = [];
+  let screenListeners = new AbortController();
   const ctx: Ctx = {
     version: options.version,
     state: () => store.state,
     go: id => go(id),
     watch: listener => { listener(store.state); screenWatchers.push(store.subscribe(listener)); },
+    chrome: ({ title, onBack, actions }) => {
+      if (title !== undefined) subLabel.textContent = title;
+      if (onBack) { backTo = onBack; subTest.hidden = true; }
+      footer.replaceChildren(...(actions ?? [status]));
+    },
     setMock: options.setMock,
     setDelay: options.setDelay,
-    signal,
+    get signal() { return screenListeners.signal; },
     addEndpoint: options.addEndpoint,
     updateEndpoint: options.updateEndpoint,
     deleteEndpoint: options.deleteEndpoint,
@@ -135,18 +182,37 @@ export function createShell(options: ShellOptions) {
   };
 
   function go(id: ScreenId) {
+    for (const control of profileMenus) control.close();
     if (store.state.minimized) restore();
+    const focused = root.activeElement;
     store.set({ screen: id });
+    screenListeners.abort();
+    screenListeners = new AbortController();
     for (const dispose of screenWatchers.splice(0)) dispose();
     for (const [tabId, tab] of tabs) {
       tab.classList.toggle('aw-on', tabId === id);
       if (tabId === id) tab.setAttribute('aria-current', 'page'); else tab.removeAttribute('aria-current');
     }
-    body.scrollTop = 0;
-    const isSubscreen = id === 'endpoints';
+    // Every non-tab screen is reached from Home or the title bar, so it gets the Back sub-header
+    // instead of a tab strip with nothing selected.
+    const isSubscreen = !SCREENS[id].tab;
     nav.hidden = isSubscreen;
     subheader.hidden = !isSubscreen;
+    if (isSubscreen) {
+      subIcon.replaceWith(subIcon = icon(SCREENS[id].icon, 'aw-i14'));
+      subLabel.textContent = SCREENS[id].label;
+      subTest.hidden = id !== 'endpoints';
+    }
+    // Reset the shared chrome before the screen renders; screens override it via ctx.chrome.
+    backTo = () => go('home');
+    back.setAttribute('aria-label', 'Back to Home');
+    footer.replaceChildren(status);
     body.replaceChildren(renderScreen(ctx, id));
+    body.setAttribute('aria-label', `${SCREENS[id].label} content`);
+    body.scrollTop = 0;
+    body.scrollLeft = 0;
+    // Keep persistent navigation focused; a replaced screen's controls no longer exist.
+    if (host.isConnected && (!focused || !focused.isConnected)) body.focus({ preventScroll: true });
   }
 
   // Position: fixed host, viewport-clamped, kept on both drag handles.
@@ -183,25 +249,25 @@ export function createShell(options: ShellOptions) {
   window.addEventListener('resize', () => place(position.x, position.y), { signal });
 
   function apply() {
+    for (const control of profileMenus) control.close();
     const state = store.state;
     panel.hidden = state.minimized;
     launcher.hidden = !state.minimized;
     place(position.x, position.y);
   }
 
-  store.subscribe(state => {
+  const unsubscribe = store.subscribe(state => {
     counter.textContent = `${state.observed} request${state.observed === 1 ? '' : 's'} observed · ${location.origin}`;
-    launcherState.lastChild!.textContent = state.mockEnabled ? 'M0 mock active' : 'No active modules';
+    launcherLabel.textContent = state.mockEnabled ? 'M0 mock active' : 'No active modules';
+    launcherState.title = launcherLabel.textContent ?? '';
     launcherDot.className = state.mockEnabled ? 'aw-dot aw-a' : 'aw-dot';
-    for (const control of root.querySelectorAll('.aw-profile')) {
-      const label = control.firstElementChild;
-      if (label) label.textContent = state.config.profile.name;
-    }
+    syncProfiles();
   });
 
   return {
     host,
     mount() {
+      syncProfiles();
       go(store.state.screen);
       counter.textContent = `0 requests observed · ${location.origin}`;
       document.documentElement.append(host);
@@ -211,6 +277,8 @@ export function createShell(options: ShellOptions) {
     restore() { restore(); place(position.x, position.y); },
     destroy() {
       listeners.abort();
+      screenListeners.abort();
+      unsubscribe();
       for (const dispose of screenWatchers.splice(0)) dispose();
       host.remove();
     },

@@ -23,7 +23,7 @@ test('M3 endpoint CRUD, profile export and same-origin relaunch persistence', as
   await expect(page.getByText('fixture health', { exact: true })).toBeVisible();
 
   await page.locator(`${panel} .aw-tb`).getByRole('button', { name: 'Settings', exact: true }).click();
-  await page.getByLabel('Name').fill('QA profile');
+  await page.getByLabel('Name', { exact: true }).fill('QA profile');
   await page.getByRole('button', { name: 'Save profile', exact: true }).click();
   await page.getByRole('button', { name: 'Export profile + endpoints', exact: true }).click();
   await expect(page.locator('textarea')).toHaveValue(/QA profile/);
@@ -60,11 +60,16 @@ test('M3 profiles, environment mapping and native JSON import are usable', async
   await page.locator(`${panel} .aw-tb`).getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByPlaceholder('New profile name').fill('Staging');
   await page.getByRole('button', { name: 'Save as profile', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Active profile' })).toContainText('Default');
-  const profileSelect = page.locator(`${panel} select`).first();
-  await expect(profileSelect.locator('option', { hasText: 'Staging' })).toHaveCount(1);
-  await profileSelect.selectOption({ label: 'Staging' });
-  await expect(page.getByRole('button', { name: 'Active profile' })).toContainText('Staging');
+  // The title-bar control is a real profile switcher, not a second route into Settings.
+  const switcher = page.locator(`${panel} .aw-tb`).getByRole('button', { name: 'Active profile' });
+  const openMenu = page.locator('#api-workbench .aw-menu:not([hidden])');
+  await switcher.click();
+  await expect(openMenu.getByRole('menuitemradio')).toHaveText(['Default', 'Staging']);
+  await page.keyboard.press('Escape');
+  const settingsProfile = page.locator(`${panel} .aw-body`).getByRole('combobox', { name: 'Active profile' });
+  await expect(settingsProfile.locator('option', { hasText: 'Staging' })).toHaveCount(1);
+  await settingsProfile.selectOption({ label: 'Staging' });
+  await expect(switcher).toHaveText('Staging');
   await page.getByPlaceholder('host_key').fill('api');
   await page.getByPlaceholder('origin URL').fill('http://127.0.0.1:4173');
   await page.getByRole('button', { name: 'Add host', exact: true }).click();
@@ -72,5 +77,5 @@ test('M3 profiles, environment mapping and native JSON import are usable', async
   await page.getByRole('button', { name: 'Import', exact: true }).click();
   await page.getByRole('textbox', { name: 'Import JSON', exact: true }).fill(exported);
   await page.getByRole('button', { name: 'Import JSON', exact: true }).click();
-  await expect(page.locator(`${panel} .aw-h`)).toHaveText('Settings');
+  await expect(page.locator(`${panel} .aw-sub .aw-subtitle`)).toHaveText('Settings');
 });
