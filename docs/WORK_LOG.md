@@ -30,6 +30,52 @@ when a later milestone lands.
 | M9 — Complete import support | CODE COMPLETE · all M9 acceptance gates PASS in Chrome (38 checks) · saved-bookmark and Edge checks NOT RUN |
 | M10 — Integrated release | NOT STARTED |
 
+## 2026-09-23 — A native import switches to the profile it creates
+
+**Reported.** "Import is not working": after importing a profile the panel still showed the old
+one, with no endpoints. Nothing was broken — the import stored the profile and said so, but left
+the previous profile live, so Home kept reporting `0/0 in plan`.
+
+**Changed files.**
+
+- `src/import/commit.ts` — `applyNative`'s `new-profile` mode now installs the imported snapshot as
+  the live profile. The outgoing profile is snapshotted into `savedProfiles` first when it is not
+  already stored, the same guard `createProfileFromRecordings` uses, so switching cannot discard an
+  unsaved profile. The mode returns both `stored` and `activated`, so `commitImport` performs the
+  full activation (stop the run, reset rule state, clear matched traffic).
+- `src/ui/import-screen.ts` — the mode reads "Add as a new profile and switch to it"; the preview
+  says the copy is made active and names the profile that stays in the list; the commit message is
+  `Switched to "<name>" with N endpoints.` and the screen now lands on Endpoints, as the other
+  modes do, instead of staying put with a "select it in Settings" notice.
+- `docs/API_WORKBENCH_BUILD_PLAN.md` §8.11 — the clause "Importing a profile never automatically
+  activates it" is replaced: importing as a new profile activates it and keeps the outgoing profile
+  in the list. The user's instruction takes precedence over the earlier plan text, and the
+  reversibility requirement behind it is met by preserving the outgoing profile.
+- `tests/m9-core.spec.mjs` — the unit test for `applyNative` now asserts that the copy is live, that
+  `activated` and `stored` name the same snapshot, that both profiles are listed, and that a live
+  profile which is already stored is not snapshotted twice.
+- `tests/m9.spec.mjs` — the browser test that asserted non-activation now asserts the switch: the imported
+  profile becomes active with its endpoints on screen, the previously live profile is still in the
+  title-bar menu, and selecting it restores its single endpoint. The merge half is unchanged and
+  runs from the restored profile.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0.
+- `npm run build` → exit 0.
+- `npx playwright test` → 186 passed in 1.4 m, Chrome (channel `chrome`), macOS darwin 25.6.0.
+- Reproduced with the user's own export, `krushna-cooksbook-2.json` (107,810 B, 11 endpoints),
+  through the file picker: the review renders, the commit reports `Switched to
+  "krushna-cooksbook-2" with 11 endpoints`, the title bar shows that profile and Endpoints lists
+  all 11. No page errors.
+
+**Not run.** Edge — not installed on this machine. Saved-bookmark installation, as before.
+
+**Limitations.** `replace` still discards the live profile without snapshotting it; that is what the
+mode says it does. Only `new-profile` gained the safety net.
+
+**Next task.** M10 (integrated release), unchanged.
+
 ## 2026-09-23 — Home screen matched to the reference card layout
 
 **Scope.** Home only, against `design/reference/screens/home.html` and a mockup the user supplied.

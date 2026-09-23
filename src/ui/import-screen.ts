@@ -204,7 +204,7 @@ export function importScreen(ctx: Ctx): HTMLElement {
       const mode = selectField(
         "Import mode",
         [
-          ["new-profile", "Add as a new stored profile"],
+          ["new-profile", "Add as a new profile and switch to it"],
           ["merge", "Merge into the current profile"],
           ["replace", "Replace the current profile"],
         ] as const,
@@ -217,7 +217,7 @@ export function importScreen(ctx: Ctx): HTMLElement {
         group("aw-row aw-actions", el("span", "aw-lbl aw-grow", "Native profile import"), badge(outcome.native.profile.name, "aw-gr")),
         mode.field,
         el("p", "aw-xs aw-mu", draft.nativeMode === "new-profile"
-          ? `Stored as "${outcome.native.profile.name}" without activating it. Select it in Settings to switch.`
+          ? `Stored as "${outcome.native.profile.name}" and made active. "${config.profile.name}" stays in the profile list.`
           : draft.nativeMode === "merge"
             ? `${preview.summary.added} endpoint${preview.summary.added === 1 ? "" : "s"} added, ${preview.summary.skipped} duplicate${preview.summary.skipped === 1 ? "" : "s"} skipped. Existing endpoints are kept.`
             : `Replaces ${config.endpoints.length} endpoint${config.endpoints.length === 1 ? "" : "s"}, ${(config.rules ?? []).length} rule${(config.rules ?? []).length === 1 ? "" : "s"} and the current plan with the imported profile.`),
@@ -356,17 +356,12 @@ export function importScreen(ctx: Ctx): HTMLElement {
       return
     }
     // The mode is read before the draft is cleared: clearing resets it to the default.
-    const stored = !!outcome.native && draft.nativeMode === "new-profile"
-    const message = stored
-      ? `Stored profile "${applied.stored?.profile.name ?? ""}" with ${applied.summary.added} endpoints. It is not active: select it in Settings.`
+    const switched = !!outcome.native && draft.nativeMode === "new-profile"
+    const message = switched
+      ? `Switched to "${applied.stored?.profile.name ?? ""}" with ${applied.summary.added} endpoints.`
       : summaryText(applied.summary)
     clearDraft()
     source.value = ""
-    if (stored) {
-      say(message)
-      paint()
-      return
-    }
     lastSummary = message
     ctx.go("endpoints")
   }

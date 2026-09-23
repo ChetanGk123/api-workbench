@@ -189,20 +189,32 @@ test('M9 a conflict offers Keep both, Replace or Skip, and Replace keeps the end
   await expect(panel(page).locator('.aw-body [role=status]').first()).toContainText('0 endpoints added, 1 replaced');
 });
 
-test('M9 a native import can be stored without activating it, and merge keeps existing endpoints', async ({ page }) => {
+test('M9 a native import becomes the live profile and keeps the old one, and merge keeps existing endpoints', async ({ page }) => {
   await openImport(page);
   await applyText(page, har([entry('GET', 'http://127.0.0.1:4173/api/fixture')]));
   await panel(page).locator('.aw-foot').getByRole('button', { name: /Import selected/ }).click();
   await expect(panel(page).locator('.aw-endpoint-row')).toHaveCount(1);
-  const active = await panel(page).locator('.aw-tb').getByRole('button', { name: 'Active profile' }).innerText();
+  const switcher = panel(page).locator('.aw-tb').getByRole('button', { name: 'Active profile' });
+  const active = await switcher.innerText();
 
+  // Importing a profile switches to it: its endpoints are the ones on screen afterwards.
   await openImport(page);
   await applyText(page, JSON.stringify(sample));
   await expect(panel(page).getByRole('combobox', { name: 'Import mode', exact: true })).toHaveValue('new-profile');
   await panel(page).locator('.aw-foot').getByRole('button', { name: 'Import profile', exact: true }).click();
-  await expect(statusLine(page)).toContainText('It is not active: select it in Settings.');
-  await expect(panel(page).locator('.aw-tb').getByRole('button', { name: 'Active profile' })).toHaveText(active);
+  await expect(panel(page).locator('.aw-sub .aw-subtitle')).toHaveText('Endpoints');
+  await expect(switcher).toHaveText(sample.profile.name);
+  await expect(panel(page).locator('.aw-endpoint-row')).toHaveCount(2);
 
+  // The profile that was live is still in the list, so the switch loses nothing.
+  await switcher.click();
+  const menu = page.locator('#api-workbench .aw-menu:not([hidden])');
+  await expect(menu.getByRole('menuitemradio')).toContainText([sample.profile.name, active]);
+  await menu.getByRole('menuitemradio', { name: active, exact: true }).click();
+  await expect(switcher).toHaveText(active);
+  await expect(panel(page).locator('.aw-endpoint-row')).toHaveCount(1);
+
+  await openImport(page);
   await applyText(page, JSON.stringify(sample));
   await panel(page).getByRole('combobox', { name: 'Import mode', exact: true }).selectOption('merge');
   await panel(page).locator('.aw-foot').getByRole('button', { name: 'Import profile', exact: true }).click();

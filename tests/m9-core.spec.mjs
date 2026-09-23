@@ -346,14 +346,21 @@ test('M9 importing native as a copy remaps ids and every dependent reference', (
   assert.deepEqual(copy.plan.phases, { [endpoint.id]: 'setup' });
 });
 
-test('M9 a native new-profile import is stored without being activated', () => {
+test('M9 a native new-profile import becomes live and keeps the profile it replaced', () => {
   const current = config();
   const { native } = parseNative(nativeDocument());
   const outcome = applyNative(current, native, 'new-profile', 'Copy');
-  assert.equal(outcome.config.profile.id, current.profile.id, 'the live profile is unchanged');
-  assert.equal(outcome.config.savedProfiles.length, 1);
   assert.equal(outcome.stored.profile.name, 'Copy');
-  assert.equal(outcome.activated, undefined);
+  assert.equal(outcome.activated.profile.id, outcome.stored.profile.id);
+  assert.equal(outcome.config.profile.id, outcome.stored.profile.id, 'the import is the live profile');
+  assert.deepEqual(outcome.config.endpoints, outcome.stored.endpoints);
+  // Both profiles are listed: the unsaved one that was live, and the copy that replaced it.
+  assert.deepEqual(outcome.config.savedProfiles.map(item => item.profile.id), [current.profile.id, outcome.stored.profile.id]);
+
+  // A live profile that is already stored is not snapshotted twice.
+  const stored = config({ savedProfiles: [{ profile: config().profile, endpoints: [], rules: [], plan: undefined }] });
+  const again = applyNative(stored, parseNative(nativeDocument()).native, 'new-profile', 'Copy');
+  assert.equal(again.config.savedProfiles.length, 2);
 });
 
 test('M9 a native merge adds endpoints to the current profile and skips duplicates', () => {

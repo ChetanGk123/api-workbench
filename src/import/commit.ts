@@ -120,24 +120,44 @@ export type NativeOutcome = {
   summary: ImportSummary
   /** Set when the import installed a different profile as the live one. */
   activated?: ProfileSnapshot
-  /** Set when the import only added a stored profile, which the user still has to select. */
+  /** Set when the import added a stored profile, whether or not it also became the live one. */
   stored?: ProfileSnapshot
 }
 
 /**
- * Native import. `new-profile` stores a remapped copy without activating it (§8.11), `merge` adds
- * the imported endpoints and rules to the current profile, and `replace` installs the imported
- * snapshot as the live profile — the only mode that discards existing records.
+ * Native import. `new-profile` stores a remapped copy and makes it live, `merge` adds the imported
+ * endpoints and rules to the current profile, and `replace` installs the imported snapshot as the
+ * live profile — the only mode that discards existing records.
  */
 export function applyNative(config: WorkbenchConfig, native: NativeImport, mode: NativeMode, name?: string): NativeOutcome {
   const summary: ImportSummary = { added: 0, replaced: 0, skipped: 0, unresolved: 0, hosts: [] }
   if (mode === "new-profile") {
     const snapshot = remap(native, name)
     summary.added = snapshot.endpoints.length
+    // Importing a profile and then having to go and select it was a step nobody wanted, so the
+    // copy becomes live. An unsaved current profile is snapshotted first, the way creating a
+    // profile from recordings does it, so switching back is one menu away and nothing is lost.
+    const savedProfiles = [...(config.savedProfiles ?? [])]
+    if (!savedProfiles.some(item => item.profile.id === config.profile.id))
+      savedProfiles.push({
+        profile: config.profile,
+        endpoints: config.endpoints,
+        rules: config.rules ?? [],
+        plan: config.plan,
+      })
+    savedProfiles.push(snapshot)
     return {
-      config: { ...config, savedProfiles: [...(config.savedProfiles ?? []), snapshot] },
+      config: {
+        profile: snapshot.profile,
+        endpoints: snapshot.endpoints,
+        rules: snapshot.rules ?? [],
+        plan: snapshot.plan,
+        savedPlans: config.savedPlans,
+        savedProfiles,
+      },
       summary,
       stored: snapshot,
+      activated: snapshot,
     }
   }
   if (mode === "merge") {

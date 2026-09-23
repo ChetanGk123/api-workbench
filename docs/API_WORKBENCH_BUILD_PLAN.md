@@ -518,7 +518,7 @@ M9 is complete only after these cases pass in the bundled product. Listing every
 
 A profile contains endpoint definitions, global headers, environment maps, test plans, rules and profile-level settings. Activation, in-flight work, paused requests, live secrets and active recording state are transient.
 
-Switching profiles stops active modules and owned tester work, resolves paused requests, then installs the new validated configuration. Unsaved editor state needs a Save/Discard choice. Importing a profile never automatically activates it.
+Switching profiles stops active modules and owned tester work, resolves paused requests, then installs the new validated configuration. Unsaved editor state needs a Save/Discard choice. Importing a profile as a new profile activates it and keeps the outgoing profile in the list, so the switch is visible and reversible; merge and replace act on the live profile as their names say.
 
 Use a namespaced IndexedDB database with stores for profiles, endpoints, plans, rules, run summaries, recorder drafts and metadata. Use transactions for multi-record profile changes. Include schema versions and migration tests. On quota or storage failure, keep the live session usable, display that saving failed and offer export.
 
