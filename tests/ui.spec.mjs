@@ -28,8 +28,11 @@ async function openEndpoints(page) {
 
 async function exportConfig(page) {
   await headerButton(page, 'Settings').click();
-  await panel(page).getByRole('button', { name: 'Export profile + endpoints', exact: true }).click();
-  return JSON.parse(await panel(page).locator('textarea[readonly]').inputValue());
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    panel(page).getByRole('button', { name: 'Export profile + endpoints', exact: true }).click(),
+  ]);
+  return JSON.parse(await readFile(await download.path(), 'utf8'));
 }
 
 test.beforeEach(async ({ page }) => {
@@ -305,4 +308,20 @@ test('UI title-bar profile menu switches profiles instead of opening Settings', 
   await expect(menu).toHaveCount(1);
   await page.mouse.click(10, 400);
   await expect(menu).toHaveCount(0);
+});
+
+test('UI export carries only the active profile and its endpoints, and import keeps the other saved profiles', async ({ page }) => {
+  await importSample(page);
+  await panel(page).getByPlaceholder('New profile name').fill('Copy');
+  await panel(page).getByRole('button', { name: 'Save as profile', exact: true }).click();
+
+  const exported = await exportConfig(page);
+  expect(exported.savedProfiles).toBeUndefined();
+  expect(exported.profile.name).toBe('Import Demo');
+  expect(exported.endpoints.map(endpoint => endpoint.name)).toEqual(sample.endpoints.map(endpoint => endpoint.name));
+
+  // Re-importing that single-profile export must not wipe the snapshot taken above.
+  await importSample(page, exported);
+  await panel(page).locator('.aw-tb').getByRole('button', { name: 'Active profile' }).click();
+  await expect(page.locator('#api-workbench .aw-menu:not([hidden])').getByRole('menuitemradio')).toHaveText(['Import Demo', 'Copy']);
 });

@@ -177,7 +177,7 @@ if (existing) {
         const imported = parseConfig(serialized)
         pipeline.setRules(imported.rules ?? [])
         pipeline.engine.resetAll()
-        persist(imported)
+        persist({ ...imported, savedProfiles: imported.savedProfiles ?? store.state.config.savedProfiles })
         syncRuleStats()
         return undefined
       } catch (error) {

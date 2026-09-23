@@ -1,4 +1,4 @@
-import { el, icon, button, iconButton, card, caption, group, labeled, labeledAction, formatJsonButton, disclosure, type IconName } from "./dom"
+import { el, icon, button, iconButton, card, caption, group, labeled, labeledAction, formatJsonButton, disclosure, downloadJson, type IconName } from "./dom"
 import { type Endpoint, type HeaderValue, type Profile, type Rule, type RuleKind, type WorkbenchConfig } from "../core/model"
 import type { RuleActivity } from "../network/rules"
 import type { PausedEntry } from "../breakpoints/registry"
@@ -815,11 +815,6 @@ function settings(ctx: Ctx): HTMLElement {
     refreshProfiles()
     status.textContent = "Profile copy saved. Select it above to switch."
   }, ctx.signal)
-  const exported = el("textarea", "aw-ta aw-mono")
-  exported.readOnly = true
-  exported.setAttribute("aria-label", "Exported profile JSON")
-  exported.value = ctx.exportConfig()
-  ctx.watch(() => { exported.value = ctx.exportConfig() })
   const profile = card()
   // Three adjacent text fields need visible labels, not just accessible names.
   const saveAsBlock = el("div", "aw-inset aw-col aw-gap10")
@@ -830,11 +825,8 @@ function settings(ctx: Ctx): HTMLElement {
     saveAsBlock, status,
     el("div", "aw-xs aw-mu", `Origin-scoped storage · ${ctx.state().storageReady ? "IndexedDB available" : "session fallback"}`),
     button("aw-btn aw-out aw-sm", "Export profile + endpoints", () => {
-      exported.value = ctx.exportConfig()
-      exported.focus()
-      exported.select()
-      status.textContent = "Export ready. Copy the selected JSON to save it."
-    }, ctx.signal), exported)
+      status.textContent = `Exported ${downloadJson(ctx.exportConfig(), ctx.state().config.profile.name)}.`
+    }, ctx.signal))
   const environments = disclosure("Environments", environmentFields(ctx, "settings"))
   environments.classList.add("aw-card", "aw-cp")
   environments.open = true

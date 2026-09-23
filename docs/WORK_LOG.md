@@ -2,7 +2,7 @@
 
 ## Current state
 
-M0–M7 are implemented and verified in Chrome by automated checks (95 checks). Saved-bookmark
+M0–M7 are implemented and verified in Chrome by automated checks (96 checks). Saved-bookmark
 installation and all Edge checks remain outstanding for every milestone.
 
 Current assigned work: M7 breakpoints complete and verified in Chrome, plus the M4 recorder review
@@ -539,6 +539,36 @@ characters — 534 B minified and 1,602 characters larger than before the reform
 bundled through esbuild's `text` loader, so its whitespace ships verbatim and the JS minifier never
 touches it; formatting the stylesheet therefore costs real payload. Minifying the CSS at build time
 would recover it and more. `npx playwright test` → 33 passed in 13.5 s, same versions as above.
+
+## 2026-09-23 — Settings export: single profile, downloaded as a file
+
+**Scope.** Two reported defects in the Settings export control; no milestone work.
+
+**Changed files.** `src/core/storage.ts`, `src/entry.ts`, `src/ui/dom.ts`, `src/ui/screens.ts`,
+`tests/ui.spec.mjs`, `tests/m3.spec.mjs`.
+
+**Behavior.** `exportConfig` now emits `{ schemaVersion, profile, endpoints, rules }` for the active
+profile only; `savedProfiles` is no longer included. Because a single-profile export carries no
+snapshots, the import handler keeps the existing `savedProfiles` when the incoming JSON has none, so
+a round trip no longer deletes the user's other profiles. The Export button downloads
+`<profile-name>.json` through a detached anchor and an object URL (revoked after 1 s) instead of
+filling a read-only textarea; that textarea is removed and the status line names the written file.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0.
+- `npm run build` → exit 0.
+- `npx playwright test` → 96 passed in 1.0 min, Chrome via Playwright 1.63.0, macOS darwin 25.6.0, Node v24.21.0.
+
+**Verification.** New check `UI export carries only the active profile and its endpoints, and import
+keeps the other saved profiles` asserts the absent `savedProfiles`, the exported endpoint set, and
+that the `Copy` snapshot survives re-import. `M3` asserts the downloaded filename `QA-profile.json`
+and its contents. The two test helpers now read the export off the Playwright download event.
+
+**Not run.** Edge, saved-bookmark installation. No manual download check in a browser outside
+Playwright; blob downloads under a host-page CSP `sandbox` directive are untested.
+
+**Next task.** M8 — Flow/Independent repeat runner.
 
 ## 2026-09-23 — UI/UX pass against the reference screens (no new features)
 

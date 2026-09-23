@@ -6,6 +6,15 @@ const source = decodeURIComponent(bookmark.slice(11));
 const launch = page => page.evaluate(source);
 const panel = '#api-workbench .aw-root:not(.aw-min)';
 
+// Export writes a JSON file; read it back off the download instead of the removed textarea.
+async function exportDownload(page, root = page) {
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    root.getByRole('button', { name: 'Export profile + endpoints', exact: true }).click(),
+  ]);
+  return { name: download.suggestedFilename(), json: await readFile(await download.path(), 'utf8') };
+}
+
 test.beforeEach(async ({ page }) => { await page.goto('/fixture'); });
 
 test('M3 endpoint CRUD, profile export and same-origin relaunch persistence', async ({ page }) => {
@@ -25,9 +34,10 @@ test('M3 endpoint CRUD, profile export and same-origin relaunch persistence', as
   await page.locator(`${panel} .aw-tb`).getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill('QA profile');
   await page.getByRole('button', { name: 'Save profile', exact: true }).click();
-  await page.getByRole('button', { name: 'Export profile + endpoints', exact: true }).click();
-  await expect(page.locator('textarea')).toHaveValue(/QA profile/);
-  await expect(page.locator('textarea')).toHaveValue(/fixture health/);
+  const exportFile = await exportDownload(page);
+  expect(exportFile.name).toBe('QA-profile.json');
+  expect(exportFile.json).toMatch(/QA profile/);
+  expect(exportFile.json).toMatch(/fixture health/);
 
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await launch(page);
@@ -73,7 +83,7 @@ test('M3 profiles, environment mapping and native JSON import are usable', async
   await page.getByPlaceholder('host_key').fill('api');
   await page.getByPlaceholder('origin URL').fill('http://127.0.0.1:4173');
   await page.getByRole('button', { name: 'Add host', exact: true }).click();
-  const exported = await page.locator('textarea[readonly]').inputValue();
+  const exported = (await exportDownload(page)).json;
   await page.getByRole('button', { name: 'Import', exact: true }).click();
   await page.getByRole('textbox', { name: 'Import JSON', exact: true }).fill(exported);
   await page.getByRole('button', { name: 'Import JSON', exact: true }).click();

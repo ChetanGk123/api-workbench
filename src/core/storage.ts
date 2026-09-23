@@ -70,7 +70,10 @@ export async function replaceProfile(config: WorkbenchConfig, profile: Profile, 
   return next;
 }
 
-export function exportConfig(config: WorkbenchConfig): string { return JSON.stringify({ schemaVersion: 1, ...config }, null, 2); }
+export function exportConfig(config: WorkbenchConfig): string {
+  const { profile, endpoints, rules } = config;
+  return JSON.stringify({ schemaVersion: 1, profile, endpoints, rules }, null, 2);
+}
 
 export function importConfig(serialized: string): WorkbenchConfig {
   const parsed: unknown = JSON.parse(serialized);

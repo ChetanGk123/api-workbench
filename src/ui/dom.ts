@@ -383,3 +383,15 @@ export function disclosure(title: string, ...children: Node[]): HTMLDetailsEleme
   details.append(summary, group("aw-col aw-gap10", ...children))
   return details
 }
+
+// A detached anchor keeps the download out of the host page's DOM.
+export function downloadJson(json: string, name: string): string {
+  const file = `${name.trim().replace(/[^\w.-]+/g, "-").replace(/^-|-$/g, "") || "profile"}.json`
+  const url = URL.createObjectURL(new Blob([json], { type: "application/json" }))
+  const link = el("a")
+  link.href = url
+  link.download = file
+  link.click()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  return file
+}
