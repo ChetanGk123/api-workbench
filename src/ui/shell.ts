@@ -1,6 +1,6 @@
 import theme from "../../design/reference/aw-theme.css"
 import additions from "./theme.css"
-import { el, icon, button, iconButton, dropdown } from "./dom"
+import { el, icon, button, iconButton, dropdown, confirmDialog } from "./dom"
 import type { Store } from "../core/store"
 import { RULE_MODULES, SCREENS, TABS, moduleState, renderScreen, type Ctx, type ScreenId, type UIState } from "./screens"
 
@@ -471,6 +471,19 @@ export function createShell(options: ShellOptions) {
 
   return {
     host,
+    /**
+     * "Notify on complete" is asked for by someone who has stopped watching the panel, so the
+     * finished run interrupts: the panel is restored if it was minimized and a modal names the
+     * outcome. Resolving to true means they chose to read the run, which lives on Results.
+     */
+    async announceRun(title: string, message: string) {
+      if (store.state.minimized) restore()
+      const read = await confirmDialog(body, title, message, "View results", signal, {
+        cancelLabel: "Dismiss",
+        tone: "notice",
+      })
+      if (read) go("results")
+    },
     mount() {
       syncProfiles()
       go(store.state.screen)

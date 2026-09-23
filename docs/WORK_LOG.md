@@ -30,6 +30,54 @@ when a later milestone lands.
 | M9 — Complete import support | CODE COMPLETE · all M9 acceptance gates PASS in Chrome (38 checks) · saved-bookmark and Edge checks NOT RUN |
 | M10 — Integrated release | NOT STARTED |
 
+## 2026-09-24 — Notify on complete raises a dialog
+
+**Asked for.** "Notify on complete" only wrote an activity line, which is invisible to the person
+the setting is for: someone who has looked away from the panel. It now interrupts with a modal.
+
+**Changed files.**
+
+- `src/ui/dom.ts` — `confirmDialog` takes an options argument: `cancelLabel`, and a `notice` tone
+  whose confirm button is primary rather than destructive and takes the initial focus. The two
+  existing destructive call sites are untouched and keep focusing Cancel.
+- `src/ui/shell.ts` — `announceRun(title, message)` on the shell. It restores a minimized panel
+  first, then opens the modal; choosing "View results" goes to Results, which already holds the
+  finished run because the completion handler publishes it as `openRun` before notifying.
+  "Dismiss" closes and changes nothing.
+- `src/entry.ts` — the completion handler still writes the activity line (the record) and now also
+  calls `announceRun` when `plan.notifyOnComplete` is set. The message names the plan, how many of
+  how many requests passed, how many did not (`failedCount`), and the number of run errors.
+- `tests/m8.spec.mjs` — two checks: the dialog does not appear when the box is unchecked, appears
+  with the pass line when it is, and "View results" lands on Results showing the run; and a run
+  that finishes while the panel is minimized restores the panel and shows the dialog there.
+
+**Decision.** The dialog is unconditional when the box is checked, including when the reader is
+already watching Results. A setting that sometimes notifies would be worse than one that always
+does, and the box is per plan, so it is easy to turn off.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0.
+- `npm run build` → exit 0.
+- `npx playwright test` → 187 passed, 1 failed in 1.6 m, Chrome (channel `chrome`), macOS darwin
+  25.6.0. The failure is `tests/plans.spec.mjs:23`, unrelated and pre-existing (see below).
+- Rendered the dialog on a real run and checked it against the panel's surface and buttons.
+
+**Not run.** Edge — not installed on this machine. Saved-bookmark installation, as before.
+
+**Limitations.** The dialog is modal within the page, so a run that completes while the reader is
+typing in the panel takes focus. It is raised once per run and never for a run the user stopped
+before it finished notifying.
+
+**Open, unrelated.** `tests/plans.spec.mjs:23` fails intermittently and predates every change in
+this session (it fails on `59ef56d` with the session's changes stashed). It is not a flaky
+selector: the assertion is that an edit made to a stored plan (9 iterations) survives switching
+away and back, and the value that comes back is the pre-edit 5. That looks like a real loss of a
+stored plan's edit on switch, in the code added by "Save test plans the way profiles are saved".
+Not investigated further; it is reported rather than filed away.
+
+**Next task.** M10 (integrated release), unchanged.
+
 ## 2026-09-23 — A native import switches to the profile it creates
 
 **Reported.** "Import is not working": after importing a profile the panel still showed the old

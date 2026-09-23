@@ -21,7 +21,7 @@ import {
 import { loadConfig, saveConfig, exportConfig } from "./core/storage"
 import { executeOnce } from "./tester/once"
 import { startRun, type RunState } from "./tester/run"
-import { runToCsv, runToJson } from "./tester/results"
+import { failedCount, runToCsv, runToJson } from "./tester/results"
 import { createScope } from "./tester/expressions"
 import { downloadFile } from "./ui/dom"
 import { createRecorder } from "./recorder/recorder"
@@ -157,8 +157,18 @@ if (existing) {
       runController = undefined
       publish(run)
       store.set({ run: undefined, runs: [run, ...store.state.runs].slice(0, MAX_RUN_SUMMARIES) })
-      if (plan.notifyOnComplete)
-        report(`Run ${run.state}: ${run.counts.passed} passed of ${run.completed} requests`)
+      if (plan.notifyOnComplete) {
+        const summary = `Run ${run.state}: ${run.counts.passed} passed of ${run.completed} requests`
+        report(summary)
+        // The activity line is the record; the dialog is the notification the plan asked for.
+        const failed = failedCount(run)
+        void shell.announceRun(
+          `Run ${run.state}`,
+          `${run.planName}: ${run.counts.passed} of ${run.completed} request${run.completed === 1 ? "" : "s"} passed` +
+            (failed ? `, ${failed} did not.` : ".") +
+            (run.errors.length ? ` ${run.errors.length} error${run.errors.length === 1 ? "" : "s"} reported.` : ""),
+        )
+      }
     })
   }
 

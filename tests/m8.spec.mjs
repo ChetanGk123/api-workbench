@@ -249,3 +249,43 @@ test('M8 Home lists a completed plan run and opens it on Results', async ({ page
   await expect(panel(page).locator('.aw-sub .aw-subtitle')).toHaveText('Results');
   await expect(panel(page).locator('.aw-big').first()).toHaveText('2');
 });
+
+test('M8 notify on complete raises a dialog that leads to the run, and stays quiet when unchecked', async ({ page }) => {
+  await install(page, [endpoint('seed', 'GET', '/api/m8-notify')], { notifyOnComplete: false });
+  await openLoad(page);
+  await panel(page).getByRole('button', { name: 'Run Load' }).click();
+  await expect(panel(page).locator('.aw-bd.aw-s')).toHaveText('completed', { timeout: 15000 });
+  // Unchecked: the run is reported in the activity log only.
+  await expect(panel(page).getByRole('dialog')).toHaveCount(0);
+
+  await install(page, [endpoint('seed', 'GET', '/api/m8-notify')], { notifyOnComplete: true });
+  await openLoad(page);
+  await expect(panel(page).getByRole('checkbox', { name: 'Notify on complete' })).toBeChecked();
+  await panel(page).getByRole('button', { name: 'Run Load' }).click();
+  const dialog = panel(page).getByRole('dialog', { name: 'Run completed' });
+  await expect(dialog).toBeVisible({ timeout: 15000 });
+  await expect(dialog).toContainText('Fixture Plan: 1 of 1 request passed.');
+
+  // View results leads to the run; Results is the only screen that renders one.
+  await dialog.getByRole('button', { name: 'View results', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(panel(page).locator('.aw-sub .aw-subtitle')).toHaveText('Results');
+  await expect(panel(page).locator('.aw-big').first()).toHaveText('1');
+});
+
+test('M8 a notified run restores a minimized panel to show the dialog', async ({ page }) => {
+  // Three iterations spaced out, so the panel can be minimized while the run is still going.
+  await install(page, [endpoint('seed', 'GET', '/api/m8-notify-min')], { notifyOnComplete: true, iterations: 3, delayMs: 300 });
+  await openLoad(page);
+  await panel(page).getByRole('button', { name: 'Run Load' }).click();
+  await panel(page).locator('.aw-tb').getByRole('button', { name: 'Minimize', exact: true }).click();
+  await expect(page.locator('#api-workbench .aw-min')).toBeVisible();
+
+  // The point of the setting is to be told while looking elsewhere, so the panel comes back.
+  const dialog = panel(page).getByRole('dialog', { name: 'Run completed' });
+  await expect(dialog).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('#api-workbench .aw-min')).toBeHidden();
+  await dialog.getByRole('button', { name: 'Dismiss', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(panel(page)).toBeVisible();
+});
