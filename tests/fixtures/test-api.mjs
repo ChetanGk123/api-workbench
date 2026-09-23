@@ -148,7 +148,7 @@ export function createTestApi(port) {
   };
 }
 
-function openApi(origin) {
+export function openApi(origin) {
   const paths = {};
   const add = (path, method, summary, { body, parameters = [], status = 200 } = {}) => {
     const operation = { summary, operationId: `${method}_${path.replace(/\W+/g, '_')}`, parameters,

@@ -1,14 +1,60 @@
-<!doctype html><html lang="en"><meta charset="utf-8"><meta name="csrf-token" content="fixture-csrf-abc123"><title>API Workbench M0 fixture</title>
-<h1>API Workbench M0 fixture</h1>
-<p>Install the bookmark from <a href="/install.html">the installer</a>, then click your saved bookmark here.</p>
-<p><button id="login">Log in to local fixture</button></p>
-<label>Endpoint <select id="endpoint">
-<option>/api/session</option><option>/api/mock-target</option><option>/api/slow</option><option>/api/error</option><option>/api/stats</option>
-<option>http://127.0.0.1:4174/api/cors-allowed</option><option>http://127.0.0.1:4174/api/cors-denied</option>
-</select></label>
-<p><button id="fetch">Fetch</button> <button id="xhr">XHR</button> <button id="abort">Cancel current requests</button></p>
-<label>XHR timeout (ms) <input id="timeout" type="number" value="0" min="0"></label>
-<p id="leak" class="aw-root aw-btn aw-card">Host element reusing aw- class names; the panel theme must not style it.</p>
-<pre id="outcome" aria-live="polite">Ready</pre>
-<p>Policy pages: <a href="/policy/strict">self-only network + Trusted Types + no style</a> · <a href="/policy/blocked">blocked network</a></p>
-<script src="/fixture.js"></script></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="fixture-csrf-abc123">
+  <title>API Playground · API Workbench</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/fixture.css">
+  <script src="/fixture.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#request-workspace">Skip to request editor</a>
+  <header class="topbar">
+    <a class="brand" href="/fixture"><span class="brand-mark" aria-hidden="true">↗</span> API Workbench <span class="brand-divider">/</span> <span class="brand-sub">Playground</span></a>
+    <nav aria-label="Resources">
+      <a class="resource-link" href="/openapi.json" download="workbench-openapi.json"><span aria-hidden="true">↓</span> OpenAPI JSON</a>
+      <a class="button small" href="/install.html">Install Workbench <span aria-hidden="true">↗</span></a>
+    </nav>
+  </header>
+  <div class="layout">
+    <aside class="sidebar" aria-label="Endpoint collection">
+      <div class="collection-heading"><span class="eyebrow">COLLECTION</span><span id="endpoint-count" class="count">…</span></div>
+      <h2>Local test API</h2>
+      <p class="muted sidebar-description">A small API for trying everything.</p>
+      <label class="search-box"><span aria-hidden="true">⌕</span><input id="endpoint-search" type="search" aria-label="Search endpoints" placeholder="Find an endpoint…" autocomplete="off"><kbd>/</kbd></label>
+      <nav id="endpoint-list" aria-label="Available requests"></nav>
+      <p id="search-empty" class="muted" hidden>No matching endpoints.</p>
+      <div class="sidebar-footer"><span class="local-dot"></span><span>Local environment</span><span class="mono">v1.0</span></div>
+    </aside>
+    <main id="request-workspace" tabindex="-1">
+      <div class="breadcrumb">Workspace <span>/</span> <span>Local environment</span></div>
+      <div class="page-heading"><div><div class="eyebrow">YOUR REQUEST LAB</div><h1>API playground<span class="heading-dot">.</span></h1><p>Send a request. Inspect the response. Put your rules to work.</p></div><span class="environment"><span class="local-dot"></span> LOOPBACK ONLY</span></div>
+      <div class="workbench-tip"><span class="tip-icon" aria-hidden="true">⌘</span><p><strong>Bring your Workbench.</strong> Launch your saved bookmark here to record, mock, intercept, or reroute these requests.</p><a href="/install.html" aria-label="Get the Workbench bookmark">Get bookmark <span aria-hidden="true">↗</span></a></div>
+      <section class="panel request-panel" aria-labelledby="request-heading">
+        <div class="panel-heading"><div class="section-title"><span class="section-number">01</span><h2 id="request-heading">Request</h2></div><span id="preset-title" class="muted">Echo GET</span></div>
+        <div class="request-content">
+          <div class="origin-row"><label for="request-origin">Destination</label><select id="request-origin"><option value="http://127.0.0.1:4173">127.0.0.1:4173 · Primary</option><option value="http://127.0.0.1:4174">127.0.0.1:4174 · Secondary</option></select><span class="muted origin-hint">Switch ports to try cross-origin requests</span></div>
+          <div class="request-bar"><select id="request-method" aria-label="Request method"><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option><option>HEAD</option><option>OPTIONS</option></select><input id="endpoint" aria-label="Request URL" value="/api/test/echo" spellcheck="false" autocomplete="off"><button id="fetch" class="button primary">Fetch <span aria-hidden="true">↗</span></button><button id="xhr" class="button">XHR</button></div>
+          <p id="request-description" class="request-description">Reflect the request method, headers, query parameters, and body.</p>
+          <div class="editors">
+            <div class="editor"><div class="editor-heading"><label for="request-headers">Request headers</label><span class="editor-format">JSON</span></div><textarea id="request-headers" spellcheck="false" aria-describedby="headers-help">{}</textarea><p id="headers-help" class="editor-help">A JSON object of header names and values.</p></div>
+            <div class="editor"><div class="editor-heading"><label for="request-body">Request body</label><span id="body-format" class="editor-format">NO BODY</span></div><textarea id="request-body" spellcheck="false" placeholder="GET and HEAD requests have no body." disabled></textarea><p class="editor-help">Raw text · JSON · URL-encoded data</p></div>
+          </div>
+          <div class="request-options"><label for="request-credentials">Credentials <select id="request-credentials"><option value="same-origin">Same origin</option><option value="include">Include</option><option value="omit">Omit (fetch)</option></select></label><label for="timeout">Timeout <span class="number-input"><input id="timeout" type="number" value="0" min="0" max="120000" step="100"> ms</span></label><span class="muted timeout-hint">0 = no timeout</span><button id="abort" class="button small" disabled>Cancel request</button></div>
+          <p id="request-notice" class="notice" role="status" hidden></p>
+        </div>
+      </section>
+      <section class="panel response-panel" aria-labelledby="response-heading">
+        <div class="panel-heading"><div class="section-title"><span class="section-number">02</span><h2 id="response-heading">Response</h2><span id="response-status" class="response-status" data-tone="idle">Ready</span></div><div class="response-metrics"><span id="response-time">— ms</span><span class="metric-divider">/</span><span id="response-size">— B</span><button id="copy-response" class="button small" disabled>Copy response</button></div></div>
+        <div class="response-tabs" role="tablist" aria-label="Response view"><button id="body-tab" role="tab" aria-selected="true" aria-controls="response-content" data-view="body">Body</button><button id="headers-tab" role="tab" aria-selected="false" aria-controls="response-content" data-view="headers" tabindex="-1">Headers <span id="header-count" class="count">0</span></button><button id="events-tab" role="tab" aria-selected="false" aria-controls="response-content" data-view="events" tabindex="-1">Events</button><span id="response-type" class="mono">Waiting for a request</span></div>
+        <div id="response-content" role="tabpanel" aria-labelledby="body-tab" tabindex="0"><div id="response-empty"><div class="empty-icon" aria-hidden="true">↗</div><h3>Your response will appear here</h3><p>Choose an endpoint and send it with Fetch or XHR.</p><span class="empty-shortcut"><kbd>⌘</kbd> / <kbd>Ctrl</kbd> + <kbd>Enter</kbd> to send</span></div><pre id="outcome" hidden></pre></div>
+        <div class="response-footer"><span id="response-summary" role="status">No requests sent in this session</span><span>Preview limit · 64 KiB</span></div>
+      </section>
+      <details class="fixture-tools"><summary>Session &amp; browser policy fixtures <span class="muted">Original compatibility tools</span></summary><div class="fixture-tools-content"><button id="login" class="button small">Log in to local fixture</button><a href="/policy/strict">Self-only network + Trusted Types ↗</a><a href="/policy/blocked">Blocked network ↗</a><p id="leak" class="aw-root aw-btn aw-card">Host element reusing aw- class names; the panel theme must not style it.</p></div></details>
+      <footer class="page-footer"><span>API Workbench <span class="muted">/ Development playground</span></span><span>No external services. Just your browser.</span></footer>
+    </main>
+  </div>
+</body>
+</html>

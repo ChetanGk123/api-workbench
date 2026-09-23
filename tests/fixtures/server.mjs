@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { createTestApi } from './test-api.mjs';
+import { createTestApi, openApi } from './test-api.mjs';
 
 export const policies = {
   strict: "default-src 'none'; script-src 'self'; style-src 'none'; connect-src 'self'; img-src 'none'; require-trusted-types-for 'script'",
@@ -54,7 +54,11 @@ export async function startFixtures() {
         }
         if (path === '/fixture.js') {
           res.writeHead(200, { 'Content-Type': 'application/javascript' });
-          res.end(await readFile(new URL('./page.js', import.meta.url))); return;
+          res.end(`const fixtureSpec = ${JSON.stringify(openApi(`http://127.0.0.1:${port}`))};\n` + await readFile(new URL('./page.js', import.meta.url), 'utf8')); return;
+        }
+        if (path === '/fixture.css') {
+          res.writeHead(200, { 'Content-Type': 'text/css; charset=utf-8' });
+          res.end(await readFile(new URL('./page.css', import.meta.url))); return;
         }
         const artifacts = ['install.html', 'bookmarklet.txt', 'bookmarklet-262144.txt', 'bookmarklet-1048576.txt'];
         if (artifacts.includes(path.slice(1))) {

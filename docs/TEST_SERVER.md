@@ -12,6 +12,20 @@ in-memory items and counters. Stop with Ctrl+C. Restarting resets the data.
 `npm run fixture` starts the same server; run only one copy at a time.
 
 Open <http://127.0.0.1:4173/fixture> and launch your Workbench bookmark there.
+The playground includes a searchable sidebar with all 29 OpenAPI operations plus
+10 original compatibility fixtures. Selecting a request fills its method, URL,
+headers and example body. Edit any field, choose the destination port, and send
+with Fetch or native XHR. Body, Headers and Events tabs show the result, with status,
+duration and received byte count. Use Cancel or set a timeout for slow requests.
+`Cmd/Ctrl+Enter` sends with Fetch; `/` focuses endpoint search. The OpenAPI JSON
+link downloads the current server definition directly.
+
+Response previews are capped at 64 KiB. Fetch captures up to 1 MiB and then cancels
+the remaining stream; XHR uses its native arraybuffer response and only bounds the
+displayed preview. Browser policy pages deliberately continue to block styles
+under `style-src 'none'`; the collection is embedded in the same-origin script so
+it does not need a separate fetch that would fail under `connect-src 'none'`.
+
 If you need to generate the installer first, run `npm run build`, then open
 <http://127.0.0.1:4173/install.html>.
 
@@ -104,4 +118,6 @@ use only dummy credentials. Requests are limited to 1 MiB and stored items to
 close. Cookies are host-scoped, so the two ports share eligible cookies even
 though their item data is separate. No HTTPS or arbitrary external-origin CORS
 support is configured. Server startup is checked; endpoint and browser tests
-were skipped at the user's request.
+were skipped at the user's request. The later fixture-page redesign was visually
+reviewed in Chrome with a manual GET Fetch and POST XHR interaction; this is not
+full endpoint or Workbench verification.
