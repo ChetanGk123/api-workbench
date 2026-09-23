@@ -30,6 +30,59 @@ when a later milestone lands.
 | M9 — Complete import support | CODE COMPLETE · all M9 acceptance gates PASS in Chrome (38 checks) · saved-bookmark and Edge checks NOT RUN |
 | M10 — Integrated release | NOT STARTED |
 
+## 2026-09-24 — Importable local server file
+
+Created root `openapi.json` from the running local server's `/openapi.json`, then
+formatted it with two-space JSON indentation. Includes OpenAPI 3.0.3 operations,
+body/header/parameter examples and base URL `http://127.0.0.1:4173`.
+
+Command: `curl --fail --silent --show-error http://127.0.0.1:4173/openapi.json -o openapi.json`.
+The sandbox attempt could not connect; the approved retry succeeded (exit 0).
+A Node `--input-type=module` script read the file with `JSON.parse`, formatted it
+with `JSON.stringify(spec, null, 2)`, and printed its operation count and server URL
+(exit 0). No tests or browser import checks run, per the user's instruction.
+Import via Workbench's Import screen and select `openapi.json`; the local server
+must be running to send the imported requests. M10 remains the next milestone.
+
+## 2026-09-24 — Local API playground
+
+**Scope.** User-requested development server for exercising Workbench methods and
+features. This extends existing fixture infrastructure; no product milestone or
+bookmarklet runtime behavior changed. User subsequently requested no tests.
+
+**Changed files.** `package.json` adds `npm run server`; `tests/fixtures/server.mjs`
+mounts isolated `/api/test/` routes, `/openapi.json`, and redirects `/` to the existing
+fixture page. New `tests/fixtures/test-api.mjs` supplies method echo, bounded in-memory
+CRUD, fake session/bearer auth, statuses, delays, redirects, body formats, streams,
+disconnects, CORS, counters/reset and OpenAPI examples. New `docs/TEST_SERVER.md`
+documents startup, routes, import and feature exercises; `START_HERE.md` links it.
+
+**Commands and measured results.**
+
+- `node --check tests/fixtures/test-api.mjs && node --check tests/fixtures/server.mjs && node --version && npm --version && git diff --stat`
+  — exit 0; Node v24.21.0, npm 11.19.0; both syntax checks passed.
+- `npm run server` — first attempt failed with sandbox `EPERM` on 127.0.0.1:4173.
+  Retried with approved escalation; both ports started and printed fixture/API URLs.
+- `node --check tests/fixtures/test-api.mjs && node --check tests/fixtures/server.mjs && git diff --check && git status --short`
+  — exit 0 after the final API edit; syntax and whitespace checks passed.
+- Stopped the initial process with Ctrl+C and ran `npm run server` again with the
+  approved permission to load the final source; left running for manual use.
+
+**Checks not run and limitations.** No tests added or run, per the user's latest
+instruction. No endpoint, browser, build, saved-bookmark or Edge verification in
+this task; startup/syntax evidence does not prove endpoint or Workbench behavior.
+Routes and examples above describe implementation, not measured HTTP outcomes.
+Node built-ins only; loopback HTTP, dummy authentication, two permitted local
+origins, 1 MiB request limit, 1000 items per origin, in-memory state. Echo preserves
+multipart/binary bytes without parsing uploads. Browser-forbidden TRACE/CONNECT
+are outside the intended fetch/XHR exercises. OpenAPI is supplied; other import
+formats continue to use existing Workbench functionality.
+
+**Next milestone.** M10 remains next; outstanding saved-bookmark and Edge gates
+are unchanged. Manual playground use: `npm run server`, then
+`http://127.0.0.1:4173/fixture`; import `http://127.0.0.1:4173/openapi.json` as a file
+or pasted JSON. Build remains `npm run build` when installer artifacts are needed.
+
 ## 2026-09-24 — Notify on complete raises a dialog
 
 **Asked for.** "Notify on complete" only wrote an activity line, which is invisible to the person

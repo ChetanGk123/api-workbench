@@ -5,6 +5,7 @@
   "scripts": {
     "build": "tsc && node scripts/build.mjs",
     "fixture": "node tests/fixtures/server.mjs",
+    "server": "node tests/fixtures/server.mjs",
     "test": "npm run build && playwright test"
   },
   "type": "module",

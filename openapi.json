@@ -1,0 +1,524 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "API Workbench local test API",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:4173"
+    }
+  ],
+  "paths": {
+    "/api/test/echo": {
+      "get": {
+        "summary": "Echo GET",
+        "operationId": "get__echo",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Echo GET"
+          }
+        }
+      },
+      "head": {
+        "summary": "Echo HEAD",
+        "operationId": "head__echo",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Echo HEAD"
+          }
+        }
+      },
+      "post": {
+        "summary": "Echo POST",
+        "operationId": "post__echo",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Echo POST"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "message": "Hello workbench"
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Echo PUT",
+        "operationId": "put__echo",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Echo PUT"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "message": "Hello workbench"
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "summary": "Echo PATCH",
+        "operationId": "patch__echo",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Echo PATCH"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "message": "Hello workbench"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Echo DELETE",
+        "operationId": "delete__echo",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Echo DELETE"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "message": "Hello workbench"
+              }
+            }
+          }
+        }
+      },
+      "options": {
+        "summary": "Echo OPTIONS",
+        "operationId": "options__echo",
+        "parameters": [],
+        "responses": {
+          "204": {
+            "description": "Echo OPTIONS"
+          }
+        }
+      }
+    },
+    "/api/test/items": {
+      "get": {
+        "summary": "List items",
+        "operationId": "get__items",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "List items"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create item",
+        "operationId": "post__items",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "Create item"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "name": "New item",
+                "done": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/test/items/{id}": {
+      "get": {
+        "summary": "GET item",
+        "operationId": "get__items_id_",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "GET item"
+          }
+        }
+      },
+      "put": {
+        "summary": "PUT item",
+        "operationId": "put__items_id_",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PUT item"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "name": "Updated item",
+                "done": true
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "summary": "PATCH item",
+        "operationId": "patch__items_id_",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PATCH item"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "name": "Updated item",
+                "done": true
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "DELETE item",
+        "operationId": "delete__items_id_",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "DELETE item"
+          }
+        }
+      }
+    },
+    "/api/test/login": {
+      "post": {
+        "summary": "Create test session and token",
+        "operationId": "post__login",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Create test session and token"
+          }
+        }
+      }
+    },
+    "/api/test/session": {
+      "get": {
+        "summary": "Check session cookie",
+        "operationId": "get__session",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Check session cookie"
+          }
+        }
+      }
+    },
+    "/api/test/auth": {
+      "get": {
+        "summary": "Check bearer token",
+        "operationId": "get__auth",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "Bearer workbench-test-token"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Check bearer token"
+          }
+        }
+      }
+    },
+    "/api/test/status": {
+      "get": {
+        "summary": "Return chosen HTTP status",
+        "operationId": "get__status",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 503
+          }
+        ],
+        "responses": {
+          "503": {
+            "description": "Return chosen HTTP status"
+          }
+        }
+      }
+    },
+    "/api/test/delay": {
+      "get": {
+        "summary": "Delayed response",
+        "operationId": "get__delay",
+        "parameters": [
+          {
+            "name": "ms",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1500
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Delayed response"
+          }
+        }
+      }
+    },
+    "/api/test/bytes": {
+      "get": {
+        "summary": "Binary response",
+        "operationId": "get__bytes",
+        "parameters": [
+          {
+            "name": "size",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 65536
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Binary response"
+          }
+        }
+      }
+    },
+    "/api/test/large-json": {
+      "get": {
+        "summary": "Large JSON response",
+        "operationId": "get__large_json",
+        "parameters": [
+          {
+            "name": "size",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 262144
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Large JSON response"
+          }
+        }
+      }
+    },
+    "/api/test/stream": {
+      "get": {
+        "summary": "Finite NDJSON stream",
+        "operationId": "get__stream",
+        "parameters": [
+          {
+            "name": "chunks",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 5
+          },
+          {
+            "name": "ms",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 100
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Finite NDJSON stream"
+          }
+        }
+      }
+    },
+    "/api/test/text": {
+      "get": {
+        "summary": "text",
+        "operationId": "get__text",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "text"
+          }
+        }
+      }
+    },
+    "/api/test/xml": {
+      "get": {
+        "summary": "xml",
+        "operationId": "get__xml",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "xml"
+          }
+        }
+      }
+    },
+    "/api/test/invalid-json": {
+      "get": {
+        "summary": "invalid-json",
+        "operationId": "get__invalid_json",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "invalid-json"
+          }
+        }
+      }
+    },
+    "/api/test/redirect": {
+      "get": {
+        "summary": "redirect",
+        "operationId": "get__redirect",
+        "parameters": [],
+        "responses": {
+          "302": {
+            "description": "redirect"
+          }
+        }
+      }
+    },
+    "/api/test/disconnect": {
+      "get": {
+        "summary": "disconnect",
+        "operationId": "get__disconnect",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "disconnect"
+          }
+        }
+      }
+    },
+    "/api/test/cors-denied": {
+      "get": {
+        "summary": "cors-denied",
+        "operationId": "get__cors_denied",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "cors-denied"
+          }
+        }
+      }
+    },
+    "/api/test/stats": {
+      "get": {
+        "summary": "stats",
+        "operationId": "get__stats",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "stats"
+          }
+        }
+      }
+    },
+    "/api/test/reset": {
+      "post": {
+        "summary": "Reset test items and counters",
+        "operationId": "post__reset",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Reset test items and counters"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,5 +1,6 @@
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
+import { createTestApi } from './test-api.mjs';
 
 export const policies = {
   strict: "default-src 'none'; script-src 'self'; style-src 'none'; connect-src 'self'; img-src 'none'; require-trusted-types-for 'script'",
@@ -9,12 +10,15 @@ export async function startFixtures() {
   const servers = [];
   for (const port of [4173, 4174]) {
     const hits = {};
+    const testApi = createTestApi(port);
     const server = http.createServer(async (req, res) => {
       const url = new URL(req.url, `http://127.0.0.1:${port}`);
       const path = url.pathname;
       res.setHeader('Cache-Control', 'no-store');
       const json = (data, status = 200) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(data)); };
       try {
+        if (path === '/') { res.writeHead(302, { Location: '/fixture' }); res.end(); return; }
+        if (path === '/openapi.json' || path.startsWith('/api/test/')) return await testApi(req, res, url);
         if (path === '/api/stats') return json(hits);
         if (path === '/login') {
           res.setHeader('Set-Cookie', 'aw_fixture_session=local-test; HttpOnly; SameSite=Lax; Path=/');
@@ -64,6 +68,7 @@ export async function startFixtures() {
     servers.push(server);
   }
   console.log('Fixtures: http://127.0.0.1:4173/fixture and http://127.0.0.1:4174/fixture');
+  console.log('Test API: http://127.0.0.1:4173/api/test/echo · Import: http://127.0.0.1:4173/openapi.json');
   return () => Promise.all(servers.map(server => new Promise(resolve => { server.closeAllConnections(); server.close(resolve); })));
 }
 if (process.argv[1] === new URL(import.meta.url).pathname) await startFixtures();

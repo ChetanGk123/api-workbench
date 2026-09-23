@@ -1,5 +1,8 @@
 # Start developing API Workbench
 
+For the current local API playground, run `npm run server` and follow
+[the test server guide](docs/TEST_SERVER.md). The original development handoff follows.
+
 This is a development handoff containing the current plan, original UI references and the first implementation task. It contains no implemented bookmarklet and no completed browser tests.
 
 ## 1. Open the project
