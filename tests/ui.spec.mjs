@@ -139,7 +139,8 @@ test('UI tester history updates while the screen stays open', async ({ page }) =
   }
 });
 
-test('UI Home recorder supports capture, review and resetting the draft', async ({ page }) => {
+test('UI Record screen supports capture, review and resetting the draft', async ({ page }) => {
+  await panel(page).getByRole('button', { name: 'Record', exact: true }).click();
   await panel(page).getByRole('button', { name: 'Start recording', exact: true }).click();
   await page.evaluate(() => fetch('/api/fixture').then(response => response.text()));
   await panel(page).getByRole('button', { name: 'Stop recording', exact: true }).click();
@@ -148,6 +149,51 @@ test('UI Home recorder supports capture, review and resetting the draft', async 
   await panel(page).getByRole('button', { name: /Reset/i }).click();
   await expect(panel(page).getByText('/api/fixture', { exact: true })).toHaveCount(0);
   await expect(panel(page).getByRole('button', { name: 'Start recording', exact: true })).toBeEnabled();
+});
+
+test('UI Format JSON appears only when there is something to format, and rewrites in place', async ({ page }) => {
+  await panel(page).locator('.aw-tabs').getByRole('button', { name: 'Mock', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Add ad-hoc rule', exact: true }).click();
+  const body = panel(page).getByRole('textbox', { name: 'Body 1', exact: true });
+  const format = panel(page).getByRole('button', { name: 'Format JSON', exact: true });
+  // An empty body and a body that is not JSON have nothing to format.
+  await expect(format).toBeHidden();
+  await body.fill('{"a":1,');
+  await expect(format).toBeHidden();
+
+  await body.fill('{"a":1,"b":[2,3]}');
+  await expect(format).toBeVisible();
+  await format.click();
+  await expect(body).toHaveValue('{\n  "a": 1,\n  "b": [\n    2,\n    3\n  ]\n}');
+  // The validity line is driven by the input event, so formatting must fire it.
+  await expect(panel(page).getByText('Valid JSON.', { exact: true })).toBeVisible();
+  // Already indented: the control retires itself.
+  await expect(format).toBeHidden();
+});
+
+test('UI Format JSON is available on a recorded endpoint body and its response sample', async ({ page }) => {
+  await panel(page).getByRole('button', { name: 'Record', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Start recording', exact: true }).click();
+  await page.evaluate(() => fetch('/api/echo', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"sent":[1,2]}' }));
+  await panel(page).getByRole('button', { name: 'Stop recording', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'POST /api/echo' }).click();
+
+  const request = panel(page).getByRole('textbox', { name: 'Body', exact: true });
+  await expect(request).toHaveValue('{"sent":[1,2]}');
+  await panel(page).getByRole('button', { name: 'Format JSON', exact: true }).first().click();
+  await expect(request).toHaveValue('{\n  "sent": [\n    1,\n    2\n  ]\n}');
+
+  const sample = panel(page).locator('details').filter({ hasText: 'Response sample' });
+  await sample.locator('summary').click();
+  await sample.getByRole('button', { name: 'Format JSON', exact: true }).click();
+  await expect(sample.locator('pre.aw-code')).toContainText('"method": "POST"');
+  // The formatted sample is what Save keeps.
+  await panel(page).getByRole('button', { name: 'Save endpoint', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'POST /api/echo' }).click();
+  const reopened = panel(page).locator('details').filter({ hasText: 'Response sample' });
+  await reopened.locator('summary').click();
+  await expect(reopened.locator('pre.aw-code')).toContainText('"method": "POST"');
+  await expect(reopened.getByRole('button', { name: 'Format JSON', exact: true })).toBeHidden();
 });
 
 test('UI compact panel keeps navigation and close reachable while content scrolls', async ({ page }) => {

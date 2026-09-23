@@ -1,10 +1,11 @@
-import { el, icon, button, iconButton, card, caption, group, labeled, disclosure, type IconName } from "./dom"
+import { el, icon, button, iconButton, card, caption, group, labeled, labeledAction, formatJsonButton, disclosure, type IconName } from "./dom"
 import { type Endpoint, type HeaderValue, type Profile, type Rule, type RuleKind, type WorkbenchConfig } from "../core/model"
 import type { RuleActivity } from "../network/rules"
 import type { PausedEntry } from "../breakpoints/registry"
 import { chaosScreen, interceptScreen, mockScreen, routeScreen } from "./rule-screens"
 import type { OnceResult } from "../tester/once"
 import type { Recording } from "../recorder/recorder"
+import { candidatesFrom, type Candidate } from "../recorder/promote"
 
 export type ScreenId =
   | "home"
@@ -14,6 +15,7 @@ export type ScreenId =
   | "route"
   | "chaos"
   | "endpoints"
+  | "record"
   | "import"
   | "settings"
 
@@ -63,7 +65,11 @@ export type Ctx = {
   startRecording: () => void
   stopRecording: () => void
   resetRecorder: () => void
-  promoteRecording: (recording: Recording) => void
+  createProfileFromRecordings: (
+    name: string,
+    endpoints: Endpoint[],
+    hosts: Record<string, string>,
+  ) => void
   saveRule: (rule: Rule) => void
   deleteRule: (id: string) => void
   toggleRule: (id: string, enabled: boolean) => void
@@ -171,6 +177,19 @@ const SCREEN_DATA = {
       "Request editor with response sample and checks",
       "Global headers, presets and host mappings",
       "Promotion from recorded traffic (M4)",
+    ],
+  },
+  record: {
+    label: "Record",
+    icon: "record",
+    tab: false,
+    reference: "Import.html",
+    milestone: "M4",
+    summary: "Capture this frame's traffic and turn the selected calls into a profile.",
+    points: [
+      "Start/stop capture with a reviewable draft",
+      "Repeated calls collapse into one endpoint candidate",
+      "Edit any candidate, then create a profile from the selection",
     ],
   },
   import: {
@@ -362,36 +381,126 @@ function quickAction(ctx: Ctx, id: ScreenId): HTMLElement {
   return action
 }
 
-function recorderPanel(ctx: Ctx): HTMLElement {
-  const recorder = card()
+type Draft = Candidate & { selected: boolean }
+
+/**
+ * Review drafts live outside the screen so an edit survives leaving and re-entering Record. They
+ * are derived from the capture buffer, never the other way round: clearing them cannot touch a
+ * saved profile, and resetting the recorder clears them.
+ */
+const recordDrafts = new Map<string, Draft>()
+
+function recorderControls(ctx: Ctx): HTMLElement {
+  const controls = card()
   const status = el("span", "aw-bd aw-s")
   status.setAttribute("role", "status")
-  const rows = el("div", "aw-col aw-gap6")
   const start = button("aw-btn aw-pri aw-sm", "Start recording", ctx.startRecording, ctx.signal)
+  start.prepend(icon("record", "aw-i14"))
   const stop = button("aw-btn aw-out aw-sm", "Stop recording", ctx.stopRecording, ctx.signal)
-  const reset = button("aw-btn aw-gh aw-sm", "Reset recorder", ctx.resetRecorder, ctx.signal)
-  let previous: Readonly<UIState>["recordings"] | undefined
+  const reset = button("aw-btn aw-gh aw-sm", "Reset recorder", () => { recordDrafts.clear(); ctx.resetRecorder(); ctx.go("record") }, ctx.signal)
   ctx.watch(state => {
     status.textContent = state.recording ? `Recording · ${state.recordings.length} captured` : `${state.recordings.length} captured · reviewable draft`
     start.disabled = state.recording
     stop.disabled = !state.recording
     reset.disabled = state.recording || !state.recordings.length
+  })
+  controls.append(group("aw-row aw-actions", el("span", "aw-lbl", "Recorder"), status),
+    el("p", "aw-hint", "Captures this frame's fetch and XHR calls made after recording starts. Sensitive headers are redacted and bodies are bounded."),
+    group("aw-row aw-actions", start, stop, reset))
+  return controls
+}
+
+function recordScreen(ctx: Ctx): HTMLElement {
+  const screen = el("div", "aw-col aw-gap12")
+  const list = el("div", "aw-card aw-list")
+  list.setAttribute("aria-label", "Captured endpoints")
+  const notice = el("p", "aw-hint")
+  notice.setAttribute("role", "status")
+  const profileName = el("input", "aw-in aw-grow")
+  profileName.value = `Recorded ${location.hostname}`
+  profileName.setAttribute("aria-label", "New profile name")
+  let hosts: Record<string, string> = {}
+
+  const editDraft = (draft: Draft) => {
+    const editor = endpointEditor(ctx, draft.endpoint, {
+      peers: [...recordDrafts.values()].map(item => item.endpoint),
+      onSave: endpoint => recordDrafts.set(draft.key, { ...draft, endpoint }),
+      onClose: () => ctx.go("record"),
+    })
+    screen.replaceChildren(editor)
+    screen.closest(".aw-body")?.scrollTo(0, 0)
+    editor.querySelector<HTMLInputElement>('[aria-label="Name"]')?.focus({ preventScroll: true })
+  }
+
+  const draw = () => {
+    list.replaceChildren()
+    for (const draft of recordDrafts.values()) {
+      const select = el("input") as HTMLInputElement
+      select.type = "checkbox"
+      select.checked = draft.selected
+      select.setAttribute("aria-label", `Include ${draft.endpoint.name}`)
+      select.addEventListener("change", () => recordDrafts.set(draft.key, { ...recordDrafts.get(draft.key)!, selected: select.checked }), { signal: ctx.signal })
+      const name = button("aw-endpoint-name aw-grow aw-tr", draft.endpoint.name, () => editDraft(recordDrafts.get(draft.key) ?? draft), ctx.signal)
+      name.title = draft.endpoint.name
+      const sample = draft.endpoint.sampleResponse
+      const row = el("div", "aw-col aw-gap2 aw-endpoint-row")
+      row.append(group("aw-row aw-gap8", select, el("span", `aw-bd aw-m aw-${draft.endpoint.request.method}`, draft.endpoint.request.method), name,
+        el("span", "aw-xs aw-mu", draft.count > 1 ? `×${draft.count}` : ""),
+        el("span", "aw-xs aw-mu", sample ? String(sample.status) : "no response"),
+        iconButton("aw-btn aw-gh aw-ic aw-xs2", "edit", "Edit", () => editDraft(recordDrafts.get(draft.key) ?? draft), ctx.signal)))
+      const path = el("span", "aw-grow aw-tr aw-mono aw-xs aw-mu", draft.endpoint.request.path)
+      path.title = draft.endpoint.request.path
+      row.append(group("aw-row aw-endpoint-meta", path, el("span", "aw-xs aw-mu", draft.endpoint.hostKey)))
+      list.append(row)
+    }
+    if (!list.children.length) list.append(el("div", "aw-empty", "Nothing captured yet. Start recording, then use the page."))
+  }
+
+  let previous: Readonly<UIState>["recordings"] | undefined
+  ctx.watch(state => {
     if (previous === state.recordings) return
     previous = state.recordings
-    rows.replaceChildren()
-    for (const item of state.recordings.slice(-10).reverse()) {
-      const path = el("span", "aw-grow aw-tr aw-mono aw-xs", new URL(item.url).pathname)
-      path.title = item.url
-      rows.append(group("aw-row", el("span", `aw-bd aw-m aw-${item.method}`, item.method), path,
-        el("span", "aw-xs aw-mu", item.response ? String(item.response.status) : item.error ?? "pending"),
-        button("aw-btn aw-out aw-sm", "Promote", () => { ctx.promoteRecording(item); ctx.go("endpoints") }, ctx.signal)))
+    const derived = candidatesFrom(state.recordings, state.config.profile.id)
+    hosts = derived.hosts
+    const live = new Set<string>()
+    for (const candidate of derived.candidates) {
+      live.add(candidate.key)
+      const existing = recordDrafts.get(candidate.key)
+      // An edited draft keeps its edits; only the repeat count follows the capture buffer.
+      recordDrafts.set(candidate.key, existing ? { ...existing, count: candidate.count } : { ...candidate, selected: true })
     }
-    if (!rows.children.length) rows.append(el("div", "aw-empty", "Start recording, then use the page to capture requests."))
+    for (const key of [...recordDrafts.keys()]) if (!live.has(key)) recordDrafts.delete(key)
+    notice.textContent = derived.skipped ? `${derived.skipped} captured call${derived.skipped === 1 ? "" : "s"} cannot become an endpoint (unsupported method or URL).` : ""
+    draw()
   })
-  recorder.append(group("aw-row aw-actions", el("span", "aw-lbl", "Recorder"), status),
-    el("p", "aw-hint", "Captures future fetch/XHR traffic in this frame. Sensitive headers are redacted."),
-    group("aw-row aw-actions", start, stop, reset), rows)
-  return recorder
+
+  const setAll = (selected: boolean) => {
+    for (const [key, draft] of recordDrafts) recordDrafts.set(key, { ...draft, selected })
+    draw()
+  }
+  const create = button("aw-btn aw-pri aw-grow", "Create profile", () => {
+    const chosen = [...recordDrafts.values()].filter(draft => draft.selected)
+    if (!chosen.length) { notice.textContent = "Select at least one endpoint to create a profile."; return }
+    if (!profileName.value.trim()) { notice.textContent = "Enter a name for the new profile."; profileName.focus(); return }
+    if (ctx.state().recording) ctx.stopRecording()
+    ctx.createProfileFromRecordings(profileName.value, chosen.map(draft => draft.endpoint), hosts)
+    // The capture buffer is consumed by the commit, so a second commit cannot duplicate it.
+    recordDrafts.clear()
+    ctx.resetRecorder()
+    ctx.go("endpoints")
+  }, ctx.signal)
+
+  const selection = card()
+  selection.append(group("aw-row aw-actions", el("span", "aw-lbl aw-grow", "Captured endpoints"),
+    button("aw-btn aw-gh aw-sm", "Select all", () => setAll(true), ctx.signal),
+    button("aw-btn aw-gh aw-sm", "Clear", () => setAll(false), ctx.signal)),
+    el("p", "aw-hint", "Repeated calls to the same method and path are one endpoint. Edit any row before creating the profile."))
+  const commit = card()
+  commit.append(el("span", "aw-lbl", "Create a profile from the selected endpoints"),
+    group("aw-row", profileName), notice)
+  screen.append(recorderControls(ctx), selection, list, commit)
+  ctx.chrome({ actions: [create, button("aw-btn aw-out aw-grow", "Back", () => ctx.go("home"), ctx.signal)] })
+  return screen
 }
 
 function runHistory(ctx: Ctx): HTMLElement {
@@ -417,10 +526,10 @@ function home(ctx: Ctx): HTMLElement {
   const modules = el("div", "aw-col aw-gap12")
   for (const module of MODULES) modules.append(moduleCard(ctx, module))
   const quick = el("div", "aw-g3")
-  for (const id of ["endpoints", "import", "settings"] as const) quick.append(quickAction(ctx, id))
+  for (const id of ["endpoints", "record", "import", "settings"] as const) quick.append(quickAction(ctx, id))
   const experiment = disclosure("Fixture mock · developer controls", feasibility(ctx))
   experiment.open = true
-  screen.append(modules, caption("Quick actions"), quick, recorderPanel(ctx), caption("Run history"), runHistory(ctx), experiment)
+  screen.append(modules, caption("Quick actions"), quick, caption("Run history"), runHistory(ctx), experiment)
   return screen
 }
 
@@ -486,7 +595,16 @@ function field(
   return wrapper
 }
 
-function endpointEditor(ctx: Ctx, endpoint: Endpoint): HTMLElement {
+type EditorOptions = {
+  /** Endpoints the alias must stay unique against; defaults to the active profile's. */
+  peers?: Endpoint[]
+  /** Receives the edited endpoint instead of the profile store. */
+  onSave?: (endpoint: Endpoint) => void
+  /** Where Back, Cancel and Escape return to; defaults to the Endpoints screen. */
+  onClose?: () => void
+}
+
+function endpointEditor(ctx: Ctx, endpoint: Endpoint, options: EditorOptions = {}): HTMLElement {
   const section = el("div", "aw-col aw-gap12")
   const draft = { ...endpoint, request: { ...endpoint.request, headers: endpoint.request.headers.map(header => ({ ...header })) } }
   const name = el("input", "aw-in")
@@ -515,18 +633,19 @@ function endpointEditor(ctx: Ctx, endpoint: Endpoint): HTMLElement {
   body.placeholder = "Request body"
   const notice = el("p", "aw-hint")
   notice.setAttribute("role", "status")
-  const cancel = () => ctx.go("endpoints")
+  const cancel = options.onClose ?? (() => ctx.go("endpoints"))
   const save = () => {
     if (!name.value.trim() || !alias.value.trim() || !path.value.trim()) {
       notice.textContent = "Enter a name, alias and request path."
       return
     }
-    if (ctx.state().config.endpoints.some(item => item.id !== endpoint.id && item.alias === alias.value.trim())) {
+    const peers = options.peers ?? ctx.state().config.endpoints
+    if (peers.some(item => item.id !== endpoint.id && item.alias === alias.value.trim())) {
       notice.textContent = "Choose an alias that is unique to this profile."
       alias.focus()
       return
     }
-    ctx.updateEndpoint({ ...draft, name: name.value.trim(), alias: alias.value.trim(), hostKey: host.value.trim() || "default",
+    ;(options.onSave ?? ctx.updateEndpoint)({ ...draft, name: name.value.trim(), alias: alias.value.trim(), hostKey: host.value.trim() || "default",
       request: { ...draft.request, method: method.value as Endpoint["request"]["method"], path: path.value.trim(), body: body.value,
         bodyKind: body.value ? (endpoint.request.bodyKind === "none" ? "text" : endpoint.request.bodyKind) : "none",
         headers: draft.request.headers.filter(header => header.name.trim()) }, updatedAt: Date.now() })
@@ -536,8 +655,19 @@ function endpointEditor(ctx: Ctx, endpoint: Endpoint): HTMLElement {
   request.append(caption("Request"), group("aw-g2", labeled("Method", method), labeled("Path", path)),
     el("span", "aw-lbl", "Headers"), headerFields(ctx, draft.request.headers, headers => { draft.request.headers = headers }),
     disclosure(`Inherited from global · ${ctx.state().config.profile.globalHeaders.length}`,
-      el("pre", "aw-code aw-wrap", ctx.state().config.profile.globalHeaders.map(header => `${header.name}: ${header.value}`).join("\n") || "No global headers.")), labeled("Body", body))
-  const response = disclosure("Response sample", el("pre", "aw-code aw-wrap", endpoint.sampleResponse?.body ?? "No saved response sample. Record a request to capture one."))
+      el("pre", "aw-code aw-wrap", ctx.state().config.profile.globalHeaders.map(header => `${header.name}: ${header.value}`).join("\n") || "No global headers.")),
+    labeledAction("Body", body, formatJsonButton(body, ctx.signal)))
+  const sample = el("pre", "aw-code aw-wrap", endpoint.sampleResponse?.body ?? "No saved response sample. Record a request to capture one.")
+  // Formatting the sample edits the draft, so Save keeps the indented copy.
+  const formatSample = formatJsonButton({
+    read: () => draft.sampleResponse?.body ?? "",
+    write: value => {
+      draft.sampleResponse = { status: 0, headers: [], ...draft.sampleResponse, body: value }
+      sample.textContent = value
+    },
+  }, ctx.signal)
+  const response = disclosure("Response sample",
+    group("aw-row aw-actions", el("span", "aw-lbl aw-grow", "Body"), formatSample), sample)
   const checks = disclosure(`Checks · ${endpoint.checks.length}`, el("pre", "aw-code aw-wrap", JSON.stringify(endpoint.checks, null, 2)))
   section.append(group("aw-row", el("span", "aw-h aw-grow", "Edit endpoint"), el("span", `aw-bd aw-m aw-${endpoint.request.method}`, endpoint.request.method)),
     group("aw-g2", labeled("Name", name), labeled("Alias", alias)), request, response, checks,
@@ -756,7 +886,7 @@ function importScreen(ctx: Ctx): HTMLElement {
     if (!error) ctx.go("settings")
   }, ctx.signal)
   const input = card()
-  input.append(labeled("Paste or load native JSON", source), group("aw-row aw-actions", commit, chooseFile), status)
+  input.append(labeledAction("Paste or load native JSON", source, formatJsonButton(source, ctx.signal)), group("aw-row aw-actions", commit, chooseFile), status)
   const formats = card()
   formats.append(el("div", "aw-lbl", "Supported formats"))
   // Colours follow the reference legend; only the green formats are wired up in this build.
@@ -766,7 +896,12 @@ function importScreen(ctx: Ctx): HTMLElement {
     ["Recorder", "Current-frame fetch / XHR", "aw-gr"], ["cURL", "DevTools copy · coming later", ""],
     ["fetch()", "DevTools copy · coming later", ""],
   ] as const) formats.append(group("aw-row aw-xs aw-format", el("span", `aw-bd ${tone}`, format), el("span", "aw-mu aw-grow", note)))
-  screen.append(recorderPanel(ctx), input, formats)
+  const recorder = card()
+  const openRecorder = button("aw-btn aw-out", "Open recorder", () => ctx.go("record"), ctx.signal)
+  openRecorder.prepend(icon("record", "aw-i14"))
+  recorder.append(group("aw-row aw-actions", el("span", "aw-lbl aw-grow", "Record this page"), openRecorder),
+    el("p", "aw-hint", "Capture this frame's fetch and XHR traffic, then create a profile from the calls you select."))
+  screen.append(recorder, input, formats)
   return screen
 }
 
@@ -775,6 +910,7 @@ export function renderScreen(ctx: Ctx, id: ScreenId): HTMLElement {
   if (id === "test") return tester(ctx)
   if (id === "endpoints") return endpoints(ctx)
   if (id === "settings") return settings(ctx)
+  if (id === "record") return recordScreen(ctx)
   if (id === "import") return importScreen(ctx)
   if (id === "mock") return mockScreen(ctx)
   if (id === "chaos") return chaosScreen(ctx)

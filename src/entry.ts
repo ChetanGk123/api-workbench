@@ -15,7 +15,7 @@ import {
 } from "./core/model"
 import { importConfig as parseConfig, loadConfig, saveConfig, exportConfig } from "./core/storage"
 import { executeOnce } from "./tester/once"
-import { createRecorder, type Recording } from "./recorder/recorder"
+import { createRecorder } from "./recorder/recorder"
 import { createBreakpoints } from "./breakpoints/registry"
 
 const version = "0.1.0-m7"
@@ -230,36 +230,35 @@ if (existing) {
     nextRuleSeq: () =>
       rulesOf(store.state.config).reduce((highest, rule) => Math.max(highest, rule.seq), 0) + 1,
     continueAllPaused: () => breakpoints.continueAll(),
-    promoteRecording: (recording: Recording) => {
-      const url = new URL(recording.url)
-      const endpoint: Endpoint = {
-        ...defaultEndpoint(store.state.config.profile.id),
-        name: `${recording.method} ${url.pathname}`,
-        alias: `recorded_${url.pathname.split("/").filter(Boolean).join("_") || "root"}`,
-        request: {
-          ...defaultEndpoint(store.state.config.profile.id).request,
-          method: (recording.method === "CONNECT"
-            ? "GET"
-            : recording.method) as Endpoint["request"]["method"],
-          path: `${url.pathname}${url.search}`,
-          headers: Object.entries(recording.headers)
-            .filter(([, value]) => value !== "[REDACTED]")
-            .map(([name, value]) => ({ name, value })),
-          bodyKind: recording.body ? "text" : "none",
-          body: recording.body ?? "",
-        },
-        sampleResponse: recording.response?.body
-          ? {
-              status: recording.response.status,
-              headers: Object.entries(recording.response.headers).map(([name, value]) => ({
-                name,
-                value,
-              })),
-              body: recording.response.body,
-            }
-          : undefined,
+    createProfileFromRecordings: (name, endpoints, hosts) => {
+      const config = store.state.config
+      const now = Date.now()
+      const profile: Profile = {
+        ...defaultProfile(),
+        id: createId("profile"),
+        name: name.trim() || "Recorded",
+        createdAt: now,
+        updatedAt: now,
+        // Recorded hosts become the environment map, so recorded paths resolve without setup.
+        environments: { default: { default: location.origin, ...hosts } },
+        activeEnvironment: "default",
       }
-      persist({ ...store.state.config, endpoints: [...store.state.config.endpoints, endpoint] })
+      const owned = endpoints.map((endpoint) => ({ ...endpoint, profileId: profile.id }))
+      // Activating the new profile replaces the live one, so an unsaved current profile is
+      // snapshotted first: creating a profile must not discard existing endpoints or rules.
+      const savedProfiles = [...(config.savedProfiles ?? [])]
+      if (!savedProfiles.some((item) => item.profile.id === config.profile.id))
+        savedProfiles.push({
+          profile: config.profile,
+          endpoints: config.endpoints,
+          rules: rulesOf(config),
+        })
+      savedProfiles.push({ profile, endpoints: owned, rules: [] })
+      pipeline.setRules([])
+      pipeline.engine.resetAll()
+      persist({ profile, endpoints: owned, rules: [], savedProfiles })
+      store.set({ matched: [] })
+      syncRuleStats()
     },
   })
 

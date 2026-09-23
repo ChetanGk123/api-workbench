@@ -2,11 +2,12 @@
 
 ## Current state
 
-M0–M7 are implemented and verified in Chrome by automated checks (88 checks). Saved-bookmark
+M0–M7 are implemented and verified in Chrome by automated checks (95 checks). Saved-bookmark
 installation and all Edge checks remain outstanding for every milestone.
 
-Current assigned work: M7 breakpoints complete and verified in Chrome. M8 (Flow/Independent repeat
-runner) is next.
+Current assigned work: M7 breakpoints complete and verified in Chrome, plus the M4 recorder review
+flow rework (own screen, selection, per-candidate editing, profile creation). M8 (Flow/Independent
+repeat runner) is next.
 
 ### Milestone status
 
@@ -19,13 +20,147 @@ when a later milestone lands.
 | M1 — Foundation and panel | CODE COMPLETE · automated gates PASS in Chrome · saved-bookmark and Edge checks NOT RUN |
 | M2 — Transport/rule core | CODE COMPLETE · automated gates PASS in Chrome · browser fixture and build checks verified |
 | M3 — Endpoints, profiles and tester | CODE COMPLETE · automated gates PASS in Chrome · saved-bookmark and Edge checks NOT RUN |
-| M4 — Recorder | CODE COMPLETE · focused unit and Chrome browser gates PASS · saved-bookmark, Edge, XHR and durable recovery checks NOT RUN |
+| M4 — Recorder | CODE COMPLETE · review flow reworked 2026-09-23 · focused unit and Chrome browser gates PASS · saved-bookmark, Edge and durable recovery checks NOT RUN |
 | M5 — Mock and chaos | CODE COMPLETE · all M5 acceptance gates PASS in Chrome · saved-bookmark and Edge checks NOT RUN |
 | M6 — Intercept and routing | CODE COMPLETE · all M6 acceptance gates PASS in Chrome (70 checks) · saved-bookmark and Edge checks NOT RUN |
 | M7 — Breakpoints | CODE COMPLETE · all M7 acceptance gates PASS in Chrome (88 checks) · saved-bookmark and Edge checks NOT RUN |
 | M8 — Flow/Independent runs | NOT STARTED |
 | M9 — Complete import support | NOT STARTED |
 | M10 — Integrated release | NOT STARTED |
+
+## 2026-09-23 — Format JSON: response sample included, control hidden when it has no work
+
+**Scope.** Follow-up to the entry below, on the user's instruction: the endpoint editor's response
+sample had no Format control, and the button should only appear when there is something to format.
+
+**Changed files.**
+
+- `src/ui/dom.ts` — `formatJsonButton` now hides itself unless the field holds JSON whose indented
+  form differs from what is there, so empty, non-JSON and already-indented content show no control
+  and clicking can never be a no-op or a refusal. The `notice` parameter is gone with the refusal
+  paths it served. The target may now be a textarea or a `JsonField` (`read`/`write`) so read-only
+  text the editor owns can use the same control.
+- `src/ui/screens.ts` — the response sample disclosure gained the control; formatting it rewrites
+  the draft's `sampleResponse.body`, so Save keeps the indented copy rather than only redrawing it.
+- `src/ui/rule-screens.ts`, `src/ui/screens.ts` — call sites dropped the removed argument.
+- `tests/ui.spec.mjs` — visibility across empty/invalid/valid/already-formatted states, and a
+  recorded endpoint's request body and response sample, including that the formatted sample
+  survives Save and reopening.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` -> exit 0.
+- `npm test` -> 95 passed, 0 failed. Chrome 153.0.8010.53, macOS darwin 25.6.0, Node v24.21.0,
+  Playwright 1.63.0.
+
+**Verification.** In the mock editor the control is absent for an empty body and for `{"a":1,`,
+appears for `{"a":1,"b":[2,3]}`, indents it, leaves "Valid JSON." showing, then retires itself.
+On a recorded `POST /api/echo` endpoint both the request body and the response sample format, and
+the saved endpoint still shows the indented sample after reopening. Screenshot check of both
+controls in the endpoint editor.
+
+**Limitations.** Visibility is evaluated on `input`/`change` for textareas and on write for the
+sample; nothing else mutates those fields. The chaos fault body remains a single-line input with no
+control, as before.
+
+## 2026-09-23 — Format JSON control on every editable JSON field
+
+**Scope.** UI affordance requested while reviewing the mock rule editor: one button that pretty-
+prints the JSON a field already holds. No behaviour of the rules, recorder or transport changed.
+
+**Changed files.**
+
+- `src/ui/dom.ts` — `formatJsonButton` and `labeledAction`. The button reformats in place with
+  `JSON.stringify(JSON.parse(value), null, 2)`; empty or invalid content is left exactly as typed
+  and reported through the field's existing status line, so it cannot discard a body still being
+  written. It fires `input` and `change` afterwards because the validity lines and draft bindings
+  listen for those, not for assignment, and it starts disabled when its field is disabled.
+  `labeledAction` puts the control on the label row, outside the `<label>` element.
+- `src/ui/rule-screens.ts` — mock response body (every slot), JSON Patch raw editor, paused-request
+  body editor.
+- `src/ui/screens.ts` — endpoint request body, Import paste box.
+- `tests/ui.spec.mjs` — valid body is rewritten and revalidated, invalid body is untouched with a
+  notice, and the same control works on the endpoint request body.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` -> exit 0.
+- `npm test` -> 94 passed, 0 failed. Chrome 153.0.8010.53, macOS darwin 25.6.0, Node v24.21.0,
+  Playwright 1.63.0.
+
+**Verification.** In the mock editor a minified body becomes indented JSON and the validity line
+turns to "Valid JSON."; a truncated body is left byte-for-byte unchanged with "Not valid JSON —
+left unchanged." Screenshot check of the label row layout in the mock rule editor.
+
+**Limitations.** The chaos fault body is a single-line text input, so it has no Format control;
+formatting it would insert newlines into a one-line field. Read-only JSON (the Settings export box,
+recorded response samples) is already pretty-printed or displayed as captured and was not touched.
+Formatting a paused request's body changes the bytes that request will send — it is an explicit,
+opt-in action on an editable field.
+
+## 2026-09-23 — M4 recorder review flow: own screen, selection and profile creation
+
+**Scope.** Reworked how a capture session becomes configuration, on the user's instruction: the
+recorder moves off Home to its own screen, a stopped session is reviewed as selectable endpoint
+candidates (all selected by default), each candidate is editable before commit, and the selection
+creates a new profile. No other milestone's work was touched.
+
+**Changed files.**
+
+- `src/recorder/promote.ts` (new) — `endpointFromRecording` and `candidatesFrom`. Pure conversion
+  from bounded recordings to endpoint drafts: repeated calls to one method and pathname collapse to
+  one candidate (latest call wins, count kept), aliases are made unique within the set, `[REDACTED]`
+  header values are dropped rather than replayed, request body kind follows the recorded
+  content-type, and third-party origins become host keys with an origin map for the new profile's
+  environment. A record whose method is outside the endpoint model or whose URL will not parse is
+  reported as skipped, not silently converted.
+- `src/ui/screens.ts` — new `record` screen (recorder controls, candidate list with checkboxes,
+  per-row edit, profile-name field, Create profile footer action); review drafts live in a
+  module-level map so an edit survives leaving and re-entering the screen; Home gained a Record
+  quick action and lost the recorder panel; Import's recorder entry point is now a link to the
+  screen; `endpointEditor` takes optional peers/onSave/onClose so the same editor edits an
+  uncommitted draft.
+- `src/entry.ts` — `createProfileFromRecordings` replaces the single-record `promoteRecording`. It
+  builds a profile whose environment map holds the recorded origins, reassigns endpoint ownership,
+  clears rules and cursors like a profile switch, and snapshots the outgoing profile first when it
+  is not already saved, so activating the new profile cannot discard unsaved endpoints or rules.
+- `src/ui/shell.ts`, `src/ui/dom.ts` — context plumbing for the new action; a `record` icon.
+- `tests/m4-core.spec.mjs` (new), `tests/m4.spec.mjs`, `tests/ui.spec.mjs` — unit coverage for the
+  converter and browser coverage for capture -> select -> edit -> create profile, including the
+  persisted configuration read back from IndexedDB.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` -> exit 0.
+- `npm run build` -> exit 0. Final bundle: raw 260,172 B, minified 151,286 B, encoded bookmark URL
+  214,772 characters.
+- `npx playwright test tests/m4-core.spec.mjs` -> 4 passed, 0 failed.
+- `npm test` -> 93 passed, 0 failed. Chrome 153.0.8010.53, macOS darwin 25.6.0, Node v24.21.0,
+  Playwright 1.63.0.
+
+**Verification.** Recording three fixture calls (two to one path) yields two candidates with a ×2
+repeat marker and both checkboxes checked; unchecking one and creating a profile writes exactly the
+selected endpoint to IndexedDB with the new profile's id, the latest recorded query string and the
+page origin as the default environment host. Editing a candidate's name and path before commit is
+what the created profile receives. Redaction, XHR capture and draft recovery after relaunch still
+hold on the new screen.
+
+**Not run.** Saved-bookmark installation, Edge, and manual quota-failure checks.
+
+**Known issue found, not fixed.** `node --test tests/m2-core.spec.mjs` fails on this commit and on
+HEAD before it: `src/` uses extensionless relative imports since the Prettier reformat, which
+Node's ESM resolver rejects. That file is also outside Playwright's collected set, so its assertions
+currently run nowhere. New unit coverage was therefore added under the Playwright runner
+(`tests/m4-core.spec.mjs`), matching `m5-core`/`m6-core`/`m7-core`.
+
+**Limitations.** Candidates are grouped by method and pathname only; distinct bodies on the same
+path are not kept separately and no transient-query-parameter suggestion is offered. There is no
+"add to the current profile" path any more — a capture session always creates a new profile.
+Creating a profile consumes the capture buffer (recorder reset) so a second commit cannot duplicate
+it. Review drafts are session state and are not written to recovery storage; only the underlying
+records are.
+
+**Next task.** M8 Flow/Independent repeat runner.
 
 ## 2026-09-23 — M7 breakpoints
 

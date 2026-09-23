@@ -1,4 +1,4 @@
-import { el, icon, button, iconButton, card, caption, group, labeled, disclosure } from "./dom"
+import { el, icon, button, iconButton, card, caption, group, labeled, labeledAction, formatJsonButton, disclosure } from "./dom"
 import {
   CHAOS_PRESETS,
   defaultInterceptRule,
@@ -404,7 +404,7 @@ function slotFields(ctx: Ctx, slot: MockSlot, index: number, onRemove?: () => vo
   wrapper.append(
     head,
     group("aw-g3", status.field, delay.field, fault.field),
-    labeled(`Body ${index + 1}`, body),
+    labeledAction(`Body ${index + 1}`, body, formatJsonButton(body, ctx.signal)),
     validity,
     labeled(`Response headers ${index + 1}`, headers),
     el(
@@ -1019,7 +1019,7 @@ function patchEditor(ctx: Ctx, transform: Transform, stage: "Request" | "Respons
     group("aw-row", el("span", "aw-h aw-cap aw-grow", `${stage} JSON Patch`), load),
     rows,
     add,
-    labeled("Raw JSON", raw),
+    labeledAction("Raw JSON", raw, formatJsonButton(raw, ctx.signal)),
     status,
     paths,
   )
@@ -1174,7 +1174,7 @@ function pausedCard(ctx: Ctx, entry: PausedEntry) {
     stale,
     ...(entry.stage === "response" ? [status.field] : []),
     labeled(`${stage} headers`, headers),
-    labeled(`${stage} body`, body),
+    labeledAction(`${stage} body`, body, formatJsonButton(body, ctx.signal)),
     entry.bodyEditable
       ? el("p", "aw-hint", "Edits here are the final explicit override for this one request.")
       : el("p", "aw-hint", entry.bodyReason ?? "This body cannot be edited at this stage."),

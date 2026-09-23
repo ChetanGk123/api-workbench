@@ -106,6 +106,7 @@ export const ICONS = {
   ],
   list: [p("m3 17 2 2 4-4"), p("m3 7 2 2 4-4"), p("M13 6h8"), p("M13 12h8"), p("M13 18h8")],
   check: [p("M20 6 9 17l-5-5")],
+  record: [circle("12", "12", "9"), circle("12", "12", "4")],
   globe: [
     circle("12", "12", "10"),
     p("M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"),
@@ -316,6 +317,63 @@ export function labeled(label: string, input: HTMLElement): HTMLElement {
   const wrapper = el("label", "aw-fld")
   wrapper.append(el("span", "aw-lbl", label), input)
   return wrapper
+}
+
+/** `labeled()` with a control beside the label; the action stays outside the <label> element. */
+export function labeledAction(label: string, input: HTMLElement, action: HTMLElement): HTMLElement {
+  const wrapper = el("div", "aw-fld")
+  wrapper.append(group("aw-row aw-actions", el("span", "aw-lbl aw-grow", label), action), input)
+  return wrapper
+}
+
+/** The indented form of `value`, or null when it is not JSON or is already indented. */
+function prettyJson(value: string): string | null {
+  if (!value.trim()) return null
+  let pretty: string
+  try {
+    pretty = JSON.stringify(JSON.parse(value), null, 2)
+  } catch {
+    return null
+  }
+  return pretty === value ? null : pretty
+}
+
+/** A non-textarea target: the caller reads and writes the text itself. */
+export type JsonField = { read: () => string; write: (value: string) => void }
+
+/**
+ * Reformats a field's JSON in place. The button is shown only while it would actually change
+ * something — empty, non-JSON and already-indented content hide it — so it can never discard a
+ * body that is still being written, and it disappears once its work is done.
+ */
+export function formatJsonButton(
+  target: HTMLTextAreaElement | JsonField,
+  signal: AbortSignal,
+): HTMLButtonElement {
+  const textarea = target instanceof HTMLTextAreaElement ? target : undefined
+  const read = textarea ? () => textarea.value : (target as JsonField).read
+  const write = textarea
+    ? (value: string) => {
+        textarea.value = value
+        // Validators and draft bindings listen for input or change; assigning value fires neither.
+        textarea.dispatchEvent(new Event("input", { bubbles: true }))
+        textarea.dispatchEvent(new Event("change", { bubbles: true }))
+      }
+    : (target as JsonField).write
+  const sync = () => {
+    format.hidden = !!textarea?.disabled || prettyJson(read()) === null
+  }
+  const format = button("aw-btn aw-gh aw-xs2", "Format JSON", () => {
+    const pretty = prettyJson(read())
+    if (pretty !== null) write(pretty)
+    sync()
+  }, signal)
+  if (textarea) {
+    textarea.addEventListener("input", sync, { signal })
+    textarea.addEventListener("change", sync, { signal })
+  }
+  sync()
+  return format
 }
 
 export function disclosure(title: string, ...children: Node[]): HTMLDetailsElement {
