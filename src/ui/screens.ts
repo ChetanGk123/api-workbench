@@ -1,4 +1,4 @@
-import { el, icon, button, type IconName } from './dom';
+import { el, icon, button, iconButton, type IconName } from './dom';
 import { type Endpoint, type Profile, type WorkbenchConfig } from '../core/model';
 import type { OnceResult } from '../tester/once';
 import type { Recording } from '../recorder/recorder';
@@ -38,6 +38,7 @@ export type Ctx = {
   saveProfileAs: (name: string) => void;
   selectProfile: (id: string) => void;
   importConfig: (serialized: string) => string | undefined;
+  reorderEndpoint: (id: string, direction: 'up' | 'down') => void;
   startRecording: () => void;
   stopRecording: () => void;
   resetRecorder: () => void;
@@ -266,29 +267,66 @@ function endpoints(ctx: Ctx): HTMLElement {
   const screen = el('div', 'aw-col aw-gap12');
   const config = ctx.state().config;
   const headers = el('section', 'aw-card aw-cp aw-col aw-gap10');
+  const headersTitle = button('aw-coll', '', () => {}, ctx.signal);
+  headersTitle.append(icon('down'), el('span', 'aw-lbl', 'Global headers'), el('span', 'aw-bd aw-s', String(config.profile.globalHeaders.length)), el('span', 'aw-xs aw-mu', 'Applied to all requests'));
   const globalRows = el('div', 'aw-col aw-gap6');
-  for (const header of config.profile.globalHeaders) globalRows.append(el('div', 'aw-row aw-mono aw-xs', `${header.name}: ${header.value}`));
-  const globalName = el('input', 'aw-in aw-mono') as HTMLInputElement; globalName.placeholder = 'Header name';
+  for (const [index, header] of config.profile.globalHeaders.entries()) {
+    const name = el('input', 'aw-in aw-mono') as HTMLInputElement; name.value = header.name; name.setAttribute('aria-label', 'Header name');
+    const value = el('input', 'aw-in aw-mono aw-grow') as HTMLInputElement; value.value = header.value; value.setAttribute('aria-label', 'Header value');
+    const remove = button('aw-btn aw-gh aw-ic', '', () => {
+      ctx.updateProfile({ ...config.profile, globalHeaders: config.profile.globalHeaders.filter((_, itemIndex) => itemIndex !== index), updatedAt: Date.now(), revision: config.profile.revision + 1 });
+      ctx.go('endpoints');
+    }, ctx.signal); remove.setAttribute('aria-label', 'Remove header'); remove.title = 'Remove header'; remove.append(icon('close'));
+    const saveHeader = () => {
+      const globalHeaders = config.profile.globalHeaders.map((item, itemIndex) => itemIndex === index ? { ...item, name: name.value, value: value.value } : item);
+      ctx.updateProfile({ ...config.profile, globalHeaders, updatedAt: Date.now(), revision: config.profile.revision + 1 });
+    };
+    name.addEventListener('change', saveHeader, { signal: ctx.signal }); value.addEventListener('change', saveHeader, { signal: ctx.signal });
+    globalRows.append(group('aw-row aw-gap6', name, value, remove));
+  }
+  const globalName = el('input', 'aw-in aw-mono aw-grow') as HTMLInputElement; globalName.placeholder = 'Header name';
   const globalValue = el('input', 'aw-in aw-mono aw-grow') as HTMLInputElement; globalValue.placeholder = 'Header value';
   const addGlobal = button('aw-btn aw-out aw-sm', 'Add header', () => {
     if (!globalName.value.trim()) return;
     ctx.updateProfile({ ...config.profile, globalHeaders: [...config.profile.globalHeaders, { name: globalName.value, value: globalValue.value }], updatedAt: Date.now(), revision: config.profile.revision + 1 });
     ctx.go('endpoints');
   }, ctx.signal);
-  headers.append(group('aw-row', el('span', 'aw-lbl', 'Global headers'), el('span', 'aw-bd aw-s', String(config.profile.globalHeaders.length))), globalRows, group('aw-row', globalName, globalValue, addGlobal));
+  addGlobal.prepend(icon('plus'));
+  const presets = el('button', 'aw-sel') as HTMLButtonElement; presets.type = 'button'; presets.style.width = '124px'; presets.append(el('span', 'aw-mu', 'Presets...'), icon('selector', 'aw-i12'));
+  const promote = button('aw-btn aw-out aw-sm', 'Promote common', () => {}, ctx.signal); promote.prepend(icon('download'));
+  headers.append(headersTitle, globalRows, group('aw-row aw-gap6', addGlobal, presets, promote));
   const title = el('div', 'aw-row');
   title.append(el('span', 'aw-h', 'Endpoints'));
-  title.append(el('span', 'aw-bd aw-s', String(config.endpoints.length)), el('span', 'aw-grow'), button('aw-btn aw-pri aw-sm', 'Add endpoint', () => { ctx.addEndpoint(); ctx.go('endpoints'); }, ctx.signal));
+  title.append(el('span', 'aw-bd aw-s', String(config.endpoints.length)), el('span', 'aw-grow'));
+  const addEndpoint = button('aw-btn aw-pri aw-sm', 'Add endpoint', () => { ctx.addEndpoint(); ctx.go('endpoints'); }, ctx.signal); addEndpoint.prepend(icon('plus')); title.append(addEndpoint);
   const list = el('div', 'aw-card aw-list');
-  for (const endpoint of config.endpoints) {
-    const row = el('div', 'aw-col aw-gap4', '');
+  for (const [index, endpoint] of config.endpoints.entries()) {
+    const row = el('div', 'aw-col aw-gap2 aw-endpoint-row');
     const line = el('div', 'aw-row aw-gap8');
     line.append(el('span', `aw-bd aw-m aw-${endpoint.request.method}`, endpoint.request.method), el('span', 'aw-grow aw-tr', endpoint.name));
-    line.append(button('aw-btn aw-gh aw-sm', 'Edit', () => { screen.replaceChildren(headers, title, list, endpointEditor(ctx, endpoint)); }, ctx.signal));
-    line.append(button('aw-btn aw-dst aw-sm', 'Delete', () => { ctx.deleteEndpoint(endpoint.id); ctx.go('endpoints'); }, ctx.signal));
-    row.append(line, el('div', 'aw-mono aw-xs aw-mu', `${endpoint.hostKey}${endpoint.request.path} · ${endpoint.alias}`)); list.append(row);
+    const moveUp = iconButton('aw-btn aw-gh aw-ic aw-xs2', 'up', 'Move up', () => ctx.reorderEndpoint(endpoint.id, 'up'), ctx.signal); moveUp.disabled = index === 0;
+    const moveDown = iconButton('aw-btn aw-gh aw-ic aw-xs2', 'down', 'Move down', () => ctx.reorderEndpoint(endpoint.id, 'down'), ctx.signal); moveDown.disabled = index === config.endpoints.length - 1;
+    const edit = iconButton('aw-btn aw-gh aw-ic aw-xs2', 'edit', 'Edit', () => { screen.replaceChildren(headers, title, list, endpointEditor(ctx, endpoint)); }, ctx.signal);
+    const remove = iconButton('aw-btn aw-gh aw-ic aw-xs2', 'trash', 'Delete', () => { ctx.deleteEndpoint(endpoint.id); ctx.go('endpoints'); }, ctx.signal);
+    line.append(moveUp, moveDown, edit, remove);
+    const meta = el('div', 'aw-row aw-gap8'); meta.append(el('span', 'aw-grow aw-tr aw-mono aw-xs aw-mu', `${endpoint.request.path}`));
+    const checks = el('span', 'aw-row aw-mono aw-xs aw-mu'); checks.append(icon('list', 'aw-i12'), document.createTextNode(String(endpoint.checks.length)));
+    meta.append(checks);
+    row.append(line, meta); list.append(row);
   }
-  screen.append(headers, title, list, button('aw-btn aw-out aw-sm aw-self', 'Back to Home', () => ctx.go('home'), ctx.signal));
+  const environments = card();
+  const activeEnvironment = config.profile.activeEnvironment;
+  const mappedHosts = Object.entries(config.profile.environments[activeEnvironment] ?? {}).filter(([, origin]) => origin);
+  const envTitle = button('aw-coll', '', () => {}, ctx.signal); envTitle.append(icon('down'), icon('globe'), el('span', 'aw-lbl', 'Base URLs'), el('span', 'aw-xs aw-mu', `${mappedHosts.length || 1} host · ${Object.keys(config.profile.environments).length} env`));
+  const currentOrigin = mappedHosts[0]?.[1] ?? 'Auto-detect from page origin';
+  const envRow = group('aw-row', el('span', 'aw-lbl aw-env-label', 'Environment'), group('aw-sel aw-grow', el('span', 'aw-mono aw-xs', currentOrigin), el('span', 'aw-bd aw-gr', 'current'), icon('selector', 'aw-i12')));
+  const defaultRow = group('aw-row aw-xs', el('span', 'aw-mono', 'default'), el('span', 'aw-mu', 'Auto-detect from page origin'));
+  const hostInput = el('input', 'aw-in aw-mono aw-grow') as HTMLInputElement; hostInput.placeholder = 'host_key';
+  const addHost = button('aw-btn aw-out', 'Add host', () => ctx.go('settings'), ctx.signal); addHost.prepend(icon('plus'));
+  const originInput = el('input', 'aw-in aw-mono aw-grow') as HTMLInputElement; originInput.placeholder = 'Environment origin';
+  const addEnv = button('aw-btn aw-out', 'Add env', () => ctx.go('settings'), ctx.signal); addEnv.prepend(icon('plus'));
+  environments.append(envTitle, envRow, defaultRow, el('div', 'aw-sep'), group('aw-row aw-gap6', hostInput, addHost), group('aw-row aw-gap6', originInput, addEnv));
+  screen.append(headers, title, list, environments);
   return screen;
 }
 

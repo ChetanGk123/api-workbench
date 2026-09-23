@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "profile": {
+    "id": "import-demo",
+    "name": "Import Demo",
+    "revision": 1,
+    "createdAt": 1727049600000,
+    "updatedAt": 1727049600000,
+    "environments": {
+      "default": {
+        "default": ""
+      }
+    },
+    "activeEnvironment": "default",
+    "globalHeaders": [
+      {
+        "name": "X-Workbench-Import",
+        "value": "demo"
+      }
+    ],
+    "settings": {
+      "bodyLimitKb": 1024,
+      "enabledModules": {
+        "test": true,
+        "mock": true,
+        "intercept": true,
+        "route": true,
+        "chaos": true
+      }
+    }
+  },
+  "endpoints": [
+    {
+      "id": "endpoint-import-fixture",
+      "profileId": "import-demo",
+      "alias": "fixture_health",
+      "name": "Imported fixture health",
+      "hostKey": "default",
+      "request": {
+        "method": "GET",
+        "path": "/api/fixture",
+        "headers": [],
+        "bodyKind": "none",
+        "body": "",
+        "credentials": "same-origin"
+      },
+      "checks": [
+        {
+          "kind": "status",
+          "value": {
+            "min": 200,
+            "max": 299
+          }
+        },
+        {
+          "kind": "body-contains",
+          "value": "fixture"
+        }
+      ],
+      "sampleResponse": {
+        "status": 200,
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": "{\"fixture\":true}"
+      },
+      "createdAt": 1727049600000,
+      "updatedAt": 1727049600000
+    },
+    {
+      "id": "endpoint-import-echo",
+      "profileId": "import-demo",
+      "alias": "echo_payload",
+      "name": "Imported echo payload",
+      "hostKey": "default",
+      "request": {
+        "method": "POST",
+        "path": "/api/echo",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "bodyKind": "json",
+        "body": "{\"message\":\"hello from import\"}",
+        "credentials": "same-origin"
+      },
+      "checks": [
+        {
+          "kind": "status",
+          "value": 200
+        },
+        {
+          "kind": "json",
+          "path": "$.message",
+          "mode": "exists"
+        }
+      ],
+      "createdAt": 1727049600000,
+      "updatedAt": 1727049600000
+    }
+  ],
+  "savedProfiles": []
+}

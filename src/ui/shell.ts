@@ -1,6 +1,6 @@
 import theme from '../../design/reference/aw-theme.css';
 import additions from './theme.css';
-import { el, icon, iconButton } from './dom';
+import { el, icon, button, iconButton } from './dom';
 import type { Store } from '../core/store';
 import { SCREENS, TABS, renderScreen, type Ctx, type ScreenId, type UIState } from './screens';
 
@@ -19,6 +19,7 @@ export type ShellOptions = {
   saveProfileAs: Ctx['saveProfileAs'];
   selectProfile: Ctx['selectProfile'];
   importConfig: Ctx['importConfig'];
+  reorderEndpoint: Ctx['reorderEndpoint'];
   startRecording: Ctx['startRecording'];
   stopRecording: Ctx['stopRecording'];
   resetRecorder: Ctx['resetRecorder'];
@@ -83,11 +84,19 @@ export function createShell(options: ShellOptions) {
   }
   nav.append(list);
 
+  const subheader = el('div', 'aw-sub');
+  const back = button('aw-btn aw-gh aw-sm', 'Back', () => go('home'), signal); back.setAttribute('aria-label', 'Back to Home'); back.prepend(icon('back', 'aw-i14'));
+  const subTitle = el('div', 'aw-row');
+  subTitle.append(icon('book', 'aw-i14'), el('span', '', 'Endpoints'));
+  subTitle.classList.add('aw-subtitle');
+  const subTest = iconButton('aw-btn aw-gh aw-ic aw-sm', 'flask', 'Test', () => go('test'), signal);
+  subheader.append(back, subTitle, subTest);
+
   const body = el('main', 'aw-body');
   const footer = el('footer', 'aw-foot');
   const counter = el('span', 'aw-xs aw-mu aw-grow aw-tr');
   footer.append(el('span', 'aw-bd aw-s', options.version), counter);
-  panel.append(header, nav, body, footer);
+  panel.append(header, nav, subheader, body, footer);
 
   // Minimized launcher
   const launcherState = el('span', 'aw-bd');
@@ -118,6 +127,7 @@ export function createShell(options: ShellOptions) {
     saveProfileAs: options.saveProfileAs,
     selectProfile: options.selectProfile,
     importConfig: options.importConfig,
+    reorderEndpoint: options.reorderEndpoint,
     startRecording: options.startRecording,
     stopRecording: options.stopRecording,
     resetRecorder: options.resetRecorder,
@@ -133,6 +143,9 @@ export function createShell(options: ShellOptions) {
       if (tabId === id) tab.setAttribute('aria-current', 'page'); else tab.removeAttribute('aria-current');
     }
     body.scrollTop = 0;
+    const isSubscreen = id === 'endpoints';
+    nav.hidden = isSubscreen;
+    subheader.hidden = !isSubscreen;
     body.replaceChildren(renderScreen(ctx, id));
   }
 

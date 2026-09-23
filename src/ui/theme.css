@@ -24,6 +24,8 @@
 .aw-code { overflow: auto; max-height: 160px; }
 .aw-wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
 .aw-foot { justify-content: space-between; font-size: 12px; }
+.aw-endpoint-row { padding: 8px 6px 8px 12px; }
+.aw-subtitle { font-size: 13.5px; font-weight: 600; gap: 7px; }
 
 /* Tabs and quick actions are buttons, not links: no host-page navigation. */
 button.aw-tt, button.aw-qa, button.aw-sel, button.aw-coll { font-family: inherit; cursor: pointer; }

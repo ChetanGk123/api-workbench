@@ -59,6 +59,17 @@ if (existing) {
       try { persist(parseConfig(serialized)); return undefined; }
       catch (error) { return error instanceof Error ? error.message : 'Invalid Workbench JSON'; }
     },
+    reorderEndpoint: (id, direction) => {
+      const endpoints = [...store.state.config.endpoints];
+      const index = endpoints.findIndex(endpoint => endpoint.id === id);
+      const target = direction === 'up' ? index - 1 : index + 1;
+      if (index < 0 || target < 0 || target >= endpoints.length) return;
+      const current = endpoints[index]!;
+      endpoints[index] = endpoints[target]!;
+      endpoints[target] = current;
+      persist({ ...store.state.config, endpoints });
+      store.set({ screen: 'endpoints' });
+    },
     startRecording: () => { if (recorder.start()) store.set({ recording: true }); },
     stopRecording: () => { recorder.stop(); store.set({ recording: false, recordings: recorder.records }); },
     resetRecorder: () => { recorder.reset(); store.set({ recordings: [] }); },
