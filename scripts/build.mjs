@@ -22,15 +22,19 @@ await writeFile('dist/api-workbench.js', raw.outputFiles[0].text);
 await writeFile('dist/api-workbench.min.js', code);
 await writeFile('dist/bookmarklet.txt', bookmark);
 const links = [[bookmark, 'API Workbench']];
-// Padding is inert and intentionally retained in these installation probes.
-for (const length of [131072, 262144, 1048576]) {
-  const padded = bookmark + '%3B%2F*' + 'x'.repeat(Math.max(0, length - bookmark.length - 11)) + '*%2F';
+// Padding is inert and intentionally retained in these installation probes. A probe target the
+// real bookmark has already outgrown is dropped rather than silently emitted at the wrong size.
+const probes = [131072, 262144, 1048576].filter(length => length > bookmark.length + 11);
+const skipped = [131072, 262144, 1048576].filter(length => !probes.includes(length));
+for (const length of probes) {
+  const padded = bookmark + '%3B%2F*' + 'x'.repeat(length - bookmark.length - 11) + '*%2F';
   assert.equal(padded.length, length);
   await writeFile(`dist/bookmarklet-${length}.txt`, padded);
   links.push([padded, `Payload probe ${length} characters`]);
 }
+if (skipped.length) console.warn(`Payload probes smaller than the bundle were skipped: ${skipped.join(', ')}`);
 await writeFile('dist/install.html', `<!doctype html><html lang="en"><meta charset="utf-8"><title>Install API Workbench</title><h1>API Workbench</h1><p>Drag the first link to the bookmarks bar in desktop Chrome or Edge. Then open the local fixture and click the saved bookmark. Do not click the link on this installer to test installation.</p><ol>${links.map(([url, title]) => `<li><a href="${escapeHTML(url)}">${title}</a></li>`).join('')}</ol><p>Manual alternative: create a bookmark, edit its URL and paste the entire matching bookmarklet.txt file, including javascript:. To update, replace that URL. Restart the browser and click the saved bookmark again to test persistence.</p><p>Start the fixture with <code>npm run fixture</code> and visit <a href="http://127.0.0.1:4173/fixture">the fixture</a>. Enlarged links are experimental size probes, not extra features.</p></html>`);
-const sizes = { sourceBytes: 0, rawBytes: raw.outputFiles[0].contents.length, minifiedBytes: min.outputFiles[0].contents.length, encodedURLLength: bookmark.length };
+const sizes = { probes, skippedProbes: skipped, sourceBytes: 0, rawBytes: raw.outputFiles[0].contents.length, minifiedBytes: min.outputFiles[0].contents.length, encodedURLLength: bookmark.length };
 for (const file of Object.keys(min.metafile.inputs)) sizes.sourceBytes += (await readFile(file)).length;
 await writeFile('dist/sizes.json', JSON.stringify(sizes, null, 2));
 console.log(JSON.stringify(sizes, null, 2));

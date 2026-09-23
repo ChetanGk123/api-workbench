@@ -43,8 +43,8 @@ export type Profile = {
   settings: { bodyLimitKb: number; enabledModules: Record<string, boolean> };
 };
 
-export type ProfileSnapshot = { profile: Profile; endpoints: Endpoint[] };
-export type WorkbenchConfig = { profile: Profile; endpoints: Endpoint[]; savedProfiles?: ProfileSnapshot[] };
+export type ProfileSnapshot = { profile: Profile; endpoints: Endpoint[]; rules?: Rule[] };
+export type WorkbenchConfig = { profile: Profile; endpoints: Endpoint[]; rules?: Rule[]; savedProfiles?: ProfileSnapshot[] };
 
 export function createId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -80,4 +80,127 @@ export function defaultEndpoint(profileId: string): Endpoint {
     request: { method: 'GET', path: '/', headers: [], bodyKind: 'none', body: '', credentials: 'same-origin' },
     checks: [{ kind: 'status', value: { min: 200, max: 299 } }], createdAt: now, updatedAt: now,
   };
+}
+
+/* ── M5: mock and chaos rules ──────────────────────────────────────────────── */
+
+export type RuleMatcher = {
+  method: string;
+  url: string;
+  /** `k=v&k2=v2`; a named key with a value matches any occurrence of that value. */
+  query: string;
+  /** `k=v&k2=v2`; header names match case-insensitively. */
+  headers: string;
+  /** Literal substring on a bounded, available text body. */
+  bodyContains: string;
+};
+
+export type RuleBase = {
+  id: string;
+  profileId: string;
+  label: string;
+  endpointId?: string;
+  enabled: boolean;
+  priority: number;
+  /** Creation sequence; ties on priority resolve by this, then by id. */
+  seq: number;
+  /** Bumped on every save. Sequence cursors are keyed by it, so an edit restarts the sequence. */
+  revision: number;
+  matcher: RuleMatcher;
+};
+
+export type MockSlot = {
+  status: number;
+  /** `Name: Value`, one per line. */
+  headers: string;
+  body: string;
+  delayMs: number;
+  fault: 'none' | 'network-error' | 'timeout';
+};
+
+export type MockRule = RuleBase & {
+  kind: 'mock';
+  mode: 'static' | 'sequence';
+  slots: MockSlot[];
+  exhaustion: 'repeat-last' | 'loop' | 'network-error';
+};
+
+export type ChaosFault =
+  | { kind: 'status'; status: number; body: string }
+  | { kind: 'latency'; delayMs: number }
+  | { kind: 'random-latency'; minMs: number; maxMs: number }
+  | { kind: 'network-error' }
+  | { kind: 'timeout'; timeoutMs: number }
+  | { kind: 'malformed-json' }
+  | { kind: 'replay'; copies: number; gapMs: number };
+
+export type ChaosRule = RuleBase & {
+  kind: 'chaos';
+  mode: 'synthetic' | 'real';
+  fault: ChaosFault;
+  /** 0–100. Sampled once per request for the selected rule. */
+  probability: number;
+  /** Empty means an unseeded sample. */
+  seed: string;
+  /** 0 means no budget. */
+  budget: number;
+  /** Real traffic only: a delay before the request is dispatched. */
+  preDelayMs: number;
+};
+
+export type Rule = MockRule | ChaosRule;
+
+export const CHAOS_FAULTS = [
+  'status',
+  'latency',
+  'random-latency',
+  'network-error',
+  'timeout',
+  'malformed-json',
+  'replay',
+] as const;
+
+/** v1 bound from the plan: a replay rule dispatches the primary request plus at most 2 copies. */
+export const MAX_REPLAY_COPIES = 2;
+
+export function emptyMatcher(): RuleMatcher {
+  return { method: 'GET', url: '/api/', query: '', headers: '', bodyContains: '' };
+}
+
+function ruleBase(profileId: string, seq: number, label: string): RuleBase {
+  return { id: createId('rule'), profileId, label, enabled: false, priority: 0, seq, revision: 1, matcher: emptyMatcher() };
+}
+
+export function defaultMockSlot(): MockSlot {
+  return { status: 200, headers: 'Content-Type: application/json', body: '{}', delayMs: 0, fault: 'none' };
+}
+
+export function defaultMockRule(profileId: string, seq: number): MockRule {
+  return { ...ruleBase(profileId, seq, 'New mock rule'), kind: 'mock', mode: 'static', slots: [defaultMockSlot()], exhaustion: 'repeat-last' };
+}
+
+export function defaultChaosRule(profileId: string, seq: number): ChaosRule {
+  return {
+    ...ruleBase(profileId, seq, 'New chaos rule'), kind: 'chaos', mode: 'synthetic',
+    fault: { kind: 'status', status: 500, body: '' }, probability: 100, seed: '', budget: 0, preDelayMs: 0,
+  };
+}
+
+export const CHAOS_PRESETS: Record<string, (rule: ChaosRule) => ChaosRule> = {
+  // "Slow API" defaults to real-traffic response-delivery latency, per the plan.
+  'Slow API': rule => ({ ...rule, label: 'Slow API', mode: 'real', fault: { kind: 'latency', delayMs: 1000 } }),
+  'Very slow API': rule => ({ ...rule, label: 'Very slow API', mode: 'real', fault: { kind: 'latency', delayMs: 5000 } }),
+  'Random latency': rule => ({ ...rule, label: 'Random latency', mode: 'real', fault: { kind: 'random-latency', minMs: 250, maxMs: 2000 } }),
+  'Server error 500': rule => ({ ...rule, label: 'Server error 500', mode: 'synthetic', fault: { kind: 'status', status: 500, body: '' } }),
+  'Service unavailable 503': rule => ({ ...rule, label: 'Service unavailable 503', mode: 'synthetic', fault: { kind: 'status', status: 503, body: '' } }),
+  'Bad gateway 502': rule => ({ ...rule, label: 'Bad gateway 502', mode: 'synthetic', fault: { kind: 'status', status: 502, body: '' } }),
+  'Timeout': rule => ({ ...rule, label: 'Timeout', mode: 'synthetic', fault: { kind: 'timeout', timeoutMs: 3000 } }),
+  'Network failure': rule => ({ ...rule, label: 'Network failure', mode: 'synthetic', fault: { kind: 'network-error' } }),
+  'Malformed JSON': rule => ({ ...rule, label: 'Malformed JSON', mode: 'synthetic', fault: { kind: 'malformed-json' } }),
+  'Request replay': rule => ({ ...rule, label: 'Request replay', mode: 'real', fault: { kind: 'replay', copies: 1, gapMs: 0 } }),
+};
+
+/** A rule derived from an endpoint copies its method and path; editing either detaches on save. */
+export function matcherFromEndpoint(endpoint: Endpoint): RuleMatcher {
+  return { ...emptyMatcher(), method: endpoint.request.method, url: endpoint.request.path };
 }

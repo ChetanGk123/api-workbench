@@ -24,6 +24,12 @@ export type ShellOptions = {
   stopRecording: Ctx["stopRecording"]
   resetRecorder: Ctx["resetRecorder"]
   promoteRecording: Ctx["promoteRecording"]
+  saveRule: Ctx["saveRule"]
+  deleteRule: Ctx["deleteRule"]
+  toggleRule: Ctx["toggleRule"]
+  setModuleActive: Ctx["setModuleActive"]
+  resetSequence: Ctx["resetSequence"]
+  nextRuleSeq: Ctx["nextRuleSeq"]
 }
 
 export function createShell(options: ShellOptions) {
@@ -212,6 +218,12 @@ export function createShell(options: ShellOptions) {
     stopRecording: options.stopRecording,
     resetRecorder: options.resetRecorder,
     promoteRecording: options.promoteRecording,
+    saveRule: options.saveRule,
+    deleteRule: options.deleteRule,
+    toggleRule: options.toggleRule,
+    setModuleActive: options.setModuleActive,
+    resetSequence: options.resetSequence,
+    nextRuleSeq: options.nextRuleSeq,
   }
 
   function go(id: ScreenId) {
@@ -308,9 +320,14 @@ export function createShell(options: ShellOptions) {
 
   const unsubscribe = store.subscribe((state) => {
     counter.textContent = `${state.observed} request${state.observed === 1 ? "" : "s"} observed · ${location.origin}`
-    launcherLabel.textContent = state.mockEnabled ? "M0 mock active" : "No active modules"
+    const active = [
+      state.moduleActive.mock && "Mock",
+      state.moduleActive.chaos && "Chaos",
+      state.mockEnabled && "Fixture mock",
+    ].filter(Boolean)
+    launcherLabel.textContent = active.length ? `${active.join(" + ")} active` : "No active modules"
     launcherState.title = launcherLabel.textContent ?? ""
-    launcherDot.className = state.mockEnabled ? "aw-dot aw-a" : "aw-dot"
+    launcherDot.className = active.length ? "aw-dot aw-a" : "aw-dot"
     syncProfiles()
   })
 

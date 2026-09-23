@@ -1,5 +1,7 @@
-import { el, icon, button, iconButton, type IconName } from "./dom"
-import { type Endpoint, type HeaderValue, type Profile, type WorkbenchConfig } from "../core/model"
+import { el, icon, button, iconButton, card, caption, group, labeled, disclosure, type IconName } from "./dom"
+import { type Endpoint, type HeaderValue, type Profile, type Rule, type WorkbenchConfig } from "../core/model"
+import type { RuleActivity } from "../network/rules"
+import { chaosScreen, mockScreen } from "./rule-screens"
 import type { OnceResult } from "../tester/once"
 import type { Recording } from "../recorder/recorder"
 
@@ -27,6 +29,11 @@ export type UIState = {
   testerHistory: OnceResult[]
   recording: boolean
   recordings: Recording[]
+  /** Module activation is session state: a fresh launch never silently intercepts traffic. */
+  moduleActive: { mock: boolean; chaos: boolean }
+  ruleHits: Record<string, number>
+  ruleCursors: Record<string, number>
+  matched: RuleActivity[]
 }
 
 export type Ctx = {
@@ -54,6 +61,13 @@ export type Ctx = {
   stopRecording: () => void
   resetRecorder: () => void
   promoteRecording: (recording: Recording) => void
+  saveRule: (rule: Rule) => void
+  deleteRule: (id: string) => void
+  toggleRule: (id: string, enabled: boolean) => void
+  setModuleActive: (kind: "mock" | "chaos", value: boolean) => void
+  resetSequence: (ruleId: string) => void
+  /** Next creation sequence for a new rule; ties on priority resolve by it. */
+  nextRuleSeq: () => number
 }
 
 type Screen = {
@@ -194,34 +208,6 @@ const MODULES = [
   { id: "chaos", title: "Chaos Engineering", milestone: "M5" },
 ] as const
 
-function card(): HTMLElement {
-  const section = el("section", "aw-card aw-cp aw-col aw-gap12")
-  return section
-}
-
-function caption(text: string): HTMLElement {
-  return el("div", "aw-cap aw-capl", text)
-}
-function group(className: string, ...children: Node[]): HTMLElement {
-  const element = el("div", className)
-  element.append(...children)
-  return element
-}
-
-function labeled(label: string, input: HTMLElement): HTMLElement {
-  const wrapper = el("label", "aw-fld")
-  wrapper.append(el("span", "aw-lbl", label), input)
-  return wrapper
-}
-
-function disclosure(title: string, ...children: Node[]): HTMLDetailsElement {
-  const details = el("details", "aw-col aw-gap10")
-  const summary = el("summary", "aw-coll", title)
-  summary.prepend(icon("right", "aw-i14"))
-  details.append(summary, group("aw-col aw-gap10", ...children))
-  return details
-}
-
 function unavailable(label: string, reason: string): HTMLButtonElement {
   const control = el("button", "aw-btn aw-out aw-sm", label)
   control.type = "button"
@@ -271,7 +257,8 @@ function headerFields(ctx: Ctx, values: HeaderValue[], save: (headers: HeaderVal
   return section
 }
 
-/** The M0 feasibility control: one exact GET matcher, kept until the M5 mock engine replaces it. */
+/** The M0 feasibility control: one exact GET matcher against the local fixture. The real mock
+ * engine lives in the Mock module; this stays as the transport smoke test. */
 function feasibility(ctx: Ctx): HTMLElement {
   const section = card()
   const head = el("div", "aw-row")
@@ -330,9 +317,12 @@ function moduleCard(ctx: Ctx, module: (typeof MODULES)[number]): HTMLElement {
   const tile = el("div", "aw-tile")
   tile.append(icon(SCREENS[module.id].icon))
   const ready = module.id === "test"
+  const built = module.id === "mock" || module.id === "chaos"
   // Reference card: title + state badge, a stat line, and the module's own actions below.
   const badge = el("span", "aw-bd")
-  badge.append(el("span", "aw-dot"), document.createTextNode(ready ? "Ready" : "Inactive"))
+  const dot = el("span", "aw-dot")
+  const badgeLabel = document.createTextNode(ready ? "Ready" : "Inactive")
+  badge.append(dot, badgeLabel)
   const summary = el("div", "aw-xs aw-mu")
   const open = button("aw-btn aw-gh aw-sm", "Open", () => ctx.go(module.id), ctx.signal)
   open.setAttribute("aria-label", `Open ${module.title}`)
@@ -345,8 +335,20 @@ function moduleCard(ctx: Ctx, module: (typeof MODULES)[number]): HTMLElement {
       const runs = state.testerHistory.length
       summary.textContent = `${state.config.endpoints.length} endpoint${state.config.endpoints.length === 1 ? "" : "s"} · ${runs ? `${runs} run${runs === 1 ? "" : "s"}` : "no runs yet"}`
     })
+  } else if (built) {
+    const kind = module.id as "mock" | "chaos"
+    actions.append(button("aw-btn aw-out aw-sm", kind === "chaos" ? "Configure" : "Manage rules", () => ctx.go(module.id), ctx.signal))
+    ctx.watch(state => {
+      const rules = (state.config.rules ?? []).filter(rule => rule.kind === kind)
+      const enabled = rules.filter(rule => rule.enabled).length
+      const on = state.moduleActive[kind]
+      badgeLabel.textContent = on ? "Active" : "Inactive"
+      dot.className = on ? "aw-dot aw-a" : "aw-dot"
+      const hits = rules.reduce((total, rule) => total + (state.ruleHits[rule.id] ?? 0), 0)
+      summary.textContent = `${rules.length} rule${rules.length === 1 ? "" : "s"} · ${enabled} enabled · ${hits} hit${hits === 1 ? "" : "s"}`
+    })
   } else {
-    actions.append(button("aw-btn aw-out aw-sm", module.id === "chaos" ? "Configure" : "Manage rules", () => ctx.go(module.id), ctx.signal))
+    actions.append(button("aw-btn aw-out aw-sm", "Manage rules", () => ctx.go(module.id), ctx.signal))
     summary.textContent = "0 rules · rule editor preview, execution coming later"
   }
   section.append(group("aw-row aw-gap10", tile,
@@ -1039,7 +1041,8 @@ export function renderScreen(ctx: Ctx, id: ScreenId): HTMLElement {
   if (id === "endpoints") return endpoints(ctx)
   if (id === "settings") return settings(ctx)
   if (id === "import") return importScreen(ctx)
-  if (id === "mock" || id === "intercept" || id === "route" || id === "chaos")
-    return moduleScreen(ctx, id)
+  if (id === "mock") return mockScreen(ctx)
+  if (id === "chaos") return chaosScreen(ctx)
+  if (id === "intercept" || id === "route") return moduleScreen(ctx, id)
   return planned(ctx, id)
 }

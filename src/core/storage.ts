@@ -42,7 +42,7 @@ export function validateConfig(value: unknown): value is WorkbenchConfig {
 
 function normalizeConfig(config: WorkbenchConfig): WorkbenchConfig {
   const profile = { ...config.profile, activeEnvironment: config.profile.activeEnvironment || 'default' };
-  return { ...config, profile, savedProfiles: config.savedProfiles ?? [] };
+  return { ...config, profile, rules: config.rules ?? [], savedProfiles: config.savedProfiles ?? [] };
 }
 
 export async function loadConfig(): Promise<WorkbenchConfig> {

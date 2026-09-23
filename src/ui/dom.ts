@@ -295,3 +295,33 @@ export function dropdown(options: {
     },
   }
 }
+
+/* ── Shared layout helpers ─────────────────────────────────────────────────── */
+
+export function card(): HTMLElement {
+  return el("section", "aw-card aw-cp aw-col aw-gap12")
+}
+
+export function caption(text: string): HTMLElement {
+  return el("div", "aw-cap aw-capl", text)
+}
+
+export function group(className: string, ...children: Node[]): HTMLElement {
+  const element = el("div", className)
+  element.append(...children)
+  return element
+}
+
+export function labeled(label: string, input: HTMLElement): HTMLElement {
+  const wrapper = el("label", "aw-fld")
+  wrapper.append(el("span", "aw-lbl", label), input)
+  return wrapper
+}
+
+export function disclosure(title: string, ...children: Node[]): HTMLDetailsElement {
+  const details = el("details", "aw-col aw-gap10")
+  const summary = el("summary", "aw-coll", title)
+  summary.prepend(icon("right", "aw-i14"))
+  details.append(summary, group("aw-col aw-gap10", ...children))
+  return details
+}

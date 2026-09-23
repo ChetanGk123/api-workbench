@@ -2,11 +2,151 @@
 
 ## Current state
 
-M0 and M1 are implemented and verified in Chrome by automated browser checks. Saved-bookmark
-installation and all Edge checks remain outstanding for both milestones.
+M0–M5 are implemented and verified in Chrome by automated browser checks (52 checks). Saved-bookmark
+installation and all Edge checks remain outstanding for every milestone.
 
-Current assigned work: M4 recorder complete. A UI/UX pass against the reference screens
-followed (no new features); M5 is next.
+Current assigned work: M5 mock and chaos complete and verified in Chrome. M6 (interception,
+JSON Patch and routing) is next.
+
+## 2026-09-23 — M5 mock and chaos
+
+**Scope.** M5 only: the persisted rule model, the rule engine (matching, precedence, sequence
+reservation, seeded probability, hit budgets), synthetic and real-traffic fault delivery on both
+transports, bounded request replay, and the Mock and Chaos screens. Intercept, breakpoints and
+routing stay unbuilt and still say so on screen.
+
+**Changed files.**
+
+- `src/core/model.ts` (new types) — `RuleMatcher`, `MockRule`/`MockSlot`, `ChaosRule`/`ChaosFault`
+  as a discriminated union, `CHAOS_PRESETS`, `MAX_REPLAY_COPIES = 2`, `matcherFromEndpoint`.
+  `WorkbenchConfig.rules` and `ProfileSnapshot.rules` carry them; sequence cursors, hit counts,
+  budgets and sample streams are deliberately *not* in the schema.
+- `src/network/rules.ts` (new) — `RequestContext`/`createRequestContext` moved here, the glob and
+  query/header matchers, `matchRequest`, `byPrecedence`, a mulberry32 sampler, and
+  `createRuleEngine()`: the transient store of cursors, hits and samplers plus `plan()`, which
+  compiles one immutable `Plan` per request.
+- `src/network/pipeline.ts` — imports the matchers instead of duplicating them, owns the engine,
+  exposes `setRules`/`setActive`/`onActivity`/`counters`/`scheduleReplay`, and expresses the M0
+  feasibility mock and the M2 rule list as ordinary plans so the adapters have one code path.
+- `src/network/fetch-adapter.ts` — renders a plan: synthetic status/statusText/headers/body,
+  synthetic failures, real-traffic pre-dispatch delay, delivery delay, status replacement,
+  malformed JSON, simulated failure, bounded timeout and replay scheduling.
+- `src/network/xhr-adapter.ts` — the synthetic delivery now carries a real response object rather
+  than one hardcoded body. Real-traffic chaos runs an inner native `XMLHttpRequest` for the actual
+  transport while the page's object stays synthetic, so the fault is applied to a real response
+  after exactly one dispatch.
+- `src/ui/rule-screens.ts` (new) — the Mock and Chaos screens and their rule editors.
+- `src/ui/dom.ts` — `card`/`caption`/`group`/`labeled`/`disclosure` moved out of `screens.ts` so
+  both screen modules share them without a circular import.
+- `src/ui/screens.ts` — `UIState` gains `moduleActive`, `ruleHits`, `ruleCursors`, `matched`; `Ctx`
+  gains `saveRule`, `deleteRule`, `toggleRule`, `setModuleActive`, `resetSequence`, `nextRuleSeq`;
+  Home's Mock and Chaos cards show real rule/enabled/hit counts and live activation state; `mock`
+  and `chaos` route to the new screens.
+- `src/ui/shell.ts` — passes the new callbacks through; the minimized launcher names which modules
+  are actually intercepting instead of only the fixture mock.
+- `src/entry.ts` — rule CRUD with persistence, activation, stats mirroring, and rule handling on
+  profile switch and import. Version `0.1.0-m5`.
+- `scripts/build.mjs` — a payload probe smaller than the bundle is now skipped and reported rather
+  than emitted at the wrong size.
+- `tests/m5-core.spec.mjs` (new, 8 checks), `tests/m5.spec.mjs` (new, 11 checks),
+  `tests/fixtures/server.mjs` (dropped the outgrown probe artifact), `tests/m1.spec.mjs` and
+  `tests/ui.spec.mjs` (updated for screens that are no longer previews).
+
+**Commands and outcomes.**
+
+- `npm run build` → exit 0, with `Payload probes smaller than the bundle were skipped: 131072`.
+  raw 200,629 B, minified 120,900 B, encoded bookmark URL 172,254 characters (before M5: 138,537 /
+  87,378 / 124,358). The no-external-asset, no-`eval` and zero-import assertions still pass.
+- `npm test` (build + Playwright) → **52 passed in 18.8 s**. Chrome 153.0.8010.53, macOS darwin
+  25.6.0, Node v24.21.0, @playwright/test 1.63.0, typescript 7.0.2, esbuild 0.28.2.
+- `npx playwright test tests/m0.spec.mjs` → 12 passed; every M0 gate still holds.
+- `npx tsc` → clean.
+
+**Verification — M5 acceptance gates.**
+
+| Gate | Result | Evidence |
+| --- | --- | --- |
+| A synthetic winner makes zero network calls | PASS | The fixture server's `/api/stats` counter for the rule's path is unchanged across a mocked `fetch`, a mocked `XHR`, a synthetic-chaos 503 that supersedes a mock, a synthetic network failure, a synthetic timeout and a whole exhausted sequence. Counters are read through Playwright's own request context, never through the wrapped transport. |
+| Ordinary real modes dispatch once | PASS | Real-traffic status replacement, malformed-JSON corruption and XHR delivery latency each move the server counter by exactly 1 while the application sees the faulted result. |
+| Replay follows its exact configured budget | PASS | `copies: 2, gapMs: 20` produces exactly 3 dispatches; the count is still 3 after a further 300 ms, and the caller received only the primary response (`hit: before + 1`). The engine clamps a configured 9 copies to the documented maximum of 2. |
+| Sequence slots are reserved deterministically | PASS | Four sequential requests return 503/503/200/200 (repeat-last); three *concurrent* requests return bodies `n: 1, 2, 3` with no duplicate, because the slot is reserved synchronously at intake before any delay. `loop` and `network-error` exhaustion are covered in the engine unit tests, and exhaustion never falls back to real traffic. |
+| Abort wins during waits | PASS | A 3,000 ms mock delay aborted at 60 ms rejects with `AbortError` in under 2 s, makes no network call, and the reserved slot stays consumed — the next request receives slot 2. |
+| Rule forms | PASS | A mock rule authored entirely through the UI (label, URL, status 418, body, enable, Save) applies to live traffic and reports `1 hit`. The chaos editor's mode radio, fault-type switch, replay total line and the refusal to save a synthetic replay are covered. |
+| Preset compiler | PASS | The six reference presets plus the four "More…" faults build rules; `Slow API` compiles to real-traffic delivery latency of 1,000 ms, as the plan requires. |
+| Probability and seed | PASS | 0 % never applies and does not fall through to a lower-priority chaos rule; the same seed replays the same ordered sample stream while a 50 % rule is neither always on nor always off; a hit budget of 2 applies twice and then stops. |
+| Composition order | PASS | Synthetic chaos supersedes a mock; real-traffic chaos leaves a mocked response alone and says so in the trace; replay has no synthetic form. |
+| Activation and enabling are separate states | PASS | A disabled rule under an active module passes traffic through; enabling it from the list makes the same request synthetic with no new dispatch; deactivating the module returns the frame to captured transport. |
+| Persistence | PASS | Rules survive a close and relaunch; module activation does not, so a fresh launch never silently intercepts. Profile switch and native JSON import swap the rule set and reset every cursor, budget and sample stream. |
+
+**Defect found and fixed in existing code.** The M2 matcher's `matchCondition` returned `true`
+before testing the URL whenever a rule carried no `condition`, so a condition-less rule matched
+every URL of its method. No shipped code called `addRule`, so nothing was broken in a build, but
+the M5 engine is built on that matcher. The URL test now runs for every rule.
+
+**Design decisions.**
+
+- **Module activation is session state, not configuration.** Rules persist; activation does not.
+  A saved profile therefore cannot cause a fresh bookmarklet launch to start faulting traffic
+  before anyone has looked at the panel.
+- **One plan per request, compiled synchronously at intake.** Selection, probability sampling and
+  sequence reservation all happen before any timer, so a delay, an abort or a concurrent request
+  can never change what was already decided.
+- **Rule URLs match on pathname; query is a separate condition.** A rule copied from a recorded
+  request keeps matching when its captured request id changes. An absolute pattern additionally
+  pins the origin. *Deviation:* the plan says relative rules default to the page origin; here a
+  relative pattern matches that pathname on any origin, and the editor says to write an absolute
+  URL to scope a rule to one host. This keeps the verified M2 matcher contract intact.
+- **Real-traffic chaos on XHR uses an inner native request.** The page's object stays synthetic and
+  one inner `XMLHttpRequest` carries the transport, so a delivery delay or a rewritten body is
+  applied to a real response without a second dispatch and without racing the page's own listeners.
+- **A rewritten body drops `content-length` and `content-encoding`** rather than claiming the
+  original metadata still describes the payload.
+- **Faults that cannot be honoured are skipped with a reason, never faked.** A binary XHR
+  `responseType` skips real-traffic chaos; a non-text response body skips malformed-JSON
+  corruption; a consumed `Request` body skips replay. Each records a trace line.
+- **Replay children never re-enter the pipeline.** They use the captured transport with frozen URL,
+  headers and body bytes prepared *before* the primary dispatch, are cancelled by caller abort and
+  by closing the workbench, and are not published as traffic — so they cannot trigger further
+  mocks, further replay or recorder endpoint suggestions.
+- **Exhaustion never sends real traffic.** `repeat-last`, `loop` and a simulated network error are
+  the only three outcomes.
+
+**Not run.**
+
+- Saved-bookmark installation, restart persistence and bookmark launch under CSP. Unchanged from
+  earlier milestones: the automated launch still injects the decoded source, which is not evidence
+  of saved-bookmark behaviour. This matters more now — the encoded bookmark URL is 172,254
+  characters, and the 131,072-character payload probe has been outgrown, so the smallest probe
+  still available is 262,144.
+- All Edge checks. Edge is not installed on this machine.
+- Chaos behaviour under the CSP and Trusted Types fixtures; only M0's panel checks cover those pages.
+- Keyboard-only and screen-reader passes over the new rule editors.
+- Concurrency beyond three simultaneous requests, and seeded repeatability under concurrent arrival
+  order — which the plan explicitly does not promise.
+
+**Limitations.**
+
+1. Chaos `timeout` in real-traffic mode aborts the workbench's own dispatch. It cannot roll back
+   work the server has already done, and the editor says so.
+2. Real-traffic chaos is skipped for an XHR whose `responseType` is `blob`, `arraybuffer` or
+   `document`: rebuilding a binary body from text would corrupt it. The skip is recorded in the
+   trace; it is not silently applied.
+3. Replay is limited to 2 additional copies and to requests with a string or absent body. Streams
+   and file bodies are excluded.
+4. A synthetic `Set-Cookie` is visible to the caller but cannot update the browser cookie jar; the
+   response editor states this.
+5. Sequence position and Reset are per rule revision — saving an edited rule restarts its sequence.
+   That is deliberate, and the editor names it.
+6. Mock response bodies are validated as JSON for information only; invalid JSON is sent as raw
+   text rather than blocked.
+7. The "Why this rule?" composition trace is recorded on every plan and surfaced through the rule
+   trace and the matched-traffic list, but there is no dedicated trace viewer yet.
+8. The bundle grew from 87,378 to 120,900 minified bytes. The reference stylesheet still ships
+   unminified through esbuild's text loader, which remains the cheapest available saving.
+
+**Next task.** M6 — interception and routing: request/response transforms, RFC 6902 JSON Patch
+compiled at save time, restricted-header validation, and the routing rule form, composed into the
+existing pipeline order without re-matching after a transform.
 
 ## 2026-09-23 — Source reformat (no behaviour change)
 

@@ -1,21 +1,30 @@
-export const mockBody = JSON.stringify({ source: "workbench", message: "Mock response — café ✓" })
+import type { Rule } from "../core/model"
+import {
+  createRequestContext,
+  createRuleEngine,
+  matchUrl,
+  matchHeaders,
+  matchQuery,
+  getPathname,
+  getSearch,
+  normalizeHeaders,
+  type HeaderBag,
+  type Plan,
+  type RequestContext,
+  type RequestKind,
+  type RuleActivity,
+} from "./rules"
 
-export type RequestKind = "fetch" | "xhr"
+export { createRequestContext, getPathname, getSearch } from "./rules"
+export type { Plan, RequestContext, RequestKind, RuleActivity, SyntheticResponse } from "./rules"
+
+export const mockBody = JSON.stringify({ source: "workbench", message: "Mock response — café ✓" })
 
 export type BodyAnalysis = Readonly<{
   kind: "text" | "omitted"
   preview: string
   truncated: boolean
   length: number
-}>
-
-export type RequestContext = Readonly<{
-  kind: RequestKind
-  method: string
-  url: string
-  headers: Readonly<Record<string, string>>
-  body?: string
-  signal?: AbortSignal
 }>
 
 export type RuleCondition = {
@@ -66,119 +75,20 @@ export type TrafficEvent = Readonly<{
   ruleIds: readonly string[]
 }>
 
-function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-}
-
-function globToRegExp(pattern: string): RegExp {
-  let source = ""
-  for (let index = 0; index < pattern.length; index++) {
-    const char = pattern[index] ?? ""
-    const next = pattern[index + 1] ?? ""
-    if (char === "*") {
-      if (next === "*") {
-        source += ".*"
-        index += 1
-      } else {
-        source += "[^/]*"
-      }
-      continue
-    }
-    source += escapeRegex(char)
-  }
-  return new RegExp(`^${source}$`, "i")
-}
-
-function getPathname(url: string): string {
-  if (/^[a-z]+:\/\//i.test(url)) return new URL(url).pathname
-  const withoutHash = url.split("#")[0] ?? ""
-  const queryIndex = withoutHash.indexOf("?")
-  return queryIndex >= 0 ? withoutHash.slice(0, queryIndex) : withoutHash
-}
-
-function getSearch(url: string): string {
-  if (/^[a-z]+:\/\//i.test(url)) return new URL(url).search
-  const withoutHash = url.split("#")[0] ?? ""
-  const queryIndex = withoutHash.indexOf("?")
-  return queryIndex >= 0 ? withoutHash.slice(queryIndex) : ""
-}
-
-function matchUrl(pattern: string, url: string): boolean {
-  const target = /^[a-z]+:\/\//i.test(url) ? new URL(url).href : url
-  if (/^[a-z]+:\/\//i.test(pattern)) {
-    return globToRegExp(pattern).test(target)
-  }
-  const pathname = getPathname(url)
-  return globToRegExp(pattern).test(pathname) || globToRegExp(pattern).test(target)
-}
-
-function normalizeHeaders(
-  all: Headers | Record<string, string> | { headers?: Record<string, string> } | undefined,
-): Record<string, string> {
-  if (!all) return {}
-  if (all instanceof Headers) return Object.fromEntries(all.entries())
-  if ("headers" in all && all.headers && typeof all.headers === "object") {
-    return normalizeHeaders(all.headers as Record<string, string>)
-  }
-  return Object.fromEntries(
-    Object.entries(all).map(([key, value]) => [key.toLowerCase(), String(value)]),
-  )
-}
-
-function matchHeaders(headers: Record<string, string> | undefined, all: HeaderBag): boolean {
-  if (!headers) return true
-  const source = normalizeHeaders(all)
-  for (const [name, expected] of Object.entries(headers)) {
-    const value = source[name.toLowerCase()] ?? source[name] ?? source[name.toUpperCase()]
-    if (value == null || String(value).toLowerCase() !== String(expected).toLowerCase()) {
-      return false
-    }
-  }
-  return true
-}
-
-export function createRequestContext(input: {
-  kind: RequestKind
-  method: string
-  url: string
-  headers?: HeaderBag
-  body?: string | Blob | FormData | URLSearchParams | ArrayBuffer | null
-  signal?: AbortSignal
-}): RequestContext {
-  const normalizedHeaders = normalizeHeaders(input.headers ?? {})
-  const bodyValue = typeof input.body === "string" ? input.body : undefined
-  return Object.freeze({
-    kind: input.kind,
-    method: input.method.toUpperCase(),
-    url: input.url,
-    headers: Object.freeze(normalizedHeaders),
-    body: bodyValue,
-    signal: input.signal,
-  })
-}
-
-function matchQuery(query: Record<string, string | string[]> | undefined, url: string): boolean {
-  if (!query) return true
-  const params = /^[a-z]+:\/\//i.test(url)
-    ? new URL(url).searchParams
-    : new URLSearchParams(getSearch(url))
-  for (const [key, expected] of Object.entries(query)) {
-    const values = params.getAll(key)
-    const list = Array.isArray(expected) ? expected : [expected]
-    if (values.length === 0) return false
-    if (!values.some((value) => list.some((candidate) => value === candidate))) return false
-  }
-  return true
-}
-
-type HeaderBag = Headers | Record<string, string> | { headers?: Record<string, string> } | undefined
-
-function matchCondition(rule: PipelineRule, url: string, requestHeaders?: HeaderBag): boolean {
+function matchLegacyCondition(rule: PipelineRule, url: string, requestHeaders?: HeaderBag): boolean {
+  if (!matchUrl(rule.url, url)) return false
   const condition = rule.condition
   if (!condition) return true
-  if (!matchUrl(rule.url, url)) return false
-  if (!matchHeaders(condition.headers, requestHeaders)) return false
-  if (!matchQuery(condition.query, url)) return false
+  if (condition.headers && !matchHeaders(condition.headers, requestHeaders)) return false
+  if (condition.query) {
+    const expected = Object.fromEntries(
+      Object.entries(condition.query).map(([key, value]) => [
+        key,
+        Array.isArray(value) ? value : [value],
+      ]),
+    )
+    if (!matchQuery(expected, url)) return false
+  }
   if (condition.body) {
     const body = requestHeaders instanceof Headers ? (requestHeaders.get("x-body") ?? "") : ""
     if (!body.includes(condition.body)) return false
@@ -193,8 +103,12 @@ export function createPipeline(report: (message: string) => void) {
   const rules: PipelineRule[] = []
   const trace: TraceEvent[] = []
   const trafficListeners = new Set<(event: TrafficEvent) => void>()
+  const activityListeners = new Set<(activity: RuleActivity) => void>()
+  const engine = createRuleEngine()
   let nextId = 1
   let traceIndex = 0
+  // Primary application requests and actual network dispatches are different counts.
+  const counters = { primary: 0, dispatched: 0, replayed: 0 }
 
   const addRule = (rule: Partial<PipelineRule> & Pick<PipelineRule, "url">): PipelineRule => {
     const normalized: PipelineRule = {
@@ -233,6 +147,15 @@ export function createPipeline(report: (message: string) => void) {
     return entry
   }
 
+  const own = (finish: () => void) => {
+    pending.add(finish)
+    return () => pending.delete(finish)
+  }
+
+  const announce = (activity: RuleActivity) => {
+    for (const listener of [...activityListeners]) listener(activity)
+  }
+
   const resolveRule = (context: RequestContext, transport: string): PipelineDecision | null => {
     const { method, url, headers } = context
     const candidates = [...rules]
@@ -244,15 +167,12 @@ export function createPipeline(report: (message: string) => void) {
       })
 
     for (const rule of candidates) {
-      const methodName = rule.method === "*" ? method.toUpperCase() : rule.method
-      if (methodName !== method) continue
-      if (!matchCondition(rule, url, headers)) continue
-      const delay = rule.delay ?? settings.delay
-      const reason = `${transport} ${method} · matched ${rule.id} · ${url.slice(0, 180)}`
+      if (rule.method !== "*" && rule.method !== method) continue
+      if (!matchLegacyCondition(rule, url, headers)) continue
       return {
         provider: "mock",
         ruleId: rule.id,
-        delay,
+        delay: rule.delay ?? settings.delay,
         why: `matched ${rule.id} (${rule.priority})`,
       }
     }
@@ -263,7 +183,6 @@ export function createPipeline(report: (message: string) => void) {
       method === "GET" &&
       getPathname(url) === "/api/mock-target" &&
       getSearch(url) === ""
-    const message = `${transport} ${method} · ${legacy ? "mock / no network" : "network"} · ${url.slice(0, 180)}`
     return legacy
       ? { provider: "mock", ruleId: "legacy-m0", delay: settings.delay, why: "legacy M0 matcher" }
       : null
@@ -294,37 +213,72 @@ export function createPipeline(report: (message: string) => void) {
     return { kind: "omitted", preview: "", truncated: false, length: 0 }
   }
 
+  /** The M0 feasibility mock and the M2 rule list are expressed as an ordinary plan. */
+  const legacyPlan = (decision: PipelineDecision): Plan => ({
+    provider: "mock",
+    mockRuleId: decision.ruleId,
+    why: [decision.why],
+    delayMs: decision.delay,
+    synthetic: {
+      status: 200,
+      statusText: "OK",
+      headers: { "content-type": "application/json" },
+      body: mockBody,
+    },
+  })
+
   return {
     settings,
     rules,
     trace,
+    engine,
+    counters,
     addRule,
     clearRules() {
       rules.length = 0
     },
+    setRules(next: Rule[]) {
+      engine.setRules(next)
+    },
+    setActive(kind: "mock" | "chaos", value: boolean) {
+      engine.setActive(kind, value)
+    },
+    onActivity(listener: (activity: RuleActivity) => void) {
+      activityListeners.add(listener)
+      return () => activityListeners.delete(listener)
+    },
+    announce,
     analyzeBody,
     beginRequest(context: RequestContext, transport: string) {
-      const decision = resolveRule(context, transport)
+      counters.primary++
+      const plan = active
+        ? engine.plan(context)
+        : { provider: "network" as const, why: ["workbench closed"], delayMs: 0 }
+      const decision = plan.provider === "network" && !plan.real ? resolveRule(context, transport) : null
+      const effective = decision ? legacyPlan(decision) : plan
       const aborted = context.signal?.aborted ?? false
       const lifecycleTrace: TraceEvent[] = []
       const entry = addTrace("request", context, transport, decision)
       lifecycleTrace.push(entry)
-      if (aborted) {
-        const abortEntry = addTrace("abort", context, transport, decision, "cancelled")
-        lifecycleTrace.push(abortEntry)
-      }
+      if (aborted) lifecycleTrace.push(addTrace("abort", context, transport, decision, "cancelled"))
       const settle = (kind: TraceEvent["kind"], detail?: string) => {
         const grown = addTrace(kind, context, transport, decision, detail)
         lifecycleTrace.push(grown)
         return grown
       }
-      return {
-        decision,
-        cancelled: aborted,
-        trace: lifecycleTrace,
-        settle,
-        entry,
+      const ruleId = effective.chaosRuleId ?? effective.mockRuleId
+      const finish = (outcome: string) => {
+        if (!ruleId) return
+        announce({
+          ruleId,
+          label: effective.provider,
+          method: context.method,
+          url: context.url,
+          outcome,
+          at: Date.now(),
+        })
       }
+      return { decision, plan: effective, cancelled: aborted, trace: lifecycleTrace, settle, entry, finish }
     },
     observe(listener: (event: TrafficEvent) => void) {
       trafficListeners.add(listener)
@@ -333,6 +287,46 @@ export function createPipeline(report: (message: string) => void) {
     publishTraffic(event: TrafficEvent) {
       const frozen = Object.freeze({ ...event, ruleIds: Object.freeze([...event.ruleIds]) })
       for (const listener of trafficListeners) listener(frozen)
+    },
+    /**
+     * Bounded duplicate dispatch. Copies are prepared before the primary request, use the captured
+     * transport with frozen settings, never re-enter this pipeline, and are cancelled by close or
+     * by the caller's abort. They cannot reverse server-side effects already applied.
+     */
+    scheduleReplay(
+      plan: Plan,
+      dispatch: (copy: number) => void,
+      signal?: AbortSignal,
+    ): () => void {
+      const replay = plan.real?.replay
+      if (!replay || replay.copies < 1) return () => {}
+      const timers: Array<ReturnType<typeof setTimeout>> = []
+      let release = () => {}
+      const cancel = () => {
+        for (const timer of timers) clearTimeout(timer)
+        timers.length = 0
+        release()
+      }
+      release = own(cancel)
+      signal?.addEventListener("abort", cancel, { once: true })
+      for (let copy = 1; copy <= replay.copies; copy++)
+        timers.push(
+          setTimeout(() => {
+            if (!active || signal?.aborted) return
+            counters.dispatched++
+            counters.replayed++
+            dispatch(copy)
+            announce({
+              ruleId: plan.chaosRuleId ?? "",
+              label: "replay",
+              method: "",
+              url: "",
+              outcome: `replay copy ${copy}/${replay.copies}`,
+              at: Date.now(),
+            })
+          }, replay.gapMs * copy),
+        )
+      return cancel
     },
     get observing() {
       return trafficListeners.size > 0
@@ -362,17 +356,19 @@ export function createPipeline(report: (message: string) => void) {
         typeof transport === "string" ? transport : method.kind === "xhr" ? "XHR" : "fetch"
       return resolveRule(method, effectiveTransport)
     },
-    own(finish: () => void) {
-      pending.add(finish)
-      return () => pending.delete(finish)
-    },
+    own,
     close() {
       active = false
       settings.enabled = false
+      engine.setActive("mock", false)
+      engine.setActive("chaos", false)
       for (const finish of [...pending]) finish()
       pending.clear()
       trafficListeners.clear()
+      activityListeners.clear()
     },
   }
 }
 export type Pipeline = ReturnType<typeof createPipeline>
+
+export { normalizeHeaders }

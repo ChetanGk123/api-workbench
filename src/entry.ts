@@ -10,13 +10,14 @@ import {
   defaultProfile,
   type Endpoint,
   type Profile,
+  type Rule,
   type WorkbenchConfig,
 } from "./core/model"
 import { importConfig as parseConfig, loadConfig, saveConfig, exportConfig } from "./core/storage"
 import { executeOnce } from "./tester/once"
 import { createRecorder, type Recording } from "./recorder/recorder"
 
-const version = "0.1.0-m4"
+const version = "0.1.0-m5"
 const key = "__api_workbench_7f49a1_v1__"
 type Instance = { version: string; restore: () => void }
 const registry = window as unknown as Record<string, Instance | undefined>
@@ -45,6 +46,10 @@ if (existing) {
     testerHistory: [],
     recording: false,
     recordings: [],
+    moduleActive: { mock: false, chaos: false },
+    ruleHits: {},
+    ruleCursors: {},
+    matched: [],
   })
   let configDirty = false
   let directFetch: typeof window.fetch = window.fetch
@@ -60,6 +65,27 @@ if (existing) {
     store.set({ recordings: [...recordings] }),
   )
   store.set({ recordings: recorder.records })
+
+  const rulesOf = (config: WorkbenchConfig) => config.rules ?? []
+  // Hit counts and sequence cursors live in the engine; the store only mirrors them for display.
+  const syncRuleStats = () => {
+    const hits: Record<string, number> = {}
+    const cursors: Record<string, number> = {}
+    for (const rule of rulesOf(store.state.config)) {
+      hits[rule.id] = pipeline.engine.hits(rule.id)
+      if (rule.kind === "mock") cursors[rule.id] = pipeline.engine.cursor(rule)
+    }
+    store.set({ ruleHits: hits, ruleCursors: cursors })
+  }
+  pipeline.onActivity((activity) => {
+    store.set({ matched: [...store.state.matched, activity].slice(-50) })
+    syncRuleStats()
+  })
+  const persistRules = (rules: Rule[]) => {
+    pipeline.setRules(rules)
+    persist({ ...store.state.config, rules })
+    syncRuleStats()
+  }
 
   const shell = createShell({
     version,
@@ -119,18 +145,34 @@ if (existing) {
           {
             profile,
             endpoints: config.endpoints.map((endpoint) => ({ ...endpoint, profileId: profile.id })),
+            rules: rulesOf(config).map((rule) => ({ ...rule, profileId: profile.id })),
           },
         ],
       })
     },
     selectProfile: (id) => {
       const snapshot = store.state.config.savedProfiles?.find((item) => item.profile.id === id)
-      if (snapshot)
-        persist({ ...store.state.config, profile: snapshot.profile, endpoints: snapshot.endpoints })
+      if (!snapshot) return
+      // Switching profile swaps the rule set and drops every cursor, budget and sample stream.
+      const rules = snapshot.rules ?? []
+      pipeline.setRules(rules)
+      pipeline.engine.resetAll()
+      persist({
+        ...store.state.config,
+        profile: snapshot.profile,
+        endpoints: snapshot.endpoints,
+        rules,
+      })
+      store.set({ matched: [] })
+      syncRuleStats()
     },
     importConfig: (serialized) => {
       try {
-        persist(parseConfig(serialized))
+        const imported = parseConfig(serialized)
+        pipeline.setRules(imported.rules ?? [])
+        pipeline.engine.resetAll()
+        persist(imported)
+        syncRuleStats()
         return undefined
       } catch (error) {
         return error instanceof Error ? error.message : "Invalid Workbench JSON"
@@ -158,6 +200,29 @@ if (existing) {
       recorder.reset()
       store.set({ recordings: [] })
     },
+    saveRule: (rule: Rule) => {
+      const rules = rulesOf(store.state.config)
+      persistRules(
+        rules.some((item) => item.id === rule.id)
+          ? rules.map((item) => (item.id === rule.id ? rule : item))
+          : [...rules, rule],
+      )
+    },
+    deleteRule: (id: string) =>
+      persistRules(rulesOf(store.state.config).filter((rule) => rule.id !== id)),
+    toggleRule: (id: string, enabled: boolean) =>
+      persistRules(rulesOf(store.state.config).map((rule) => (rule.id === id ? { ...rule, enabled } : rule))),
+    setModuleActive: (kind, value) => {
+      pipeline.setActive(kind, value)
+      store.set({ moduleActive: { ...store.state.moduleActive, [kind]: value } })
+      syncRuleStats()
+    },
+    resetSequence: (ruleId: string) => {
+      pipeline.engine.resetCursor(ruleId)
+      syncRuleStats()
+    },
+    nextRuleSeq: () =>
+      rulesOf(store.state.config).reduce((highest, rule) => Math.max(highest, rule.seq), 0) + 1,
     promoteRecording: (recording: Recording) => {
       const url = new URL(recording.url)
       const endpoint: Endpoint = {
@@ -222,7 +287,11 @@ if (existing) {
     registry[key] = instance
     void loadConfig()
       .then((config) => {
-        if (!configDirty) store.set({ config })
+        if (!configDirty) {
+          store.set({ config })
+          pipeline.setRules(config.rules ?? [])
+          syncRuleStats()
+        }
         store.set({ storageReady: true })
       })
       .catch(() => store.set({ storageReady: false }))
