@@ -228,3 +228,24 @@ test('M8 the Once view still sends one direct request', async ({ page }) => {
   await panel(page).getByRole('button', { name: 'Run Once' }).click();
   await expect(panel(page).locator('[aria-label="Once history"]')).toContainText('passed', { timeout: 15000 });
 });
+
+test('M8 Home lists a completed plan run and opens it on Results', async ({ page }) => {
+  await install(page, [endpoint('seed', 'GET', '/api/m8-home-history')], { iterations: 2 });
+  await openLoad(page);
+  await panel(page).getByRole('button', { name: 'Run Load' }).click();
+  await expect(panel(page).locator('.aw-bd.aw-s')).toHaveText('completed', { timeout: 15000 });
+
+  // The run is a plan run, not a direct Once result: Home used to report "No runs yet" for it.
+  // Results' Back returns to Test, which is where the tab strip reappears.
+  await panel(page).locator('.aw-sub').getByRole('button', { name: 'Back to Home' }).click();
+  await panel(page).getByRole('button', { name: 'Home', exact: true }).click();
+  const history = panel(page).locator('[aria-label="Run history"]');
+  await expect(history).toContainText('Fixture Plan · flow');
+  await expect(history).toContainText('2/2');
+  await expect(history).not.toContainText('No runs yet');
+
+  // Open shows the run, which only Results renders.
+  await history.getByRole('button', { name: 'Open', exact: true }).click();
+  await expect(panel(page).locator('.aw-sub .aw-subtitle')).toHaveText('Results');
+  await expect(panel(page).locator('.aw-big').first()).toHaveText('2');
+});

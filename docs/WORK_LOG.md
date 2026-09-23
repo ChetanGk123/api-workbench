@@ -1282,6 +1282,41 @@ Playwright; blob downloads under a host-page CSP `sandbox` directive are unteste
 
 **Next task.** M8 — Flow/Independent repeat runner.
 
+## 2026-09-23 — Home run history lists plan runs, not only Once results
+
+**Reported.** Home kept saying "No runs yet. Run an endpoint from Test." after a plan run finished,
+while the Activity card on the same screen reported `Run completed: 11 passed of 11 requests`.
+
+**Cause.** Home's `runHistory` watched `state.testerHistory`, which only ever holds direct Once
+results. A plan run is published to `state.runs` (`entry.ts:159`), which Home never read.
+
+**Changed files.**
+
+- `src/ui/screens.ts` — `runHistory` renders `state.runs` above `state.testerHistory` and invalidates
+  on either, so both kinds of run appear. Empty text is now "No runs yet. Run an endpoint or a plan
+  from Test."
+- `src/ui/test-screens.ts` — the two row builders behind `planRunHistory` and `onceHistory` are
+  extracted and exported as `runRow` and `onceRow`, so Home reuses them instead of a third copy of
+  the same markup. `runRow`'s Open now also calls `ctx.go("results")`: setting `openRun` without
+  navigating left the reader on the screen they clicked from, since Results is the only screen that
+  renders a run. That fixes the Load-run-history disclosure on Test as well.
+- `tests/m8.spec.mjs` — new check: run a plan, return Home, expect the run listed as
+  `Fixture Plan · flow` with `2/2` and no "No runs yet", then Open lands on Results showing the run.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0.
+- `npm run build` → exit 0.
+- `npx playwright test` → 185 passed in 1.4 m, Chrome (channel `chrome`), macOS darwin 25.6.0.
+
+**Not run.** Edge — not installed on this machine. Saved-bookmark installation, as before.
+
+**Limitations.** The two lists are concatenated, plan runs first, rather than interleaved by time:
+`OnceResult` carries no timestamp, only `RunState.startedAt`. Ordering within each group is newest
+first, as before.
+
+**Next task.** M10 (integrated release), unchanged.
+
 ## 2026-09-23 — Endpoint count on the Home quick action
 
 **Scope.** The Endpoints quick action only, following `design/reference/screens/home.html`, which

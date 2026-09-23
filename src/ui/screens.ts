@@ -5,7 +5,7 @@ import type { PausedEntry } from "../breakpoints/registry"
 import { chaosScreen, interceptScreen, mockScreen, routeScreen } from "./rule-screens"
 import type { OnceResult } from "../tester/once"
 import type { RunState } from "../tester/run"
-import { resultsScreen, testScreen } from "./test-screens"
+import { onceRow, resultsScreen, runRow, testScreen } from "./test-screens"
 import type { Recording } from "../recorder/recorder"
 import { candidatesFrom, type Candidate } from "../recorder/promote"
 import { importScreen, takeImportSummary } from "./import-screen"
@@ -496,20 +496,22 @@ function recordScreen(ctx: Ctx): HTMLElement {
   return screen
 }
 
+/** Both kinds of run land here: a plan run from Test's Load view and a direct Once request.
+ * Listing only the Once results left Home reporting "No runs yet" after a completed plan run. */
 function runHistory(ctx: Ctx): HTMLElement {
   const history = el("div", "aw-card aw-list")
   history.setAttribute("aria-label", "Run history")
-  let previous: Readonly<UIState>["testerHistory"] | undefined
+  let runs: Readonly<UIState>["runs"] | undefined
+  let once: Readonly<UIState>["testerHistory"] | undefined
   ctx.watch(state => {
-    if (previous === state.testerHistory) return
-    previous = state.testerHistory
+    if (runs === state.runs && once === state.testerHistory) return
+    runs = state.runs
+    once = state.testerHistory
     history.replaceChildren()
-    for (const item of state.testerHistory) {
-      const name = state.config.endpoints.find(endpoint => endpoint.id === item.endpointId)?.name ?? "Endpoint"
-      history.append(group("aw-li aw-xs", el("span", `aw-bd ${item.outcome === "passed" ? "aw-gr" : "aw-rd"}`, item.outcome),
-        el("span", "aw-grow aw-tr", name), el("span", "aw-num", `${item.status ?? "—"} · ${item.durationMs} ms`)))
-    }
-    if (!history.children.length) history.append(el("div", "aw-empty", "No runs yet. Run an endpoint from Test."))
+    for (const run of state.runs) history.append(runRow(ctx, run))
+    for (const item of state.testerHistory) history.append(onceRow(state, item))
+    if (!history.children.length)
+      history.append(el("div", "aw-empty", "No runs yet. Run an endpoint or a plan from Test."))
   })
   return history
 }

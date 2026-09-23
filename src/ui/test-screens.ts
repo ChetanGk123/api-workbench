@@ -26,7 +26,8 @@ import { OUTCOMES, type RunState } from "../tester/run"
 import { endpointStats, failedCount, overallStats, passedCount } from "../tester/results"
 import { bindingFrom, bindingPreview, scanPage, SOURCE_LABELS, type ContextCandidate } from "../tester/context"
 import { BUILTINS, type ContextSource } from "../tester/expressions"
-import type { Ctx } from "./screens"
+import type { Ctx, UIState } from "./screens"
+import type { OnceResult } from "../tester/once"
 
 const OUTCOME_LABELS: Record<(typeof OUTCOMES)[number], string> = {
   passed: "Passed",
@@ -268,6 +269,17 @@ function oncePanel(ctx: Ctx): { panel: HTMLElement; actions: Node[] } {
   return { panel, actions: [] }
 }
 
+/** One direct Once result. Home's run history renders the same row. */
+export function onceRow(state: Readonly<UIState>, item: OnceResult): HTMLElement {
+  const name = state.config.endpoints.find((endpoint) => endpoint.id === item.endpointId)?.name ?? "Endpoint"
+  return group(
+    "aw-li aw-xs",
+    el("span", `aw-bd ${item.outcome === "passed" ? "aw-gr" : "aw-rd"}`, item.outcome),
+    el("span", "aw-grow aw-tr", name),
+    el("span", "aw-num", `${item.status ?? "\u2014"} · ${item.durationMs} ms`),
+  )
+}
+
 function onceHistory(ctx: Ctx): HTMLElement {
   const history = el("div", "aw-card aw-list")
   history.setAttribute("aria-label", "Once history")
@@ -276,17 +288,7 @@ function onceHistory(ctx: Ctx): HTMLElement {
     if (previous === state.testerHistory) return
     previous = state.testerHistory
     history.replaceChildren()
-    for (const item of state.testerHistory) {
-      const name = state.config.endpoints.find((endpoint) => endpoint.id === item.endpointId)?.name ?? "Endpoint"
-      history.append(
-        group(
-          "aw-li aw-xs",
-          el("span", `aw-bd ${item.outcome === "passed" ? "aw-gr" : "aw-rd"}`, item.outcome),
-          el("span", "aw-grow aw-tr", name),
-          el("span", "aw-num", `${item.status ?? "\u2014"} · ${item.durationMs} ms`),
-        ),
-      )
-    }
+    for (const item of state.testerHistory) history.append(onceRow(state, item))
     if (!history.children.length) history.append(el("div", "aw-empty", "No runs yet. Run an endpoint from Test."))
   })
   return history
@@ -518,6 +520,21 @@ export function testScreen(ctx: Ctx): HTMLElement {
   return screen
 }
 
+/**
+ * One finished plan run. Open shows it on Results, the only screen that renders a run: setting
+ * `openRun` without navigating left the reader on the screen they clicked from. Home reuses this.
+ */
+export function runRow(ctx: Ctx, run: RunState): HTMLElement {
+  const open = button("aw-btn aw-gh aw-xs2", "Open", () => { ctx.openRun(run.id); ctx.go("results") }, ctx.signal)
+  return group(
+    "aw-li aw-xs",
+    el("span", `aw-bd ${run.state === "completed" ? "aw-gr" : "aw-am"}`, run.state),
+    el("span", "aw-grow aw-tr", `${run.planName} · ${run.strategy}`),
+    el("span", "aw-num", `${passedCount(run)}/${run.completed}`),
+    open,
+  )
+}
+
 function planRunHistory(ctx: Ctx): HTMLElement {
   const history = el("div", "aw-card aw-list")
   history.setAttribute("aria-label", "Load run history")
@@ -526,18 +543,7 @@ function planRunHistory(ctx: Ctx): HTMLElement {
     if (previous === state.runs) return
     previous = state.runs
     history.replaceChildren()
-    for (const run of state.runs) {
-      const open = button("aw-btn aw-gh aw-xs2", "Open", () => ctx.openRun(run.id), ctx.signal)
-      history.append(
-        group(
-          "aw-li aw-xs",
-          el("span", `aw-bd ${run.state === "completed" ? "aw-gr" : "aw-am"}`, run.state),
-          el("span", "aw-grow aw-tr", `${run.planName} · ${run.strategy}`),
-          el("span", "aw-num", `${passedCount(run)}/${run.completed}`),
-          open,
-        ),
-      )
-    }
+    for (const run of state.runs) history.append(runRow(ctx, run))
     if (!history.children.length) history.append(el("div", "aw-empty", "No load runs yet."))
   })
   return history
