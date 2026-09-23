@@ -8,6 +8,20 @@ installation and all Edge checks remain outstanding for both milestones.
 Current assigned work: M4 recorder complete. A UI/UX pass against the reference screens
 followed (no new features); M5 is next.
 
+## 2026-09-23 — Source reformat (no behaviour change)
+
+`src/entry.ts`, the three `src/network/*` files, `src/ui/dom.ts`, `src/ui/shell.ts` and
+`src/ui/theme.css` were reformatted to a Prettier-style layout: double quotes, no semicolons,
+wrapped argument lists, arrow parens, `.5` written as `0.5`. Verified formatting-only by comparing
+each file against `HEAD` with whitespace, quotes, semicolons, parentheses and commas stripped; the
+CSS was compared declaration by declaration.
+
+`npm run build` → exit 0. raw 138,537 B, minified 87,378 B, encoded bookmark URL 124,358
+characters — 534 B minified and 1,602 characters larger than before the reformat. `theme.css` is
+bundled through esbuild's `text` loader, so its whitespace ships verbatim and the JS minifier never
+touches it; formatting the stylesheet therefore costs real payload. Minifying the CSS at build time
+would recover it and more. `npx playwright test` → 33 passed in 13.5 s, same versions as above.
+
 ## 2026-09-23 — UI/UX pass against the reference screens (no new features)
 
 **Scope.** Side-by-side comparison of every built screen against `design/reference/screens/*` in
