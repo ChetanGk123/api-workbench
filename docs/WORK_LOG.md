@@ -42,8 +42,10 @@ rules already had a trash control; profiles had none.
   swap performs (set rules, reset the engine, persist, clear matches, resync stats) are now one
   `activate` helper shared by `selectProfile`, `deleteProfile` and `createProfileFromRecordings`,
   replacing three copies of the same body.
-- `src/ui/screens.ts`, `src/ui/shell.ts` — a trash control beside the Settings profile selector,
-  matching the endpoint and rule idiom. It is the one destructive action here that carries a
+- `src/ui/screens.ts`, `src/ui/shell.ts` — a red, labelled `Delete profile` button beside the
+  Settings profile selector, using the theme's existing `aw-dst` destructive style and prepended
+  trash icon, as the rule editors do. An icon-only ghost control was tried first and read as
+  decoration next to the selector, so it was replaced rather than restyled; no new CSS was added. It is the one destructive action here that carries a
   profile's endpoints and rules with it and has no undo, so it asks for confirmation first and
   says when the deletion will leave an empty profile behind. The selector moved from `labeled` to
   `labeledAction` and now carries its own `aria-label`, since the control sits outside the label.

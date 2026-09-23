@@ -813,7 +813,9 @@ function settings(ctx: Ctx): HTMLElement {
   }
   saved.setAttribute("aria-label", "Active profile")
   refreshProfiles()
-  const remove = iconButton("aw-btn aw-gh aw-ic aw-xs2", "trash", "Delete profile", () => {
+  // A red, labelled button, like the rule editors' Delete: an icon-only ghost control read as
+  // decoration next to the selector.
+  const remove = button("aw-btn aw-dst aw-sm", "Delete profile", () => {
     const current = ctx.state().config
     const last = !(current.savedProfiles ?? []).some(item => item.profile.id !== current.profile.id)
     // A profile takes its endpoints and rules with it and there is no undo, so this one asks first.
@@ -821,6 +823,7 @@ function settings(ctx: Ctx): HTMLElement {
     ctx.deleteProfile(current.profile.id)
     ctx.go("settings")
   }, ctx.signal)
+  remove.prepend(icon("trash", "aw-i14"))
   saved.addEventListener("change", () => { ctx.selectProfile(saved.value); ctx.go("settings") }, { signal: ctx.signal })
   const saveAsName = el("input", "aw-in aw-grow")
   saveAsName.placeholder = "New profile name"
