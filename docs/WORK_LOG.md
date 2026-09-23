@@ -2,7 +2,7 @@
 
 ## Current state
 
-M0–M7 are implemented and verified in Chrome by automated checks (96 checks). Saved-bookmark
+M0–M7 are implemented and verified in Chrome by automated checks (99 checks). Saved-bookmark
 installation and all Edge checks remain outstanding for every milestone.
 
 Current assigned work: M7 breakpoints complete and verified in Chrome, plus the M4 recorder review
@@ -27,6 +27,56 @@ when a later milestone lands.
 | M8 — Flow/Independent runs | NOT STARTED |
 | M9 — Complete import support | NOT STARTED |
 | M10 — Integrated release | NOT STARTED |
+
+## 2026-09-23 — Profile names derived from the host, and unique by construction
+
+**Scope.** Follow-up on the user's instruction, not a milestone: profiles were named `Default`,
+`Untitled` or `Recorded <page hostname>`, and nothing stopped two profiles sharing a name. The
+active-profile menu and the Settings dropdown render the name alone, so duplicates were
+indistinguishable and the export filename inherited the collision.
+
+**Changed files.**
+
+- `src/core/model.ts` — `nameFromHost` turns a host into a base name by dropping `www` and the TLD
+  and dash-joining the rest (`krushna.cooksbook.in` → `krushna-cooksbook`); a host with no TLD to
+  drop (`localhost`, a bare IP) keeps its own name. A fixed list of second-level suffixes
+  (`co`, `com`, `net`, `org`, `ac`, `gov`, `edu`) handles `example.co.uk` — marked `ponytail:`,
+  since it is not a public-suffix lookup. `pageProfileName` is the page's base name, falling back
+  to `Default` where there is no `location`. `suggestProfileName` appends `-2`, `-3`, … until the
+  name is free. `defaultProfile()` now names the first profile after the page.
+- `src/entry.ts` — `saveProfileAs` and `createProfileFromRecordings` route the name through
+  `suggestProfileName` against every stored name, so a typed duplicate is disambiguated at commit
+  rather than only in the prefilled field. This is the single choke point both UI paths use.
+- `src/ui/screens.ts` — the recorder prefills the captured API host's name when the page called
+  exactly one foreign origin, else the page's own; the suggestion follows the capture buffer only
+  while the field still holds the previous suggestion, so a typed name is never overwritten.
+  Clearing the Settings name field now keeps the current name instead of reverting to `Default`.
+- `tests/profile-names.spec.mjs` — new: the seven host→name rows, the `-2`/`-3` dedupe chain,
+  trimming, and the empty-name fallback to the page.
+- `tests/m3.spec.mjs` — the profile menu now reads `127.0.0.1` (the fixture host) instead of
+  `Default`; the assertion was updated to the new expected value.
+
+**Commands and outcomes.**
+
+- `npm run build` → exit 0 after two strict-TS fixes (`noUncheckedIndexedAccess` on `labels.at(-1)`
+  and `foreign[0]`). raw 263,364 B, minified 152,864 B, encoded bookmark URL 217,122 characters.
+- `npx playwright test` → 99 passed in 1.0 min, Chrome via `channel: chrome`, macOS darwin 25.6.0,
+  Node v24.21.0. A stale `tests/fixtures/server.mjs` held port 4173 and was killed before the run.
+
+**Not run.** No manual browser check of the recorder suggestion against a real multi-host site —
+the fixtures serve 127.0.0.1, whose name is the IP, so the host→name rule is covered by unit
+assertions only. Saved-bookmark and Edge checks remain outstanding as for every milestone.
+
+**Limitations.** Existing stored profiles keep their old names; nothing migrates or de-duplicates
+them retroactively. The second-level suffix list is fixed, so a host under an unlisted multi-part
+suffix (for example `example.com.br`) yields `example-com`.
+
+**Decisions.** Uniqueness is enforced at commit rather than by disambiguating the dropdown, which
+keeps the name-rendering code untouched; the dedupe suffix is `-2` to match the dash style and keep
+export filenames space-free. The recorder's `Recorded ` prefix was dropped so a recorded profile
+and a first-run profile on the same site read the same.
+
+**Next task.** M8 — Flow/Independent repeat runner, unchanged by this entry.
 
 ## 2026-09-23 — Format JSON: response sample included, control hidden when it has no work
 

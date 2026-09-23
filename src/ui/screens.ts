@@ -1,5 +1,5 @@
 import { el, icon, button, iconButton, card, caption, group, labeled, labeledAction, formatJsonButton, disclosure, downloadJson, type IconName } from "./dom"
-import { type Endpoint, type HeaderValue, type Profile, type Rule, type RuleKind, type WorkbenchConfig } from "../core/model"
+import { nameFromHost, pageProfileName, type Endpoint, type HeaderValue, type Profile, type Rule, type RuleKind, type WorkbenchConfig } from "../core/model"
 import type { RuleActivity } from "../network/rules"
 import type { PausedEntry } from "../breakpoints/registry"
 import { chaosScreen, interceptScreen, mockScreen, routeScreen } from "./rule-screens"
@@ -417,7 +417,8 @@ function recordScreen(ctx: Ctx): HTMLElement {
   const notice = el("p", "aw-hint")
   notice.setAttribute("role", "status")
   const profileName = el("input", "aw-in aw-grow")
-  profileName.value = `Recorded ${location.hostname}`
+  let suggested = pageProfileName()
+  profileName.value = suggested
   profileName.setAttribute("aria-label", "New profile name")
   let hosts: Record<string, string> = {}
 
@@ -462,6 +463,12 @@ function recordScreen(ctx: Ctx): HTMLElement {
     previous = state.recordings
     const derived = candidatesFrom(state.recordings, state.config.profile.id)
     hosts = derived.hosts
+    // The recorded API host names the profile when the page calls exactly one foreign origin;
+    // a name the user has typed is theirs to keep, so only the untouched suggestion moves.
+    const foreign = Object.keys(hosts).filter(key => key !== "default")
+    const next = (foreign.length === 1 ? nameFromHost(foreign[0] ?? "") : "") || pageProfileName()
+    if (profileName.value === suggested) profileName.value = next
+    suggested = next
     const live = new Set<string>()
     for (const candidate of derived.candidates) {
       live.add(candidate.key)
@@ -786,7 +793,7 @@ function settings(ctx: Ctx): HTMLElement {
   profileName.value = config.profile.name
   profileName.setAttribute("aria-label", "Name")
   const save = button("aw-btn aw-pri aw-sm", "Save profile", () => {
-    updateProfile(ctx, { name: profileName.value.trim() || "Default" })
+    updateProfile(ctx, { name: profileName.value.trim() || config.profile.name })
     status.textContent = "Profile saved."
     refreshProfiles()
   }, ctx.signal)

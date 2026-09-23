@@ -63,10 +63,39 @@ export function mergeHeaders(globalHeaders: HeaderValue[], localHeaders: HeaderV
   return [...merged.values()];
 }
 
+/**
+ * Page host to profile base name: drop the TLD and `www`, dash-join what is left, so
+ * `krushna.cooksbook.in` reads as `krushna-cooksbook`.
+ */
+export function nameFromHost(host: string): string {
+  const trimmed = host.trim().replace(/\.$/, '');
+  // localhost and bare IPs have no TLD to drop, so they keep their own name.
+  if (!trimmed.includes('.') || /^[\d.]+$/.test(trimmed)) return trimmed;
+  const labels = trimmed.split('.').filter(label => label && label !== 'www');
+  labels.pop();
+  // ponytail: a fixed list of second-level suffixes, not a public-suffix lookup
+  if (labels.length > 1 && /^(co|com|net|org|ac|gov|edu)$/.test(labels.at(-1) ?? '')) labels.pop();
+  return labels.join('-');
+}
+
+/** The current page's base name, or `Default` where there is no page (core tests, workers). */
+export function pageProfileName(): string {
+  return (typeof location === 'undefined' ? '' : nameFromHost(location.hostname)) || 'Default';
+}
+
+/** Appends `-2`, `-3`, ... until the name is free, so the profile list stays readable. */
+export function suggestProfileName(base: string, taken: Iterable<string>): string {
+  const used = new Set([...taken].map(name => name.trim()));
+  const root = base.trim() || pageProfileName();
+  let name = root;
+  for (let suffix = 2; used.has(name); suffix++) name = `${root}-${suffix}`;
+  return name;
+}
+
 export function defaultProfile(): Profile {
   const now = Date.now();
   return {
-    id: 'default', name: 'Default', revision: 1, createdAt: now, updatedAt: now,
+    id: 'default', name: pageProfileName(), revision: 1, createdAt: now, updatedAt: now,
     environments: { default: { default: '' } }, activeEnvironment: 'default',
     globalHeaders: [],
     settings: { bodyLimitKb: 1024, enabledModules: { test: true, mock: true, intercept: true, route: true, chaos: true } },

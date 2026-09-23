@@ -8,6 +8,7 @@ import {
   createId,
   defaultEndpoint,
   defaultProfile,
+  suggestProfileName,
   type Endpoint,
   type Profile,
   type Rule,
@@ -73,6 +74,11 @@ if (existing) {
   store.set({ recordings: recorder.records })
 
   const rulesOf = (config: WorkbenchConfig) => config.rules ?? []
+  // Every stored name, so a new profile never collides with one already in the list.
+  const profileNames = (config: WorkbenchConfig) =>
+    [config.profile, ...(config.savedProfiles ?? []).map((item) => item.profile)].map(
+      (profile) => profile.name,
+    )
   // Hit counts and sequence cursors live in the engine; the store only mirrors them for display.
   const syncRuleStats = () => {
     const hits: Record<string, number> = {}
@@ -139,7 +145,7 @@ if (existing) {
       const profile = {
         ...config.profile,
         id: createId("profile"),
-        name: name.trim() || "Untitled",
+        name: suggestProfileName(name, profileNames(config)),
         revision: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -236,7 +242,7 @@ if (existing) {
       const profile: Profile = {
         ...defaultProfile(),
         id: createId("profile"),
-        name: name.trim() || "Recorded",
+        name: suggestProfileName(name, profileNames(config)),
         createdAt: now,
         updatedAt: now,
         // Recorded hosts become the environment map, so recorded paths resolve without setup.

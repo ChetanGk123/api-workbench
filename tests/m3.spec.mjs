@@ -74,7 +74,7 @@ test('M3 profiles, environment mapping and native JSON import are usable', async
   const switcher = page.locator(`${panel} .aw-tb`).getByRole('button', { name: 'Active profile' });
   const openMenu = page.locator('#api-workbench .aw-menu:not([hidden])');
   await switcher.click();
-  await expect(openMenu.getByRole('menuitemradio')).toHaveText(['Default', 'Staging']);
+  await expect(openMenu.getByRole('menuitemradio')).toHaveText(['127.0.0.1', 'Staging']);
   await page.keyboard.press('Escape');
   const settingsProfile = page.locator(`${panel} .aw-body`).getByRole('combobox', { name: 'Active profile' });
   await expect(settingsProfile.locator('option', { hasText: 'Staging' })).toHaveCount(1);
