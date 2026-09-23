@@ -322,6 +322,8 @@ export function createShell(options: ShellOptions) {
     counter.textContent = `${state.observed} request${state.observed === 1 ? "" : "s"} observed · ${location.origin}`
     const active = [
       state.moduleActive.mock && "Mock",
+      state.moduleActive.intercept && "Intercept",
+      state.moduleActive.route && "Route",
       state.moduleActive.chaos && "Chaos",
       state.mockEnabled && "Fixture mock",
     ].filter(Boolean)

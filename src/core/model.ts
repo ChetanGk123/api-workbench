@@ -148,8 +148,6 @@ export type ChaosRule = RuleBase & {
   preDelayMs: number;
 };
 
-export type Rule = MockRule | ChaosRule;
-
 export const CHAOS_FAULTS = [
   'status',
   'latency',
@@ -203,4 +201,75 @@ export const CHAOS_PRESETS: Record<string, (rule: ChaosRule) => ChaosRule> = {
 /** A rule derived from an endpoint copies its method and path; editing either detaches on save. */
 export function matcherFromEndpoint(endpoint: Endpoint): RuleMatcher {
   return { ...emptyMatcher(), method: endpoint.request.method, url: endpoint.request.path };
+}
+
+/* ── M6: intercept and route rules ─────────────────────────────────────────── */
+
+/** RFC 6902 operation. The UI's "Nullify" is a convenience that emits `replace` with `null`. */
+export type PatchOp = { op: 'add' | 'remove' | 'replace' | 'move' | 'copy' | 'test'; path: string; value?: unknown; from?: string };
+
+export type BodyReplace = { find: string; replace: string; scope: 'first' | 'all' };
+
+export type Transform = {
+  /** `Name: Value`, one per line. */
+  setHeaders: string;
+  /** One header name per line. */
+  removeHeaders: string;
+  /** Applied in listed order on an isolated value; committed only if all succeed. */
+  patch: PatchOp[];
+  /** Literal find/replace on a supported text body. No regular expressions. */
+  body: BodyReplace;
+  /** Response stage only. 0 keeps the original status. */
+  status: number;
+};
+
+export type InterceptRule = RuleBase & { kind: 'intercept'; request: Transform; response: Transform };
+
+export type RouteRule = RuleBase & {
+  kind: 'route';
+  /** Blank matches this document's origin. */
+  matchOrigin: string;
+  destinationOrigin: string;
+  /** Blank falls back to `preservePath`; a rewrite always takes precedence. */
+  pathRewrite: string;
+  preservePath: boolean;
+  credentials: RequestCredentials;
+  /** A cross-origin route drops Authorization unless this is set for that destination. */
+  keepAuthorization: boolean;
+};
+
+export type Rule = MockRule | ChaosRule | InterceptRule | RouteRule;
+export type RuleKind = Rule['kind'];
+export const RULE_KINDS = ['mock', 'chaos', 'intercept', 'route'] as const;
+
+/**
+ * Forbidden request header names: the browser refuses them, so a rule that sets one is a
+ * validation error rather than an edit that appears to succeed.
+ */
+export const FORBIDDEN_REQUEST_HEADERS = [
+  'accept-charset', 'accept-encoding', 'access-control-request-headers', 'access-control-request-method',
+  'connection', 'content-length', 'cookie', 'cookie2', 'date', 'dnt', 'expect', 'host', 'keep-alive',
+  'origin', 'referer', 'set-cookie', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'via',
+];
+
+export function forbiddenRequestHeader(name: string): boolean {
+  const key = name.trim().toLowerCase();
+  return FORBIDDEN_REQUEST_HEADERS.includes(key) || key.startsWith('proxy-') || key.startsWith('sec-');
+}
+
+export function defaultTransform(): Transform {
+  return { setHeaders: '', removeHeaders: '', patch: [], body: { find: '', replace: '', scope: 'first' }, status: 0 };
+}
+
+export function defaultInterceptRule(profileId: string, seq: number): InterceptRule {
+  return { ...ruleBase(profileId, seq, 'New intercept rule'), kind: 'intercept', request: defaultTransform(), response: defaultTransform() };
+}
+
+export function defaultRouteRule(profileId: string, seq: number): RouteRule {
+  return {
+    ...ruleBase(profileId, seq, 'New page rule'), kind: 'route',
+    matcher: { ...emptyMatcher(), method: '*', url: '/api/**' },
+    matchOrigin: '', destinationOrigin: typeof location === 'undefined' ? '' : location.origin, pathRewrite: '', preservePath: true,
+    credentials: 'same-origin', keepAuthorization: false,
+  };
 }

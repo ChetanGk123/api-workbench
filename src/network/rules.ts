@@ -1,4 +1,22 @@
-import type { ChaosRule, MockRule, MockSlot, Rule, RuleMatcher } from "../core/model"
+import type {
+  ChaosRule,
+  InterceptRule,
+  MockRule,
+  MockSlot,
+  RouteRule,
+  Rule,
+  RuleKind,
+  RuleMatcher,
+} from "../core/model"
+import {
+  applyTransform,
+  compileTransform,
+  parseHeaderLines,
+  transformHasWork,
+  type CompiledTransform,
+} from "./transform"
+
+export { parseHeaderLines } from "./transform"
 
 export type RequestKind = "fetch" | "xhr"
 
@@ -55,7 +73,7 @@ function escapeRegex(value: string): string {
 }
 
 /** `*` matches inside one path segment, `**` spans segments. No user-provided regular expressions. */
-export function globToRegExp(pattern: string): RegExp {
+export function globSource(pattern: string): string {
   let source = ""
   for (let index = 0; index < pattern.length; index++) {
     const char = pattern[index] ?? ""
@@ -68,7 +86,11 @@ export function globToRegExp(pattern: string): RegExp {
     }
     source += escapeRegex(char)
   }
-  return new RegExp(`^${source}$`, "i")
+  return source
+}
+
+export function globToRegExp(pattern: string): RegExp {
+  return new RegExp(`^${globSource(pattern)}$`, "i")
 }
 
 export function getPathname(url: string): string {
@@ -156,6 +178,95 @@ export function byPrecedence(left: Rule, right: Rule): number {
   return left.id.localeCompare(right.id)
 }
 
+/* ── Routing ───────────────────────────────────────────────────────────────── */
+
+const doubles = (pattern: string) => (pattern.match(/\*\*/g) ?? []).length
+
+/**
+ * First-release rewrite grammar: an exact replacement path, or one trailing `/**` capture
+ * reinserted into a trailing `/**` replacement. Anything else is rejected rather than guessed.
+ */
+export function validateRewrite(glob: string, rewrite: string): string | undefined {
+  const target = rewrite.trim()
+  if (!target) return undefined
+  if (!target.includes("*")) return target.startsWith("/") ? undefined : 'A rewrite path must start with "/".'
+  if (!target.endsWith("/**") || doubles(target) !== 1 || target.slice(0, -3).includes("*"))
+    return 'A rewrite is either an exact path or one trailing "/**" capture.'
+  const source = getPathname(glob)
+  if (!source.endsWith("/**") || doubles(source) !== 1)
+    return 'A trailing "/**" rewrite needs a matcher URL that also ends in "/**".'
+  return undefined
+}
+
+export function rewritePathname(rule: RouteRule, pathname: string): string | { error: string } {
+  const rewrite = rule.pathRewrite.trim()
+  // The reference screen's rule: a rewrite always takes precedence over "preserve original path".
+  if (!rewrite) return rule.preservePath ? pathname : "/"
+  const problem = validateRewrite(rule.matcher.url, rewrite)
+  if (problem) return { error: problem }
+  if (!rewrite.endsWith("/**")) return rewrite
+  const prefix = getPathname(rule.matcher.url).slice(0, -3)
+  const captured = new RegExp(`^${globSource(prefix)}/(.*)$`, "i").exec(pathname)
+  if (!captured) return { error: `rewrite could not capture a tail from ${pathname}` }
+  return `${rewrite.slice(0, -3)}/${captured[1]}`
+}
+
+function sameOrigin(expected: string, url: string): boolean {
+  try {
+    return new URL(expected).origin === new URL(url).origin
+  } catch {
+    return false
+  }
+}
+
+export type RoutePlan = {
+  ruleId: string
+  label: string
+  from: string
+  to: string
+  credentials: RequestCredentials
+  crossOrigin: boolean
+  /** Request headers removed because the destination is a different origin. */
+  stripped: string[]
+  error?: string
+}
+
+/**
+ * Resolves one route. The original query string is preserved, the result is normalized through
+ * `URL`, and only HTTP(S) destinations are accepted. A rewrite never creates a proxy: the
+ * destination's cookies and CORS response are the browser's to decide, not ours to copy.
+ */
+export function routeTarget(rule: RouteRule, url: string): RoutePlan {
+  const base: RoutePlan = {
+    ruleId: rule.id, label: rule.label, from: url, to: url,
+    credentials: rule.credentials, crossOrigin: false, stripped: [],
+  }
+  let source: URL
+  try {
+    source = new URL(url)
+  } catch {
+    return { ...base, error: "request URL could not be parsed" }
+  }
+  let destination: URL
+  try {
+    destination = new URL(rule.destinationOrigin)
+  } catch {
+    return { ...base, error: `destination origin "${rule.destinationOrigin}" is not a URL` }
+  }
+  if (destination.protocol !== "http:" && destination.protocol !== "https:")
+    return { ...base, error: "destination origin must be http or https" }
+  const pathname = rewritePathname(rule, source.pathname)
+  if (typeof pathname !== "string") return { ...base, error: pathname.error }
+  const target = new URL(pathname + source.search, destination.origin)
+  const crossOrigin = target.origin !== source.origin
+  return {
+    ...base,
+    to: target.href,
+    crossOrigin,
+    stripped: crossOrigin && !rule.keepAuthorization ? ["authorization"] : [],
+  }
+}
+
 /* ── Seeded sampling ───────────────────────────────────────────────────────── */
 
 function hash(text: string): number {
@@ -206,10 +317,21 @@ export type RealFault = {
   replay?: { copies: number; gapMs: number }
 }
 
+export type InterceptPlan = {
+  ruleId: string
+  label: string
+  request: CompiledTransform
+  response: CompiledTransform
+  requestWork: boolean
+  responseWork: boolean
+}
+
 export type Plan = {
   provider: "mock" | "synthetic-chaos" | "network"
   mockRuleId?: string
   chaosRuleId?: string
+  intercept?: InterceptPlan
+  route?: RoutePlan
   /** Every composition decision, in order, for the "Why this rule?" trace. */
   why: string[]
   delayMs: number
@@ -232,18 +354,6 @@ export function statusText(status: number): string {
   return STATUS_TEXT[status] ?? ""
 }
 
-export function parseHeaderLines(text: string): Record<string, string> {
-  const headers: Record<string, string> = {}
-  for (const line of text.split(/[\r\n]+/)) {
-    const separator = line.indexOf(":")
-    if (separator <= 0) continue
-    const name = line.slice(0, separator).trim().toLowerCase()
-    const value = line.slice(separator + 1).trim()
-    if (name) headers[name] = value
-  }
-  return headers
-}
-
 function slotResponse(slot: MockSlot): SyntheticResponse {
   return {
     status: slot.status,
@@ -259,7 +369,7 @@ function slotResponse(slot: MockSlot): SyntheticResponse {
  */
 export function createRuleEngine() {
   let rules: Rule[] = []
-  const active = { mock: false, chaos: false }
+  const active: Record<RuleKind, boolean> = { mock: false, chaos: false, intercept: false, route: false }
   const cursors = new Map<string, number>()
   const hits = new Map<string, number>()
   const samplers = new Map<string, () => number>()
@@ -316,7 +426,7 @@ export function createRuleEngine() {
       for (const key of [...samplers.keys()]) if (!known.has(key)) samplers.delete(key)
       rules = next
     },
-    setActive(kind: "mock" | "chaos", value: boolean) {
+    setActive(kind: RuleKind, value: boolean) {
       if (active[kind] === value) return
       active[kind] = value
       // A fresh activation restarts sequences; minimizing the panel does not.
@@ -345,6 +455,58 @@ export function createRuleEngine() {
     /** Compiles the immutable plan for one request. Runs synchronously at intake. */
     plan(context: RequestContext): Plan {
       const why: string[] = []
+      const interceptRule = active.intercept ? (pick("intercept", context) as InterceptRule | null) : null
+      const intercept: InterceptPlan | null = interceptRule
+        ? {
+            ruleId: interceptRule.id,
+            label: interceptRule.label,
+            request: compileTransform(interceptRule.request),
+            response: compileTransform(interceptRule.response),
+            requestWork: transformHasWork(compileTransform(interceptRule.request)),
+            responseWork: transformHasWork(compileTransform(interceptRule.response)),
+          }
+        : null
+      const routeRule = active.route
+        ? (rules
+            .filter((item): item is RouteRule => item.kind === "route" && item.enabled)
+            .sort(byPrecedence)
+            .find(
+              (item) =>
+                matchRequest(item.matcher, context).matched &&
+                (!item.matchOrigin.trim() || sameOrigin(item.matchOrigin, context.url)),
+            ) ?? null)
+        : null
+
+      /** Stage 6: a response transform edits a synthetic response exactly as it edits a real one. */
+      const withIntercept = (plan: Plan): Plan => {
+        if (routeRule) why.push(`route ${routeRule.label} not applied: this request makes no network dispatch`)
+        if (!intercept) return plan
+        plan.intercept = intercept
+        count(intercept.ruleId)
+        why.push(`intercept ${intercept.label} matched`)
+        if (intercept.requestWork)
+          why.push("request transform not applied: this request is answered without a dispatch")
+        if (!intercept.responseWork) return plan
+        if (!plan.synthetic) {
+          why.push("response transform not applied: this outcome has no HTTP response to edit")
+          return plan
+        }
+        const outcome = applyTransform(
+          intercept.response,
+          { headers: plan.synthetic.headers, body: plan.synthetic.body, status: plan.synthetic.status },
+          "response",
+        )
+        const status = outcome.status ?? plan.synthetic.status
+        plan.synthetic = {
+          status,
+          statusText: status === plan.synthetic.status ? plan.synthetic.statusText : statusText(status),
+          headers: outcome.headers,
+          body: outcome.body ?? plan.synthetic.body,
+        }
+        why.push(outcome.summary)
+        return plan
+      }
+
       const mock = active.mock ? (pick("mock", context) as MockRule | null) : null
       let chaos = active.chaos ? (pick("chaos", context) as ChaosRule | null) : null
       if (chaos) {
@@ -409,7 +571,7 @@ export function createRuleEngine() {
           plan.timeoutMs = fault.timeoutMs
           plan.delayMs = fault.timeoutMs
         } else plan.syntheticFailure = "network-error"
-        return plan
+        return withIntercept(plan)
       }
 
       if (mock) {
@@ -432,17 +594,17 @@ export function createRuleEngine() {
         if (!reserved.slot) {
           plan.syntheticFailure = "network-error"
           why.push("sequence exhausted with a simulated network error; no real traffic is sent")
-          return plan
+          return withIntercept(plan)
         }
         if (reserved.slot.fault !== "none") {
           plan.syntheticFailure = reserved.slot.fault
           why.push(`mock fault ${reserved.slot.fault}`)
-          return plan
+          return withIntercept(plan)
         }
         plan.synthetic = slotResponse(reserved.slot)
         if (chaos && chaos.mode === "real")
           why.push("real-traffic chaos does not apply to a mocked response")
-        return plan
+        return withIntercept(plan)
       }
 
       const plan: Plan = { provider: "network", why, delayMs: 0, chaosRuleId: chaos?.id }
@@ -464,6 +626,27 @@ export function createRuleEngine() {
         plan.real = real
         why.push(`real-traffic fault ${fault.kind} after one dispatch`)
       } else if (!chaos && !mock) why.push("no active rule matched; captured transport")
+      if (intercept) {
+        plan.intercept = intercept
+        count(intercept.ruleId)
+        why.push(
+          `intercept ${intercept.label} matched${intercept.requestWork || intercept.responseWork ? "" : " with no configured operations"}`,
+        )
+      }
+      if (routeRule) {
+        const target = routeTarget(routeRule, context.url)
+        if (target.error) why.push(`route ${routeRule.label} skipped: ${target.error}`)
+        else {
+          plan.route = target
+          count(routeRule.id)
+          why.push(
+            `route ${routeRule.label}: ${target.from} → ${target.to}` +
+              (target.crossOrigin
+                ? ` (cross-origin · credentials ${target.credentials}${target.stripped.length ? ` · stripped ${target.stripped.join(", ")}` : ""})`
+                : ""),
+          )
+        }
+      }
       return plan
     },
   }

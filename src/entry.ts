@@ -17,7 +17,7 @@ import { importConfig as parseConfig, loadConfig, saveConfig, exportConfig } fro
 import { executeOnce } from "./tester/once"
 import { createRecorder, type Recording } from "./recorder/recorder"
 
-const version = "0.1.0-m5"
+const version = "0.1.0-m6"
 const key = "__api_workbench_7f49a1_v1__"
 type Instance = { version: string; restore: () => void }
 const registry = window as unknown as Record<string, Instance | undefined>
@@ -46,7 +46,7 @@ if (existing) {
     testerHistory: [],
     recording: false,
     recordings: [],
-    moduleActive: { mock: false, chaos: false },
+    moduleActive: { mock: false, chaos: false, intercept: false, route: false },
     ruleHits: {},
     ruleCursors: {},
     matched: [],

@@ -1,4 +1,6 @@
 import { createRequestContext, type Pipeline, type Plan, type SyntheticResponse } from "./pipeline"
+import { statusText } from "./rules"
+import { applyTransform, textLike } from "./transform"
 
 type Delivery = SyntheticResponse
 
@@ -34,6 +36,7 @@ export function xhrAdapter(
       let synthetic:
         | { state: number; failed: boolean; response: unknown; delivery: Delivery }
         | undefined
+      let responseUrl: string | undefined
       let cancel: (() => void) | undefined
       let rescheduleTimeout = () => {}
       let lifecycle: ReturnType<typeof pipeline.beginRequest> | undefined
@@ -62,7 +65,7 @@ export function xhrAdapter(
               case "statusText":
                 return ready() ? synthetic.delivery.statusText : ""
               case "responseURL":
-                return ready() ? url : ""
+                return ready() ? (responseUrl ?? url) : ""
               case "responseText":
                 if (xhr.responseType && xhr.responseType !== "text") throw invalid()
                 return text()
@@ -101,6 +104,7 @@ export function xhrAdapter(
         generation++
         sent = false
         synthetic = undefined
+        responseUrl = undefined
         for (const key of Object.keys(requestHeaders)) delete requestHeaders[key]
         // Delegate validation and OPENED event to the native implementation.
         method = verb
@@ -147,11 +151,19 @@ export function xhrAdapter(
         const plan: Plan = async
           ? lifecycle.plan
           : { provider: "network", why: ["synchronous send always uses captured transport"], delayMs: 0 }
-        const real = plan.provider === "network" ? plan.real : undefined
-        // A binary response type cannot be rebuilt from text, so the fault is skipped, not faked.
-        const supported = !real || deliverable(xhr.responseType)
-        if (real && !supported) lifecycle.settle("error", `real-traffic chaos skipped: responseType ${xhr.responseType}`)
-        if (plan.provider === "network" && (!real || !supported)) {
+        const network = plan.provider === "network"
+        const real = network ? plan.real : undefined
+        const route = network ? plan.route : undefined
+        const intercept = network ? plan.intercept : undefined
+        const requestWork = !!intercept?.requestWork
+        const responseWork = !!intercept?.responseWork
+        // A real dispatch is wrapped whenever a fault, a route or a transform has to touch it.
+        const wrapped = !!(real || route || requestWork || responseWork)
+        // A binary response type cannot be rebuilt from text, so the work is skipped, not faked.
+        const supported = !wrapped || deliverable(xhr.responseType)
+        if (wrapped && !supported)
+          lifecycle.settle("error", `intercept, route and chaos skipped: responseType ${xhr.responseType}`)
+        if (network && (!wrapped || !supported)) {
           const started = performance.now()
           pipeline.counters.dispatched++
           let published = false
@@ -227,7 +239,9 @@ export function xhrAdapter(
           )
           return valid()
         }
-        const ruleIds = [plan.chaosRuleId, plan.mockRuleId].filter((id): id is string => !!id)
+        const ruleIds = [plan.chaosRuleId, plan.mockRuleId, plan.intercept?.ruleId, plan.route?.ruleId].filter(
+      (id): id is string => !!id,
+    )
         const publish = (error?: string) => {
           if (!pipeline.observing) return
           pipeline.publishTraffic({
@@ -241,7 +255,7 @@ export function xhrAdapter(
                   bodyStatus: "captured",
                 },
             durationMs: Math.round(performance.now() - started),
-            source: real ? "network" : plan.provider === "synthetic-chaos" ? "synthetic-chaos" : "mock",
+            source: wrapped ? "network" : plan.provider === "synthetic-chaos" ? "synthetic-chaos" : "mock",
             error,
             ruleIds,
           })
@@ -311,24 +325,42 @@ export function xhrAdapter(
             )
         }
 
-        if (real) {
-          // Real-traffic chaos: the page's object stays synthetic while one inner native request
-          // carries the actual transport, so the fault is applied to a real response exactly once.
-          const replayBody = typeof body === "string" ? body : undefined
-          if (real.replay)
+        if (wrapped) {
+          // The page's object stays synthetic while one inner native request carries the actual
+          // transport, so a route, a transform and a fault each apply to a real response once.
+          const fault = real ?? { preDelayMs: 0, deliveryDelayMs: 0 }
+          const target = route?.to ?? url
+          responseUrl = target
+          // Stage 3: the request transform edits the headers and body that are actually sent.
+          let sendHeaders: Record<string, string> = { ...requestHeaders }
+          let sendBody = body
+          if (requestWork) {
+            const outcome = applyTransform(
+              intercept!.request,
+              { headers: sendHeaders, body: typeof body === "string" ? body : undefined },
+              "request",
+            )
+            sendHeaders = outcome.headers
+            if (outcome.bodyChanged) sendBody = outcome.body ?? null
+            lifecycle?.settle("request", outcome.summary)
+          }
+          for (const name of route?.stripped ?? []) delete sendHeaders[name]
+          const credentials = route ? route.credentials === "include" : xhr.withCredentials
+          const replayBody = typeof sendBody === "string" ? sendBody : undefined
+          if (fault.replay)
             pipeline.scheduleReplay(plan, () => {
               const copy = new Captured()
-              copy.open(method, url, true)
-              for (const [name, value] of Object.entries(requestHeaders)) copy.setRequestHeader(name, value)
-              copy.withCredentials = xhr.withCredentials
+              copy.open(method, target, true)
+              for (const [name, value] of Object.entries(sendHeaders)) copy.setRequestHeader(name, value)
+              copy.withCredentials = credentials
               copy.send(replayBody)
             })
           const dispatch = () => {
             pipeline.counters.dispatched++
             inner = new Captured()
-            inner.open(method, url, true)
-            for (const [name, value] of Object.entries(requestHeaders)) inner.setRequestHeader(name, value)
-            inner.withCredentials = xhr.withCredentials
+            inner.open(method, target, true)
+            for (const [name, value] of Object.entries(sendHeaders)) inner.setRequestHeader(name, value)
+            inner.withCredentials = credentials
             inner.addEventListener("load", () => {
               const headers: Record<string, string> = {}
               for (const line of inner!.getAllResponseHeaders().trim().split(/[\r\n]+/)) {
@@ -338,32 +370,58 @@ export function xhrAdapter(
               }
               let deliveryBody = inner!.responseText
               let status = inner!.status
-              if (real.status) {
+              let delivered = inner!.statusText
+              // Stage 6 before stage 7: real-traffic chaos sees the transformed response.
+              if (responseWork) {
+                const readable = textLike(headers["content-type"])
+                const outcome = applyTransform(
+                  intercept!.response,
+                  { headers: { ...headers }, body: readable ? deliveryBody : undefined, status },
+                  "response",
+                )
+                lifecycle?.settle("response", outcome.summary)
+                for (const name of Object.keys(headers)) delete headers[name]
+                Object.assign(headers, outcome.headers)
+                if (outcome.bodyChanged) deliveryBody = outcome.body ?? deliveryBody
+                if (outcome.status != null && outcome.status !== status) {
+                  status = outcome.status
+                  delivered = statusText(status) || delivered
+                }
+              }
+              if (real?.status) {
                 status = real.status.status
+                delivered = statusText(status) || delivered
                 deliveryBody = real.status.body || deliveryBody
-              } else if (real.malformedJson) deliveryBody = deliveryBody.slice(0, Math.max(1, deliveryBody.length - 1))
-              if (real.status || real.malformedJson) {
+              } else if (real?.malformedJson)
+                deliveryBody = deliveryBody.slice(0, Math.max(1, deliveryBody.length - 1))
+              if (real?.status || real?.malformedJson) {
                 delete headers["content-length"]
                 delete headers["content-encoding"]
               }
-              state.delivery = { status, statusText: inner!.statusText, headers, body: deliveryBody }
+              state.delivery = { status, statusText: delivered, headers, body: deliveryBody }
               inner = undefined
-              if (real.networkError) {
+              if (real?.networkError) {
                 lifecycle?.settle("error", "real-traffic chaos: simulated failure after dispatch")
                 fail("error")
                 return
               }
-              timer = setTimeout(deliver, real.deliveryDelayMs)
+              timer = setTimeout(deliver, fault.deliveryDelayMs)
             })
             inner.addEventListener("error", () => {
               inner = undefined
+              // A routed cross-origin failure is opaque to script: report it, never explain it away.
+              if (route)
+                lifecycle?.settle(
+                  "error",
+                  `routed to ${route.to}; the browser reports one opaque failure for CORS, DNS, TLS and network errors, and the destination may still have received the request`,
+                )
               fail("error")
             })
-            inner.send(body)
+            inner.send(sendBody)
             // The chaos timeout is bounded independently of the caller's own xhr.timeout.
-            if (real.timeoutMs) chaosDeadline = setTimeout(() => fail("timeout"), real.timeoutMs)
+            if (fault.timeoutMs) chaosDeadline = setTimeout(() => fail("timeout"), fault.timeoutMs)
           }
-          if (real.preDelayMs > 0) timer = setTimeout(dispatch, real.preDelayMs)
+          if (fault.preDelayMs > 0) timer = setTimeout(dispatch, fault.preDelayMs)
           else dispatch()
         } else if (plan.syntheticFailure) {
           timer = setTimeout(

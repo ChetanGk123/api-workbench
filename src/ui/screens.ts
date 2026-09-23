@@ -1,7 +1,7 @@
 import { el, icon, button, iconButton, card, caption, group, labeled, disclosure, type IconName } from "./dom"
-import { type Endpoint, type HeaderValue, type Profile, type Rule, type WorkbenchConfig } from "../core/model"
+import { type Endpoint, type HeaderValue, type Profile, type Rule, type RuleKind, type WorkbenchConfig } from "../core/model"
 import type { RuleActivity } from "../network/rules"
-import { chaosScreen, mockScreen } from "./rule-screens"
+import { chaosScreen, interceptScreen, mockScreen, routeScreen } from "./rule-screens"
 import type { OnceResult } from "../tester/once"
 import type { Recording } from "../recorder/recorder"
 
@@ -30,7 +30,7 @@ export type UIState = {
   recording: boolean
   recordings: Recording[]
   /** Module activation is session state: a fresh launch never silently intercepts traffic. */
-  moduleActive: { mock: boolean; chaos: boolean }
+  moduleActive: Record<RuleKind, boolean>
   ruleHits: Record<string, number>
   ruleCursors: Record<string, number>
   matched: RuleActivity[]
@@ -64,7 +64,7 @@ export type Ctx = {
   saveRule: (rule: Rule) => void
   deleteRule: (id: string) => void
   toggleRule: (id: string, enabled: boolean) => void
-  setModuleActive: (kind: "mock" | "chaos", value: boolean) => void
+  setModuleActive: (kind: RuleKind, value: boolean) => void
   resetSequence: (ruleId: string) => void
   /** Next creation sequence for a new rule; ties on priority resolve by it. */
   nextRuleSeq: () => number
@@ -125,7 +125,7 @@ const SCREEN_DATA = {
     milestone: "M6, M7",
     summary: "Request and response transformations on this frame’s traffic.",
     points: [
-      "Header, body and status edits plus JSON Patch",
+      "Header, body and status edits plus RFC 6902 JSON Patch",
       "Transform outcome log with a rule trace",
       "Request and response breakpoints (M7)",
     ],
@@ -317,7 +317,6 @@ function moduleCard(ctx: Ctx, module: (typeof MODULES)[number]): HTMLElement {
   const tile = el("div", "aw-tile")
   tile.append(icon(SCREENS[module.id].icon))
   const ready = module.id === "test"
-  const built = module.id === "mock" || module.id === "chaos"
   // Reference card: title + state badge, a stat line, and the module's own actions below.
   const badge = el("span", "aw-bd")
   const dot = el("span", "aw-dot")
@@ -335,8 +334,8 @@ function moduleCard(ctx: Ctx, module: (typeof MODULES)[number]): HTMLElement {
       const runs = state.testerHistory.length
       summary.textContent = `${state.config.endpoints.length} endpoint${state.config.endpoints.length === 1 ? "" : "s"} · ${runs ? `${runs} run${runs === 1 ? "" : "s"}` : "no runs yet"}`
     })
-  } else if (built) {
-    const kind = module.id as "mock" | "chaos"
+  } else {
+    const kind = module.id as RuleKind
     actions.append(button("aw-btn aw-out aw-sm", kind === "chaos" ? "Configure" : "Manage rules", () => ctx.go(module.id), ctx.signal))
     ctx.watch(state => {
       const rules = (state.config.rules ?? []).filter(rule => rule.kind === kind)
@@ -347,9 +346,6 @@ function moduleCard(ctx: Ctx, module: (typeof MODULES)[number]): HTMLElement {
       const hits = rules.reduce((total, rule) => total + (state.ruleHits[rule.id] ?? 0), 0)
       summary.textContent = `${rules.length} rule${rules.length === 1 ? "" : "s"} · ${enabled} enabled · ${hits} hit${hits === 1 ? "" : "s"}`
     })
-  } else {
-    actions.append(button("aw-btn aw-out aw-sm", "Manage rules", () => ctx.go(module.id), ctx.signal))
-    summary.textContent = "0 rules · rule editor preview, execution coming later"
   }
   section.append(group("aw-row aw-gap10", tile,
     group("aw-grow aw-col aw-gap2", group("aw-row aw-actions", el("span", "aw-h", module.title), badge), summary), open), actions)
@@ -770,271 +766,6 @@ function importScreen(ctx: Ctx): HTMLElement {
   return screen
 }
 
-function moduleHeader(ctx: Ctx, id: ScreenId, label = MODULES.find(module => module.id === id)?.title ?? SCREENS[id].label): HTMLElement {
-  const head = el("div", "aw-row aw-gap10")
-  const tile = el("div", "aw-tile")
-  tile.append(icon(SCREENS[id].icon))
-  const state = el("span", "aw-bd")
-  state.append(el("span", "aw-dot"), document.createTextNode("Inactive"))
-  head.append(tile, el("span", "aw-h", label), state)
-  const activate = previewDisabled("Activate")
-  activate.prepend(icon("play", "aw-i12"))
-  return group("aw-col aw-gap12", head, activate, el("p", "aw-hint", "UI preview · Explore rule settings. Saving and activation are not available yet."))
-}
-
-function previewDisabled(text: string, extra = "aw-sm aw-self"): HTMLButtonElement {
-  const control = el("button", `aw-btn aw-pri ${extra}`, text)
-  control.type = "button"
-  control.disabled = true
-  control.title = "UI preview — rule saving and execution are not connected yet"
-  return control
-}
-
-function ruleLabel(text: string, control: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement): HTMLElement {
-  const label = el("label", "aw-fld")
-  control.setAttribute("aria-label", text)
-  label.append(el("span", "aw-lbl", text), control)
-  return label
-}
-
-function ruleInput(text: string, value = "", type = "text", placeholder = ""): HTMLElement {
-  const input = el("input", "aw-in aw-mono")
-  input.type = type
-  input.value = value
-  input.placeholder = placeholder
-  if (type === "number") input.min = "0"
-  return ruleLabel(text, input)
-}
-
-function ruleSelect(text: string, choices: readonly string[], selected = choices[0]): HTMLElement {
-  const select = el("select", "aw-sel")
-  for (const value of choices) {
-    const option = el("option", "", value)
-    option.value = value
-    option.selected = value === selected
-    select.append(option)
-  }
-  return ruleLabel(text, select)
-}
-
-function ruleArea(text: string, value = "", placeholder = ""): HTMLElement {
-  const area = el("textarea", "aw-ta aw-mono")
-  area.value = value
-  area.placeholder = placeholder
-  return ruleLabel(text, area)
-}
-
-function ruleCheck(text: string, checked = false): HTMLElement {
-  const label = el("label", "aw-chk aw-xs")
-  const input = el("input")
-  input.type = "checkbox"
-  input.checked = checked
-  label.append(input, document.createTextNode(text))
-  return label
-}
-
-function ruleDisclosure(text: string, ...children: HTMLElement[]): HTMLElement {
-  const details = el("details", "aw-card aw-cp")
-  const summary = el("summary", "aw-coll", text)
-  summary.prepend(icon("right", "aw-i14"))
-  details.append(summary, group("aw-col aw-gap10", ...children))
-  return details
-}
-
-function ruleSection(ctx: Ctx, title: string, empty: string, action?: string, open?: () => void): HTMLElement {
-  const section = el("div", "aw-col aw-gap8")
-  section.append(group("aw-row", el("span", "aw-lbl", title), el("span", "aw-bd aw-s", "0")))
-  section.append(el("div", "aw-empty", empty))
-  if (action && open) {
-    const add = button("aw-btn aw-dash aw-w", action, open, ctx.signal)
-    add.prepend(icon("plus", "aw-i14"))
-    section.append(add)
-  }
-  return section
-}
-
-function moduleScreen(ctx: Ctx, id: ScreenId): HTMLElement {
-  const screen = el("div", "aw-col aw-gap12")
-  const back = () => ctx.go(id)
-  const edit = (fromEndpoint = false, preset = "") => {
-    const heading = el("div", "aw-h", `New ${id === "intercept" ? "intercept" : id} rule`)
-    heading.tabIndex = -1
-    screen.replaceChildren(heading, el("p", "aw-hint", "UI preview · Changes stay in this editor and are discarded when you leave. Saving and activation are not available yet."))
-    ctx.chrome({ actions: [previewDisabled("Save rule", "aw-grow"), button("aw-btn aw-out aw-grow", "Cancel", back, ctx.signal)] })
-    const match = card()
-    const endpoints = ctx.state().config.endpoints
-    const source = el("select", "aw-sel")
-    source.append(el("option", "", "Ad-hoc (custom URL)"))
-    source.options[0]!.value = ""
-    for (const endpoint of endpoints) {
-      const option = el("option", "", endpoint.name)
-      option.value = endpoint.id
-      source.append(option)
-    }
-    if (fromEndpoint && endpoints[0]) source.value = endpoints[0].id
-    const label = ruleInput("Label", preset)
-    const method = ruleSelect("Method", ["*", "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"], "GET")
-    const url = ruleInput("URL", "/api/**")
-    const sourceNote = el("p", "aw-hint")
-    const syncSource = () => {
-      const endpoint = endpoints.find(item => item.id === source.value)
-      if (endpoint) {
-        label.querySelector("input")!.value = `${id === "mock" ? "Mock" : id === "intercept" ? "Intercept" : "Fault"} ${endpoint.name}`
-        method.querySelector("select")!.value = endpoint.request.method
-        url.querySelector("input")!.value = endpoint.request.path
-      }
-      sourceNote.textContent = endpoint ? "Method and URL copied from the selected endpoint for this preview." : fromEndpoint && !endpoints.length ? "No endpoints yet. Add one in Endpoints, or explore an ad-hoc rule." : "Match a method and URL in this frame."
-    }
-    source.addEventListener("change", syncSource, { signal: ctx.signal })
-    syncSource()
-    match.append(label, ruleLabel("Endpoint", source), sourceNote, group("aw-g2", method, url))
-    screen.append(match)
-    if (id === "mock") {
-      const response = card()
-      const status = ruleInput("Status", "200", "number")
-      const body = ruleArea("Response body", "{}", "Response body JSON")
-      const useSample = button("aw-btn aw-out aw-sm aw-self", "Use recorded response", () => {
-        const sample = endpoints.find(item => item.id === source.value)?.sampleResponse
-        if (sample) {
-          status.querySelector("input")!.value = String(sample.status)
-          body.querySelector("textarea")!.value = sample.body
-        }
-      }, ctx.signal)
-      const updateSample = () => {
-        useSample.disabled = !endpoints.find(item => item.id === source.value)?.sampleResponse
-        useSample.title = useSample.disabled ? "Choose an endpoint with a recorded response" : "Copy the recorded body and status into this preview"
-      }
-      source.addEventListener("change", updateSample, { signal: ctx.signal })
-      updateSample()
-      response.append(caption("Response"), group("aw-g3", status, ruleInput("Delay (ms)", "0", "number"), ruleInput("Priority", "0", "number")), body, useSample, ruleArea("Response headers", "", "Name: Value — one per line"))
-      screen.append(response)
-    } else if (id === "intercept") {
-      screen.append(group("aw-row", ruleCheck("Break on request"), ruleCheck("Break on response")))
-      for (const stage of ["Response", "Request"]) {
-        const transform = card()
-        transform.append(caption(`${stage} transform`))
-        if (stage === "Response") transform.append(ruleInput("Status override", "", "number"), el("p", "aw-hint", "Blank keeps the original status."))
-        transform.append(ruleArea(`${stage} set headers`, "", "Name: Value — one per line"), ruleArea(`${stage} remove headers`, "", "One header name per line"))
-        const operations = el("div", "aw-col aw-gap8")
-        const raw = ruleArea(`${stage} patch JSON preview`, "[]")
-        raw.querySelector("textarea")!.readOnly = true
-        const addOperation = button("aw-btn aw-out aw-sm aw-self", "Add operation", () => {
-          const row = group("aw-col aw-gap8")
-          const operation = ruleSelect(`${stage} operation`, ["replace", "remove", "add", "nullify"])
-          const path = ruleInput(`${stage} JSON Pointer`, "/field")
-          const value = ruleInput(`${stage} JSON value`, "null")
-          const update = () => {
-            const patches = Array.from(operations.children).map(item => {
-              const op = item.querySelector("select")!.value
-              const inputs = item.querySelectorAll("input")
-              const patch: Record<string, unknown> = { op: op === "nullify" ? "replace" : op, path: inputs[0]!.value }
-              inputs[1]!.disabled = op === "remove" || op === "nullify"
-              if (op === "nullify") patch.value = null
-              else if (op !== "remove") {
-                try { patch.value = JSON.parse(inputs[1]!.value) } catch { patch.value = inputs[1]!.value }
-              }
-              return patch
-            })
-            raw.querySelector("textarea")!.value = JSON.stringify(patches, null, 2)
-          }
-          const remove = iconButton("aw-btn aw-gh aw-ic aw-sm", "trash", `Remove ${stage.toLowerCase()} operation`, () => { row.remove(); update() }, ctx.signal)
-          row.append(group("aw-row", operation, remove), path, value)
-          row.addEventListener("input", update, { signal: ctx.signal })
-          operations.append(row)
-          update()
-        }, ctx.signal)
-        transform.append(ruleDisclosure(`${stage} JSON Patch`, operations, addOperation, raw), group("aw-g2", ruleInput(`${stage} body find`), ruleInput(`${stage} body replace`)))
-        screen.append(transform)
-      }
-    } else {
-      const fault = card()
-      const isLatency = /slow|latency/i.test(preset)
-      const mode = ruleSelect("Mode", ["Synthetic", "Real traffic"])
-      const modeNote = el("p", "aw-hint", "No network call — generate a fault response.")
-      mode.querySelector("select")!.addEventListener("change", event => {
-        modeNote.textContent = (event.target as HTMLSelectElement).value === "Synthetic" ? "No network call — generate a fault response." : "A real request reaches the server before response faults are applied."
-      }, { signal: ctx.signal })
-      const faultType = ruleSelect("Fault type", ["Error status", "Latency", "Random latency", "Network error"], preset === "Random latency" ? "Random latency" : isLatency ? "Latency" : "Error status")
-      const status = ruleInput("Fault status", /503/.test(preset) ? "503" : /502/.test(preset) ? "502" : "500", "number")
-      const delay = ruleInput("Fault delay (ms)", /Very slow/.test(preset) ? "5000" : "1000", "number")
-      const range = group("aw-g2", ruleInput("Minimum delay (ms)", "250", "number"), ruleInput("Maximum delay (ms)", "2000", "number"))
-      const body = ruleArea("Fault body", "", '{"error":"…"}')
-      const updateFault = () => {
-        const kind = faultType.querySelector("select")!.value
-        status.hidden = kind !== "Error status"
-        body.hidden = kind !== "Error status"
-        delay.hidden = kind !== "Latency"
-        range.hidden = kind !== "Random latency"
-      }
-      faultType.querySelector("select")!.addEventListener("change", updateFault, { signal: ctx.signal })
-      updateFault()
-      fault.append(mode, modeNote, faultType, status, delay, range, body)
-      screen.append(fault)
-    }
-    screen.append(ruleDisclosure("Conditional match · Optional", ruleInput("Query params", ""), ruleInput("Match headers", ""), ruleInput("Body contains", ""), ruleInput("Match priority", "0", "number")))
-    if (id === "mock") screen.append(ruleSelect("Fault mode", ["None (static response)", "Network error", "Timeout"]))
-    const body = screen.closest<HTMLElement>(".aw-body")
-    if (body) body.scrollTop = 0
-    heading.focus({ preventScroll: true })
-  }
-  screen.append(moduleHeader(ctx, id))
-  if (id === "chaos") {
-    const presets = card()
-    const choices = el("div", "aw-g2")
-    for (const preset of ["Slow API", "Very slow API", "Random latency", "Server error 500", "Service unavailable 503", "Bad gateway 502"])
-      choices.append(button("aw-btn aw-out aw-sm", preset, () => edit(false, preset), ctx.signal))
-    presets.append(el("div", "aw-lbl", "Presets"), el("p", "aw-hint", "Choose a preset to preview its rule."), choices)
-    screen.append(presets, ruleSection(ctx, "Rules", "No chaos rules configured", "Add rule", () => edit()), button("aw-btn aw-out aw-sm aw-self", "From endpoint", () => edit(true), ctx.signal))
-  } else if (id === "route") {
-    const form = card()
-    form.append(
-      el("p", "aw-hint", "Routes this frame’s fetch/XHR requests; browser restrictions apply."),
-      el("div", "aw-lbl", "New page rule"),
-      group("aw-g2", ruleInput("Label", "", "text", "e.g. Local API"), ruleSelect("Method", ["*", "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]),
-        ruleInput("URL pathname glob", "/api/**"), ruleInput("Match origin", "", "text", "Blank = current document"),
-        ruleInput("Destination origin", location.origin), ruleInput("Path rewrite", "", "text", "/local/**"),
-        ruleSelect("Destination credentials", ["same-origin", "include", "omit"]), ruleInput("Priority", "0", "number")),
-      group("aw-g2", ruleArea("Query params", "{}"), ruleArea("Headers", "{}")),
-      ruleInput("Body contains", "", "text", "Literal substring (optional)"), ruleCheck("Preserve original path — rewrite takes precedence", true), ruleCheck("Rule enabled — does not activate routing", true),
-    )
-      form.append(el("p", "aw-hint", "All conditions must match. Query params and headers are JSON maps of exact string values."))
-    ctx.chrome({ actions: [previewDisabled("Save rule", "aw-grow"), button("aw-btn aw-out aw-grow", "Cancel", () => ctx.go("home"), ctx.signal)] })
-    screen.append(form)
-  } else {
-    screen.append(
-      ruleSection(ctx, "Endpoint rules", "No endpoint rules configured", id === "mock" ? "Add rule from endpoint" : "From endpoint", () => edit(true)),
-      ruleSection(ctx, "Ad-hoc rules", id === "mock" ? "No ad-hoc rules" : "No freestanding intercept rules", id === "mock" ? "Add ad-hoc rule" : "Add rule", () => edit()),
-      ruleSection(ctx, id === "mock" ? "Matched traffic" : "Traffic log", id === "mock" ? "No matched traffic yet" : "No intercepted traffic yet"),
-    )
-  }
-  return screen
-}
-
-function planned(ctx: Ctx, id: ScreenId): HTMLElement {
-  const screen = el("div", "aw-col aw-gap12")
-  const section = card()
-  const head = el("div", "aw-row aw-gap10")
-  const tile = el("div", "aw-tile")
-  tile.append(icon(SCREENS[id].icon))
-  const badge = el("span", "aw-bd aw-am", `Not built · ${SCREENS[id].milestone}`)
-  const text = el("div", "aw-grow aw-col aw-gap2")
-  text.append(el("div", "aw-h", SCREENS[id].label), el("div", "aw-xs aw-mu", SCREENS[id].summary))
-  head.append(tile, text, badge)
-  const list = el("ul", "aw-plan")
-  for (const point of SCREENS[id].points) list.append(el("li", "aw-xs aw-mu", point))
-  section.append(head, list)
-  const note = el(
-    "p",
-    "aw-hint",
-    `M1 delivers the panel shell only. This screen has no behavior yet; reference design: ${SCREENS[id].reference}.`,
-  )
-  screen.append(
-    section,
-    note,
-  )
-  return screen
-}
-
 export function renderScreen(ctx: Ctx, id: ScreenId): HTMLElement {
   if (id === "home") return home(ctx)
   if (id === "test") return tester(ctx)
@@ -1043,6 +774,7 @@ export function renderScreen(ctx: Ctx, id: ScreenId): HTMLElement {
   if (id === "import") return importScreen(ctx)
   if (id === "mock") return mockScreen(ctx)
   if (id === "chaos") return chaosScreen(ctx)
-  if (id === "intercept" || id === "route") return moduleScreen(ctx, id)
-  return planned(ctx, id)
+  if (id === "intercept") return interceptScreen(ctx)
+  if (id === "route") return routeScreen(ctx)
+  return home(ctx)
 }

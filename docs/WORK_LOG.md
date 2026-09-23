@@ -2,11 +2,127 @@
 
 ## Current state
 
-M0–M5 are implemented and verified in Chrome by automated browser checks (52 checks). Saved-bookmark
+M0–M6 are implemented and verified in Chrome by automated checks (70 checks). Saved-bookmark
 installation and all Edge checks remain outstanding for every milestone.
 
-Current assigned work: M5 mock and chaos complete and verified in Chrome. M6 (interception,
-JSON Patch and routing) is next.
+Current assigned work: M6 interception and routing complete and verified in Chrome. M7 (breakpoints)
+is next.
+
+## 2026-09-23 — M6 intercept and routing
+
+**Scope.** M6 only: request and response transformations (headers, status, literal body
+find/replace), RFC 6902 JSON Patch, current-frame routing with a defined rewrite grammar, the
+Intercept and Route screens, and the composition order for all four rule modules. Breakpoints stay
+unbuilt; the intercept editor says so rather than showing controls that do nothing.
+
+**Changed files.**
+
+- `src/network/patch.ts` (new) — RFC 6902 over RFC 6901. All six operations, `~1`/`~0` unescaping in
+  the required order, array indices with no leading zeros plus `-` for append, own-property
+  traversal, and `__proto__`/`constructor`/`prototype` segments rejected. Every patch runs on a
+  `structuredClone` and commits only if all its operations succeed. `pointers()` lists the pointers
+  in a sample document for the editor's path suggestions.
+- `src/network/transform.ts` (new) — header line parsing (moved here from `rules.ts`), transform
+  compilation, and `applyTransform`, which returns the resulting headers/body/status plus explicit
+  `applied` and `skipped` reasons. Forbidden request header names are skipped with a reason rather
+  than reported as applied; a status override outside 200–599 is refused; a rewritten body drops
+  `content-length` and `content-encoding`.
+- `src/core/model.ts` — `InterceptRule` (request and response `Transform`), `RouteRule`, `PatchOp`,
+  `FORBIDDEN_REQUEST_HEADERS`/`forbiddenRequestHeader`, `RULE_KINDS`, and defaults. `Rule` is now a
+  four-way union.
+- `src/network/rules.ts` — module activation covers four kinds; `globSource` is factored out of
+  `globToRegExp`; `validateRewrite`, `rewritePathname` and `routeTarget` implement the rewrite
+  grammar, preserve the query string, restrict destinations to HTTP(S) and strip `Authorization`
+  cross-origin unless the rule keeps it for that destination. `plan()` selects at most one intercept
+  and one route rule, applies the response transform to synthetic (mock and chaos) responses at plan
+  time, and records every composition decision in `why`.
+- `src/network/fetch-adapter.ts` — one wrapper now serves chaos, routing and transforms. The request
+  is rebuilt only when a request transform or a route needs it, with the body buffered as bytes so
+  binary and form payloads are re-sent byte-for-byte. The response transform runs before
+  real-traffic chaos. A routed `TypeError` is reported as one opaque browser failure.
+- `src/network/xhr-adapter.ts` — the inner native request now carries the routed URL, the
+  transformed request headers and body and the route's credentials; the response transform runs on
+  its result before chaos. `responseURL` reports the routed destination. Unsupported `responseType`
+  values skip the work with a reason instead of faking a text rebuild.
+- `src/ui/rule-screens.ts` — the Intercept and Route screens and editors, including a JSON Patch
+  editor whose friendly rows and raw JSON are two views of the same array, a `Load` control that
+  suggests pointers from the linked endpoint's sample response, and a live route rewrite preview.
+- `src/ui/screens.ts` — `moduleActive` is `Record<RuleKind, boolean>`; Home reports real rule,
+  enabled and hit counts for all four modules. The M1 preview scaffolding for Intercept and Route
+  (`moduleScreen`, `planned` and their disabled-control helpers, 288 lines) is deleted.
+- `src/ui/shell.ts`, `src/entry.ts`, `package.json` — four-module activation plumbing, launcher
+  label, version `0.1.0-m6`.
+- `tests/m6-core.spec.mjs` (new, 6 checks), `tests/m6.spec.mjs` (new, 12 checks),
+  `tests/fixtures/server.mjs` (added `/api/echo-headers`; `/api/echo` is unchanged so the M0
+  assertion still holds), `tests/ui.spec.mjs` (the preview test became a real editing test).
+
+**Commands and outcomes.**
+
+- `npm run build` → exit 0, with `Payload probes smaller than the bundle were skipped: 131072`.
+  raw 230,863 B, minified 135,630 B, encoded bookmark URL 192,748 characters (after M5: 200,629 /
+  120,900 / 172,254). The zero-import, no-`eval` and no-external-URL assertions still pass; the
+  route editor's destination placeholder is built from `location.protocol` so no absolute URL
+  literal survives minification.
+- `npm test` (build + Playwright) → **70 passed in 24.1 s**. Chrome 153.0.8010.53, macOS
+  darwin 25.6.0, Node v24.21.0.
+
+**Verification (measured).** Intercept edits status, headers and JSON body of a real fetch and XHR
+response after exactly one server hit; a request transform changes the headers and body the fixture
+actually received on both transports; a forbidden request header never reaches the wire and the
+editor refuses the save with the reason; a patch whose second operation fails delivers the original
+body while the header edit still applies; a response transform edits a mocked response with zero
+network calls; a route rewrites `/api/m6-from/**` to `/api/m6-to/**` with the query preserved, the
+original path's hit counter unchanged and `responseURL` reporting the destination; a cross-origin
+route succeeds with `Authorization` stripped and fails when the rule keeps it; a refused route is
+reported as an opaque failure that may still have reached the destination; an intercept transform
+runs before real-traffic chaos, which wins the final status; an inactive module changes nothing.
+Core checks cover pointer escaping and blocked segments, all six patch operations, transactional
+rollback, prototype-pollution refusal, transform skip reasons, the rewrite grammar and its
+rejections, and one-rule-per-module precedence.
+
+**Not run.** Saved-bookmark installation and restart persistence; all Edge checks (Edge is not
+installed on this machine); screen-reader verification; keyboard-only sweeps of the new editors.
+Real-network behavior against a third-party host — every route check uses the two local fixture
+origins.
+
+**Limitations.**
+
+1. Breakpoints are not built. The intercept editor states that M7 delivers them; no paused-request
+   queue exists, so the stage 3 and stage 8 pauses in the pipeline table are still absent.
+2. Body transforms apply to text-shaped media types only (`json`, `text`, `xml`, `javascript`,
+   `html`, `csv`, form-urlencoded). Anything else is skipped with a reason, never rewritten.
+3. A request whose `Request` object already has a used body cannot be rebuilt; the transform is
+   skipped and the original request is dispatched.
+4. XHR skips intercept, route and chaos work for binary `responseType` values rather than
+   reconstructing a text body.
+5. A route's "Match origin" left blank matches any origin, which the field's hint states. The
+   reference screen's "Blank = current document" wording would need a separate document-origin
+   concept the matcher does not otherwise have.
+6. Conditions on the Route screen use the same `k=v&k2=v2` matcher as every other rule, not the
+   reference screen's JSON maps.
+
+**Decisions.**
+
+- **Response transforms on synthetic responses are applied in `plan()`**, not in the adapters. The
+  synthetic response is fully known at plan time, so both transports get identical behavior with no
+  duplicated adapter code.
+- **One wrapper per transport for chaos, routing and transforms.** The fetch fast path is kept for
+  requests that need none of them, so ordinary traffic is still passed through untouched.
+- **Request bodies are buffered as `ArrayBuffer`, not decoded text**, when a request has to be
+  rebuilt. Text is decoded only to evaluate a transform.
+- **Stage 6 before stage 7**: a response transform edits the response, then real-traffic chaos
+  replaces it. A breakpoint edit will be the final override in M7.
+- **A routed failure is never labelled CORS.** Both adapters report the same sentence: the browser
+  gives one opaque failure for CORS, DNS, TLS and network errors, and the destination may still have
+  received the request.
+- **Cross-origin routes strip `Authorization` by default** and a new cross-origin destination flips
+  the editor's credentials to `omit`, rather than inheriting the page's session.
+- **`Nullify` stays a convenience** that emits `replace` with `null`; a new operation row starts with
+  an empty string value so it does not read back as Nullify.
+
+**Next task.** M7 — breakpoints: the paused-request queue, request- and response-stage pauses with a
+30-second deadline and a 20-pause limit, Continue/Abort/Continue-all, and disposal with no
+unresolved paused promises and no duplicate upstream requests.
 
 ## 2026-09-23 — M5 mock and chaos
 

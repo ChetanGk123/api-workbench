@@ -1,4 +1,6 @@
 import { createRequestContext, type Pipeline, type Plan, type SyntheticResponse } from "./pipeline"
+import { statusText } from "./rules"
+import { applyTransform, textLike } from "./transform"
 
 function syntheticResponse(plan: Plan, url: string): Response {
   const synthetic = plan.synthetic as SyntheticResponse
@@ -45,7 +47,9 @@ export function fetchAdapter(captured: typeof fetch, pipeline: Pipeline): typeof
     const lifecycle = pipeline.beginRequest(requestContext, "fetch")
     const plan = lifecycle.plan
     const decision = lifecycle.decision
-    const ruleIds = [plan.chaosRuleId, plan.mockRuleId].filter((id): id is string => !!id)
+    const ruleIds = [plan.chaosRuleId, plan.mockRuleId, plan.intercept?.ruleId, plan.route?.ruleId].filter(
+      (id): id is string => !!id,
+    )
     const started = performance.now()
     const publishReal = (response: Response, source: "network" | "synthetic-chaos" = "network") => {
       if (!pipeline.observing) return response
@@ -92,7 +96,10 @@ export function fetchAdapter(captured: typeof fetch, pipeline: Pipeline): typeof
 
     if (plan.provider === "network") {
       const real = plan.real
-      if (!real) {
+      const intercept = plan.intercept
+      const requestWork = !!intercept?.requestWork
+      const responseWork = !!intercept?.responseWork
+      if (!real && !plan.route && !requestWork && !responseWork) {
         pipeline.counters.dispatched++
         return captured
           .call(window, input, init)
@@ -102,13 +109,15 @@ export function fetchAdapter(captured: typeof fetch, pipeline: Pipeline): typeof
             throw error
           })
       }
+      // Stages 3 and 5 share one wrapper: request transform, route, then a single dispatch.
+      const fault = real ?? { preDelayMs: 0, deliveryDelayMs: 0 }
       // Replay copies are prepared from the frozen context before the primary dispatch, so a
       // consumed body can never be discovered too late.
-      const replayable = !real.replay || !(input instanceof Request) || !input.bodyUsed
+      const replayable = !fault.replay || !(input instanceof Request) || !input.bodyUsed
       const replayBody = typeof init?.body === "string" ? init.body : undefined
       const replayHeaders = Object.fromEntries(Object.entries(requestContext.headers))
       const cancelReplay =
-        real.replay && replayable
+        fault.replay && replayable
           ? pipeline.scheduleReplay(
               plan,
               () => {
@@ -124,18 +133,18 @@ export function fetchAdapter(captured: typeof fetch, pipeline: Pipeline): typeof
               signal,
             )
           : () => {}
-      if (real.replay && !replayable)
+      if (fault.replay && !replayable)
         lifecycle.settle("error", "replay skipped: request body is not replayable")
 
       const controller = new AbortController()
       const abortForward = () => controller.abort(signal?.reason)
       signal?.addEventListener("abort", abortForward, { once: true })
       let timedOut = false
-      const deadline = real.timeoutMs
+      const deadline = fault.timeoutMs
         ? setTimeout(() => {
             timedOut = true
             controller.abort(new DOMException("Simulated timeout", "TimeoutError"))
-          }, real.timeoutMs)
+          }, fault.timeoutMs)
         : undefined
 
       const wait = (ms: number) =>
@@ -156,15 +165,82 @@ export function fetchAdapter(captured: typeof fetch, pipeline: Pipeline): typeof
           signal?.addEventListener("abort", stop, { once: true })
         })
 
-      return wait(real.preDelayMs)
+      /**
+       * Only rebuilt when a request transform or a route needs it. The body is buffered as bytes,
+       * so a binary or form payload is re-sent byte-for-byte rather than decoded and guessed at.
+       */
+      const dispatch = async (): Promise<Response> => {
+        if (!plan.route && !requestWork)
+          return captured.call(window, input, { ...(init ?? {}), signal: controller.signal })
+        let prepared: Request
+        try {
+          prepared = new Request(input, init)
+        } catch (error) {
+          lifecycle.settle("error", `request transform skipped: ${(error as Error).message}`)
+          return captured.call(window, input, { ...(init ?? {}), signal: controller.signal })
+        }
+        let headers = Object.fromEntries(prepared.headers.entries())
+        const hasBody = prepared.method !== "GET" && prepared.method !== "HEAD"
+        const raw = hasBody ? await prepared.clone().arrayBuffer() : undefined
+        const text =
+          raw && textLike(headers["content-type"]) ? new TextDecoder().decode(raw) : undefined
+        let body: BodyInit | undefined = raw
+        if (requestWork) {
+          const outcome = applyTransform(intercept!.request, { headers, body: text }, "request")
+          headers = outcome.headers
+          if (outcome.bodyChanged) body = outcome.body
+          lifecycle.settle("request", outcome.summary)
+        }
+        for (const name of plan.route?.stripped ?? []) delete headers[name]
+        return captured.call(window, plan.route?.to ?? url, {
+          method: prepared.method,
+          headers,
+          body,
+          credentials: plan.route ? plan.route.credentials : prepared.credentials,
+          mode: prepared.mode === "navigate" ? undefined : prepared.mode,
+          cache: prepared.cache,
+          redirect: prepared.redirect,
+          referrerPolicy: prepared.referrerPolicy,
+          keepalive: prepared.keepalive,
+          signal: controller.signal,
+        })
+      }
+
+      return wait(fault.preDelayMs)
         .then(() => {
           pipeline.counters.dispatched++
-          return captured.call(window, input, { ...(init ?? {}), signal: controller.signal })
+          return dispatch()
         })
-        .then(async (response) => {
+        .then(async (received) => {
           clearTimeout(deadline)
-          await wait(real.deliveryDelayMs)
-          if (real.networkError) {
+          await wait(fault.deliveryDelayMs)
+          // Stage 6 runs before stage 7, so real-response chaos sees the transformed result.
+          let response = received
+          if (responseWork) {
+            const current = Object.fromEntries(received.headers.entries())
+            const readable = textLike(current["content-type"]) && received.body !== null
+            const original = readable ? await received.clone().text() : undefined
+            const outcome = applyTransform(
+              intercept!.response,
+              { headers: current, body: original, status: received.status },
+              "response",
+            )
+            lifecycle.settle("response", outcome.summary)
+            const status = outcome.status ?? received.status
+            const empty = status === 204 || status === 304
+            response = new Response(
+              empty
+                ? null
+                : outcome.bodyChanged
+                  ? outcome.body
+                  : readable
+                    ? original
+                    : await received.clone().arrayBuffer(),
+              { status, statusText: statusText(status) || received.statusText, headers: outcome.headers },
+            )
+            Object.defineProperty(response, "url", { value: received.url, configurable: true })
+          }
+          if (real?.networkError) {
             lifecycle.settle("error", "real-traffic chaos: simulated failure after dispatch")
             lifecycle.finish("network error after one dispatch")
             publishError(new TypeError("Failed to fetch"))
@@ -178,12 +254,12 @@ export function fetchAdapter(captured: typeof fetch, pipeline: Pipeline): typeof
             headers.delete("content-encoding")
             return headers
           }
-          if (real.status) {
+          if (real?.status) {
             delivered = new Response(real.status.body || (await response.clone().text()), {
               status: real.status.status,
               headers: rewritten(),
             })
-          } else if (real.malformedJson) {
+          } else if (real?.malformedJson) {
             const type = response.headers.get("content-type") ?? ""
             if (/json|text/i.test(type)) {
               const text = await response.clone().text()
@@ -193,7 +269,7 @@ export function fetchAdapter(captured: typeof fetch, pipeline: Pipeline): typeof
               })
             } else lifecycle.settle("error", "malformed JSON skipped: unsupported response body")
           }
-          lifecycle.settle("response", `real-traffic chaos applied · ${plan.why.join(" · ")}`)
+          lifecycle.settle("response", plan.why.join(" · "))
           lifecycle.finish(`real ${delivered.status}`)
           return publishReal(delivered)
         })
@@ -202,9 +278,17 @@ export function fetchAdapter(captured: typeof fetch, pipeline: Pipeline): typeof
           cancelReplay()
           const thrown =
             timedOut && !signal?.aborted
-              ? new DOMException(`Simulated timeout after ${real.timeoutMs} ms`, "TimeoutError")
+              ? new DOMException(`Simulated timeout after ${fault.timeoutMs} ms`, "TimeoutError")
               : error
-          lifecycle.settle(signal?.aborted ? "abort" : "error", String((thrown as Error)?.message ?? thrown))
+          // A fetch TypeError is deliberately indistinguishable: never label it a solved CORS problem.
+          const routed =
+            plan.route && thrown instanceof TypeError
+              ? ` · routed to ${plan.route.to}; the browser reports one opaque failure for CORS, DNS, TLS and network errors, and the destination may still have received the request`
+              : ""
+          lifecycle.settle(
+            signal?.aborted ? "abort" : "error",
+            `${String((thrown as Error)?.message ?? thrown)}${routed}`,
+          )
           publishError(thrown)
           throw thrown
         })

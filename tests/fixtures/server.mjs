@@ -32,6 +32,10 @@ export async function startFixtures() {
           }
           if (path === '/api/session') return json({ authenticated: /aw_fixture_session=local-test/.test(req.headers.cookie || '') });
           if (path === '/api/error') return json({ error: 'fixture' }, 503);
+          if (path === '/api/echo-headers') {
+            let body = ''; for await (const chunk of req) body += chunk;
+            return json({ method: req.method, body, headers: req.headers });
+          }
           if (path === '/api/echo') {
             let body = ''; for await (const chunk of req) body += chunk;
             return json({ method: req.method, body, header: req.headers['x-fixture'] || null });

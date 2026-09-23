@@ -108,26 +108,20 @@ test('UI endpoint save commits request and header edits together, and reordering
   ]);
 });
 
-test('UI module previews expose unfinished behavior and return without page navigation', async ({ page }) => {
+test('every module screen edits rules in place without touching the host page', async ({ page }) => {
   const navigations = [];
   page.on('framenavigated', frame => navigations.push(frame.url()));
   const originalURL = page.url();
-  // Mock and Chaos are built in M5; Intercept and Route are still previews.
-  for (const name of ['Intercept', 'Route']) {
+  for (const [name, add] of [['Intercept', 'Add rule'], ['Route', 'New page rule']]) {
     const tab = panel(page).locator('.aw-tabs').getByRole('button', { name, exact: true });
     await tab.click();
     await expect(tab).toHaveAttribute('aria-current', 'page');
-    await expect(panel(page).getByText(/preview/i).first()).toBeVisible();
-    await expect(panel(page).getByRole('button', { name: 'Activate', exact: true })).toBeDisabled();
-    if (name !== 'Route') await panel(page).getByRole('button', { name: 'Add rule', exact: true }).click();
-    await expect(panel(page).getByRole('button', { name: 'Save rule', exact: true })).toBeDisabled();
+    // Activation is real from M6 onward, and starts inactive on every launch.
+    await expect(panel(page).getByRole('button', { name: 'Activate', exact: true })).toBeEnabled();
+    await panel(page).getByRole('button', { name: add, exact: true }).click();
     await panel(page).getByRole('button', { name: 'Cancel', exact: true }).click();
-    if (name === 'Route') {
-      await expect(panel(page).getByRole('button', { name: 'Home', exact: true })).toHaveAttribute('aria-current', 'page');
-    } else {
-      await expect(tab).toHaveAttribute('aria-current', 'page');
-      await expect(panel(page).getByRole('button', { name: 'Add rule', exact: true })).toBeVisible();
-    }
+    await expect(tab).toHaveAttribute('aria-current', 'page');
+    await expect(panel(page).getByRole('button', { name: add, exact: true })).toBeVisible();
   }
   expect(page.url()).toBe(originalURL);
   expect(navigations).toEqual([]);

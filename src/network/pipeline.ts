@@ -1,4 +1,4 @@
-import type { Rule } from "../core/model"
+import { RULE_KINDS, type Rule, type RuleKind } from "../core/model"
 import {
   createRequestContext,
   createRuleEngine,
@@ -16,7 +16,7 @@ import {
 } from "./rules"
 
 export { createRequestContext, getPathname, getSearch } from "./rules"
-export type { Plan, RequestContext, RequestKind, RuleActivity, SyntheticResponse } from "./rules"
+export type { InterceptPlan, Plan, RequestContext, RequestKind, RoutePlan, RuleActivity, SyntheticResponse } from "./rules"
 
 export const mockBody = JSON.stringify({ source: "workbench", message: "Mock response — café ✓" })
 
@@ -240,7 +240,7 @@ export function createPipeline(report: (message: string) => void) {
     setRules(next: Rule[]) {
       engine.setRules(next)
     },
-    setActive(kind: "mock" | "chaos", value: boolean) {
+    setActive(kind: RuleKind, value: boolean) {
       engine.setActive(kind, value)
     },
     onActivity(listener: (activity: RuleActivity) => void) {
@@ -266,17 +266,22 @@ export function createPipeline(report: (message: string) => void) {
         lifecycleTrace.push(grown)
         return grown
       }
-      const ruleId = effective.chaosRuleId ?? effective.mockRuleId
+      const ruleIds = [
+        effective.chaosRuleId,
+        effective.mockRuleId,
+        effective.intercept?.ruleId,
+        effective.route?.ruleId,
+      ].filter((id): id is string => !!id)
       const finish = (outcome: string) => {
-        if (!ruleId) return
-        announce({
-          ruleId,
-          label: effective.provider,
-          method: context.method,
-          url: context.url,
-          outcome,
-          at: Date.now(),
-        })
+        for (const ruleId of ruleIds)
+          announce({
+            ruleId,
+            label: effective.provider,
+            method: context.method,
+            url: context.url,
+            outcome,
+            at: Date.now(),
+          })
       }
       return { decision, plan: effective, cancelled: aborted, trace: lifecycleTrace, settle, entry, finish }
     },
@@ -360,8 +365,7 @@ export function createPipeline(report: (message: string) => void) {
     close() {
       active = false
       settings.enabled = false
-      engine.setActive("mock", false)
-      engine.setActive("chaos", false)
+      for (const kind of RULE_KINDS) engine.setActive(kind, false)
       for (const finish of [...pending]) finish()
       pending.clear()
       trafficListeners.clear()
