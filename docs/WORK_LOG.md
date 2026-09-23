@@ -2,7 +2,7 @@
 
 ## Current state
 
-M0–M9 are implemented and verified in Chrome by automated checks (184 checks). The M0 feasibility
+M0–M9 are implemented and verified in Chrome by automated checks (186 checks). The M0 feasibility
 mock is no longer part of the app; its transport evidence runs on ordinary Mock rules. The app version
 is `1.0.0`, written only in `package.json` and injected into the bundle by the build. Saved-bookmark
 installation and all Edge checks remain outstanding for every milestone. `npm run build` also writes
@@ -29,6 +29,167 @@ when a later milestone lands.
 | M8 — Flow/Independent runs | CODE COMPLETE · all M8 acceptance gates PASS in Chrome (36 checks) · saved-bookmark and Edge checks NOT RUN |
 | M9 — Complete import support | CODE COMPLETE · all M9 acceptance gates PASS in Chrome (38 checks) · saved-bookmark and Edge checks NOT RUN |
 | M10 — Integrated release | NOT STARTED |
+
+## 2026-09-23 — Home screen matched to the reference card layout
+
+**Scope.** Home only, against `design/reference/screens/home.html` and a mockup the user supplied.
+No transport, storage or rule-evaluation change.
+
+**Changed files.**
+
+- `src/ui/screens.ts` — `moduleCard` rewritten. Each rule module states its rule ratio and its own
+  name for a hit, in the reference's wording (`MODULE_STATS`): `rules active · requests matched`
+  for Mock, `· responses modified` for Intercept, `rules enabled · routed` for Route, `rules ·
+  chaos hits` for Chaos. The card's single action is the module's own switch, Activate or Stop
+  (`aw-dst`), once it holds a rule; a module with none keeps the earlier "Manage rules"
+  ("Configure" for Chaos), since activating an empty module does nothing. Rules are still edited
+  through Open. The Tester
+  card carries `<plan> · <included>/<total> in plan · Last run <time>` and no badge, as the
+  reference does, and its History button opens the newest run on Results. New exported
+  `moduleState` is the one definition of a module's live state.
+- `src/ui/shell.ts` — title-bar module indicators (`aw-tbm`/`aw-ind`), one per rule module, dotted
+  green while running and amber while paused, hidden entirely for a module with no rules so a fresh
+  launch keeps its brand width. Tab dots (`.aw-tt .aw-d`) mark a running module. Both read
+  `moduleState`, so the three places cannot disagree.
+- `src/ui/dom.ts` — `stop` icon for the Stop button.
+- `src/ui/theme.css` — `.aw-card.aw-live` green outline for a running module, and the title-bar
+  indicator geometry.
+- `tests/ui.spec.mjs` — new check covering the stat lines, Inactive/Paused/Running, the live
+  outline, the tab dot, the indicator cluster and Activate/Stop from Home.
+
+**Decisions.**
+
+- The Record quick action stays, making four tiles rather than the reference's three: the Record
+  screen has no other entry point, and the user chose to keep it when asked.
+- Route does **not** get the reference's amber "Extension required" badge. In this build Route
+  rewrites fetch and XHR requests in this frame and works without an extension, so the badge would
+  misstate what the module does. It reports Inactive/Paused/Running like the others.
+- Run history and Activity stay below Quick actions. They sit below the fold in the mockup, and the
+  run history was fixed earlier the same day.
+- The Tester card's Run button still navigates to Test rather than dispatching. Starting a plan from
+  Home would skip the preflight that the Load view shows before it sends real requests.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0.
+- `npm run build` → exit 0. minified 237,853 B, encoded bookmark URL 342,577 characters.
+- `npx playwright test` → 186 passed in 1.4 m, Chrome (channel `chrome`), macOS darwin 25.6.0. The
+  pre-existing specs needed no selector changes.
+- Rendered Home at 480 px and compared against the supplied mockup by screenshot.
+
+**Not run.** Edge — not installed on this machine. Saved-bookmark installation, as before.
+
+**Limitations.** At 480 px with a long profile name the brand still elides ("API Workben…"); the
+indicators hold their width because which modules are live outranks the product name. The mockup's
+"Last run 10:02:02 AM" uses the browser's locale time, so its format follows the host machine.
+
+**Next task.** M10 (integrated release), unchanged.
+
+## 2026-09-23 — Home run history lists plan runs, not only Once results
+
+**Reported.** Home kept saying "No runs yet. Run an endpoint from Test." after a plan run finished,
+while the Activity card on the same screen reported `Run completed: 11 passed of 11 requests`.
+
+**Cause.** Home's `runHistory` watched `state.testerHistory`, which only ever holds direct Once
+results. A plan run is published to `state.runs` (`entry.ts:159`), which Home never read.
+
+**Changed files.**
+
+- `src/ui/screens.ts` — `runHistory` renders `state.runs` above `state.testerHistory` and invalidates
+  on either, so both kinds of run appear. Empty text is now "No runs yet. Run an endpoint or a plan
+  from Test."
+- `src/ui/test-screens.ts` — the two row builders behind `planRunHistory` and `onceHistory` are
+  extracted and exported as `runRow` and `onceRow`, so Home reuses them instead of a third copy of
+  the same markup. `runRow`'s Open now also calls `ctx.go("results")`: setting `openRun` without
+  navigating left the reader on the screen they clicked from, since Results is the only screen that
+  renders a run. That fixes the Load-run-history disclosure on Test as well.
+- `tests/m8.spec.mjs` — new check: run a plan, return Home, expect the run listed as
+  `Fixture Plan · flow` with `2/2` and no "No runs yet", then Open lands on Results showing the run.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0.
+- `npm run build` → exit 0.
+- `npx playwright test` → 185 passed in 1.4 m, Chrome (channel `chrome`), macOS darwin 25.6.0.
+
+**Not run.** Edge — not installed on this machine. Saved-bookmark installation, as before.
+
+**Limitations.** The two lists are concatenated, plan runs first, rather than interleaved by time:
+`OnceResult` carries no timestamp, only `RunState.startedAt`. Ordering within each group is newest
+first, as before.
+
+**Next task.** M10 (integrated release), unchanged.
+
+## 2026-09-23 — Endpoint count on the Home quick action
+
+**Scope.** The Endpoints quick action only, following `design/reference/screens/home.html`, which
+carries `<span class="aw-bd aw-s">1 endpoint</span>` inside that tile. No other screen changed.
+
+**Changed files.**
+
+- `src/ui/screens.ts` — `quickAction` appends a count badge for `endpoints`, fed by `ctx.watch`, so
+  saving, deleting or importing an endpoint and switching profile all update it without leaving
+  Home. Singular at one.
+- `src/ui/theme.css` — `.aw-qa .aw-bd { height: 18px }`, the rule the reference applies inline, so
+  the tile keeps its 84 px height.
+- `tests/m1.spec.mjs`, `tests/m3.spec.mjs`, `tests/m9.spec.mjs`, `tests/ui.spec.mjs` — the badge is
+  inside the button, so the tile's accessible name is now `Endpoints 3 endpoints`. The five
+  selectors that clicked it by exact name match the label prefix instead. Two new assertions cover
+  the badge: `0 endpoints` on a fresh profile (m1) and `1 endpoint` after the first save (m3).
+
+**Decision.** The count stays inside the button rather than being hidden from assistive technology
+with `aria-hidden`. It is information, not decoration, and a screen reader now announces
+"Endpoints 3 endpoints, button". The cost is that the tile can no longer be located by an exact
+accessible name.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0.
+- `npm run build` → exit 0.
+- `npx playwright test` → 184 passed in 1.4 m, Chrome (channel `chrome`), macOS darwin 25.6.0.
+
+**Not run.** Edge — not installed on this machine. Saved-bookmark installation, as before.
+
+**Limitations.** Pre-existing and unrelated: `tests/plans.spec.mjs:23` fails when that spec is run on
+its own and passes in the full suite. Verified against `b4cd1bb` with these changes stashed, so it is
+an ordering dependency in that spec, not a regression from this work.
+
+**Next task.** M10 (integrated release), unchanged.
+
+## 2026-09-23 — Resize from every edge and corner
+
+**Scope.** Panel resizing only. No feature, transport or storage change.
+
+**Changed files.**
+
+- `src/ui/theme.css` — dropped `resize: both` from `.aw-root` (and the now-redundant `resize: none`
+  on `.aw-min`), made the panel a positioning context, and added the `.aw-rs-*` grip geometry: 6 px
+  edge strips, 16 px corners, corner cursors, and a diagonal-ridge background on the bottom-right
+  corner as the visible affordance the native grip used to provide.
+- `src/ui/shell.ts` — eight pointer-driven grips appended to the panel. Each records the panel box,
+  the host position and the resolved min/max from computed style on `pointerdown`, then applies the
+  clamped size on `pointermove`. A west or north grip also moves the host by `startSize - newSize`,
+  so the opposite edge stays pinned. The per-drag max is additionally capped by the distance to the
+  viewport edge the drag grows toward, so a grip cannot push the panel off-screen and have `place()`
+  slide it back under the pointer.
+- `tests/m1.spec.mjs` — the resize test now drags each of the eight grips and asserts the size and
+  position deltas, plus the pinning behavior at the viewport limit, instead of asserting
+  `resize: both`.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0.
+- `npm run build` → exit 0. raw 412,805 B, minified 235,645 B, encoded bookmark URL 339,413 characters.
+- `npx playwright test` → 184 passed in 1.4 m, Chrome (channel `chrome`), macOS darwin 25.6.0.
+
+**Not run.** Edge — not installed on this machine. Saved-bookmark installation, as before. Touch and
+keyboard resizing are untested because neither is implemented.
+
+**Limitations.** Pointer only: there is no keyboard path to resize, which the native grip did not
+provide either (`ponytail:` note kept in `theme.css`). The top 6 px of the title bar now resizes
+rather than drags. Size is not persisted across launches, unchanged from before.
+
+**Next task.** M10 (integrated release), unchanged.
 
 ## 2026-09-23 — Saved test plans (post-M9 change)
 
@@ -1281,164 +1442,6 @@ and its contents. The two test helpers now read the export off the Playwright do
 Playwright; blob downloads under a host-page CSP `sandbox` directive are untested.
 
 **Next task.** M8 — Flow/Independent repeat runner.
-
-## 2026-09-23 — Home screen matched to the reference card layout
-
-**Scope.** Home only, against `design/reference/screens/home.html` and a mockup the user supplied.
-No transport, storage or rule-evaluation change.
-
-**Changed files.**
-
-- `src/ui/screens.ts` — `moduleCard` rewritten. Each rule module states its rule ratio and its own
-  name for a hit, in the reference's wording (`MODULE_STATS`): `rules active · requests matched`
-  for Mock, `· responses modified` for Intercept, `rules enabled · routed` for Route, `rules ·
-  chaos hits` for Chaos. The card's single action is now the module's own switch, Activate or Stop
-  (`aw-dst`), replacing "Manage rules"/"Configure"; rules are still edited through Open. The Tester
-  card carries `<plan> · <included>/<total> in plan · Last run <time>` and no badge, as the
-  reference does, and its History button opens the newest run on Results. New exported
-  `moduleState` is the one definition of a module's live state.
-- `src/ui/shell.ts` — title-bar module indicators (`aw-tbm`/`aw-ind`), one per rule module, dotted
-  green while running and amber while paused, hidden entirely for a module with no rules so a fresh
-  launch keeps its brand width. Tab dots (`.aw-tt .aw-d`) mark a running module. Both read
-  `moduleState`, so the three places cannot disagree.
-- `src/ui/dom.ts` — `stop` icon for the Stop button.
-- `src/ui/theme.css` — `.aw-card.aw-live` green outline for a running module, and the title-bar
-  indicator geometry.
-- `tests/ui.spec.mjs` — new check covering the stat lines, Inactive/Paused/Running, the live
-  outline, the tab dot, the indicator cluster and Activate/Stop from Home.
-
-**Decisions.**
-
-- The Record quick action stays, making four tiles rather than the reference's three: the Record
-  screen has no other entry point, and the user chose to keep it when asked.
-- Route does **not** get the reference's amber "Extension required" badge. In this build Route
-  rewrites fetch and XHR requests in this frame and works without an extension, so the badge would
-  misstate what the module does. It reports Inactive/Paused/Running like the others.
-- Run history and Activity stay below Quick actions. They sit below the fold in the mockup, and the
-  run history was fixed earlier the same day.
-- The Tester card's Run button still navigates to Test rather than dispatching. Starting a plan from
-  Home would skip the preflight that the Load view shows before it sends real requests.
-
-**Commands and outcomes.**
-
-- `npx tsc --noEmit` → exit 0.
-- `npm run build` → exit 0. minified 237,853 B, encoded bookmark URL 342,577 characters.
-- `npx playwright test` → see the run below; the pre-existing specs needed no selector changes.
-- Rendered Home at 480 px and compared against the supplied mockup by screenshot.
-
-**Not run.** Edge — not installed on this machine. Saved-bookmark installation, as before.
-
-**Limitations.** At 480 px with a long profile name the brand still elides ("API Workben…"); the
-indicators hold their width because which modules are live outranks the product name. The mockup's
-"Last run 10:02:02 AM" uses the browser's locale time, so its format follows the host machine.
-
-**Next task.** M10 (integrated release), unchanged.
-
-## 2026-09-23 — Home run history lists plan runs, not only Once results
-
-**Reported.** Home kept saying "No runs yet. Run an endpoint from Test." after a plan run finished,
-while the Activity card on the same screen reported `Run completed: 11 passed of 11 requests`.
-
-**Cause.** Home's `runHistory` watched `state.testerHistory`, which only ever holds direct Once
-results. A plan run is published to `state.runs` (`entry.ts:159`), which Home never read.
-
-**Changed files.**
-
-- `src/ui/screens.ts` — `runHistory` renders `state.runs` above `state.testerHistory` and invalidates
-  on either, so both kinds of run appear. Empty text is now "No runs yet. Run an endpoint or a plan
-  from Test."
-- `src/ui/test-screens.ts` — the two row builders behind `planRunHistory` and `onceHistory` are
-  extracted and exported as `runRow` and `onceRow`, so Home reuses them instead of a third copy of
-  the same markup. `runRow`'s Open now also calls `ctx.go("results")`: setting `openRun` without
-  navigating left the reader on the screen they clicked from, since Results is the only screen that
-  renders a run. That fixes the Load-run-history disclosure on Test as well.
-- `tests/m8.spec.mjs` — new check: run a plan, return Home, expect the run listed as
-  `Fixture Plan · flow` with `2/2` and no "No runs yet", then Open lands on Results showing the run.
-
-**Commands and outcomes.**
-
-- `npx tsc --noEmit` → exit 0.
-- `npm run build` → exit 0.
-- `npx playwright test` → 185 passed in 1.4 m, Chrome (channel `chrome`), macOS darwin 25.6.0.
-
-**Not run.** Edge — not installed on this machine. Saved-bookmark installation, as before.
-
-**Limitations.** The two lists are concatenated, plan runs first, rather than interleaved by time:
-`OnceResult` carries no timestamp, only `RunState.startedAt`. Ordering within each group is newest
-first, as before.
-
-**Next task.** M10 (integrated release), unchanged.
-
-## 2026-09-23 — Endpoint count on the Home quick action
-
-**Scope.** The Endpoints quick action only, following `design/reference/screens/home.html`, which
-carries `<span class="aw-bd aw-s">1 endpoint</span>` inside that tile. No other screen changed.
-
-**Changed files.**
-
-- `src/ui/screens.ts` — `quickAction` appends a count badge for `endpoints`, fed by `ctx.watch`, so
-  saving, deleting or importing an endpoint and switching profile all update it without leaving
-  Home. Singular at one.
-- `src/ui/theme.css` — `.aw-qa .aw-bd { height: 18px }`, the rule the reference applies inline, so
-  the tile keeps its 84 px height.
-- `tests/m1.spec.mjs`, `tests/m3.spec.mjs`, `tests/m9.spec.mjs`, `tests/ui.spec.mjs` — the badge is
-  inside the button, so the tile's accessible name is now `Endpoints 3 endpoints`. The five
-  selectors that clicked it by exact name match the label prefix instead. Two new assertions cover
-  the badge: `0 endpoints` on a fresh profile (m1) and `1 endpoint` after the first save (m3).
-
-**Decision.** The count stays inside the button rather than being hidden from assistive technology
-with `aria-hidden`. It is information, not decoration, and a screen reader now announces
-"Endpoints 3 endpoints, button". The cost is that the tile can no longer be located by an exact
-accessible name.
-
-**Commands and outcomes.**
-
-- `npx tsc --noEmit` → exit 0.
-- `npm run build` → exit 0.
-- `npx playwright test` → 184 passed in 1.4 m, Chrome (channel `chrome`), macOS darwin 25.6.0.
-
-**Not run.** Edge — not installed on this machine. Saved-bookmark installation, as before.
-
-**Limitations.** Pre-existing and unrelated: `tests/plans.spec.mjs:23` fails when that spec is run on
-its own and passes in the full suite. Verified against `b4cd1bb` with these changes stashed, so it is
-an ordering dependency in that spec, not a regression from this work.
-
-**Next task.** M10 (integrated release), unchanged.
-
-## 2026-09-23 — Resize from every edge and corner
-
-**Scope.** Panel resizing only. No feature, transport or storage change.
-
-**Changed files.**
-
-- `src/ui/theme.css` — dropped `resize: both` from `.aw-root` (and the now-redundant `resize: none`
-  on `.aw-min`), made the panel a positioning context, and added the `.aw-rs-*` grip geometry: 6 px
-  edge strips, 16 px corners, corner cursors, and a diagonal-ridge background on the bottom-right
-  corner as the visible affordance the native grip used to provide.
-- `src/ui/shell.ts` — eight pointer-driven grips appended to the panel. Each records the panel box,
-  the host position and the resolved min/max from computed style on `pointerdown`, then applies the
-  clamped size on `pointermove`. A west or north grip also moves the host by `startSize - newSize`,
-  so the opposite edge stays pinned. The per-drag max is additionally capped by the distance to the
-  viewport edge the drag grows toward, so a grip cannot push the panel off-screen and have `place()`
-  slide it back under the pointer.
-- `tests/m1.spec.mjs` — the resize test now drags each of the eight grips and asserts the size and
-  position deltas, plus the pinning behavior at the viewport limit, instead of asserting
-  `resize: both`.
-
-**Commands and outcomes.**
-
-- `npx tsc --noEmit` → exit 0.
-- `npm run build` → exit 0. raw 412,805 B, minified 235,645 B, encoded bookmark URL 339,413 characters.
-- `npx playwright test` → 184 passed in 1.4 m, Chrome (channel `chrome`), macOS darwin 25.6.0.
-
-**Not run.** Edge — not installed on this machine. Saved-bookmark installation, as before. Touch and
-keyboard resizing are untested because neither is implemented.
-
-**Limitations.** Pointer only: there is no keyboard path to resize, which the native grip did not
-provide either (`ponytail:` note kept in `theme.css`). The top 6 px of the title bar now resizes
-rather than drags. Size is not persisted across launches, unchanged from before.
-
-**Next task.** M10 (integrated release), unchanged.
 
 ## 2026-09-23 — UI/UX pass against the reference screens (no new features)
 

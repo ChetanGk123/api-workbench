@@ -375,9 +375,15 @@ function moduleCard(ctx: Ctx, module: (typeof MODULES)[number]): HTMLElement {
   } else {
     const kind = module.id as RuleKind
     const words = MODULE_STATS[kind]
-    // One button, as on the reference card: the module's own on/off switch. Its rules are edited
-    // on the module screen, which Open reaches.
-    const toggle = button("aw-btn aw-out aw-sm", "", () => ctx.setModuleActive(kind, !ctx.state().moduleActive[kind]), ctx.signal)
+    // One button, as on the reference card: the module's own on/off switch once it has rules to
+    // run. With none, activating would do nothing, so it stays the reference's way into the rule
+    // list instead of offering a dead end.
+    const manage = kind === "chaos" ? "Configure" : "Manage rules"
+    const toggle = button("aw-btn aw-out aw-sm", "", () => {
+      const module = moduleState(ctx.state(), kind)
+      if (!module.rules) ctx.go(kind)
+      else ctx.setModuleActive(kind, !module.running)
+    }, ctx.signal)
     actions.append(toggle)
     ctx.watch(state => {
       const module = moduleState(state, kind)
@@ -387,8 +393,10 @@ function moduleCard(ctx: Ctx, module: (typeof MODULES)[number]): HTMLElement {
       section.classList.toggle("aw-live", module.running)
       summary.textContent = `${module.enabled}/${module.rules} ${words.rules} · ${module.hits} ${words.hits}`
       toggle.className = module.running ? "aw-btn aw-dst aw-sm" : "aw-btn aw-out aw-sm"
-      toggle.replaceChildren(icon(module.running ? "stop" : "play", "aw-i12"),
-        document.createTextNode(module.running ? "Stop" : "Activate"))
+      if (!module.rules) toggle.replaceChildren(document.createTextNode(manage))
+      else
+        toggle.replaceChildren(icon(module.running ? "stop" : "play", "aw-i12"),
+          document.createTextNode(module.running ? "Stop" : "Activate"))
     })
   }
   section.append(group("aw-row aw-gap10", tile,

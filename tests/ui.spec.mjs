@@ -398,6 +398,13 @@ test('UI Home reports each module the way the reference card does, and switches 
   // A module with no rules is Inactive and stays out of the title bar; a configured one is Paused.
   await expect(card('Mock Server').locator('.aw-bd')).toHaveText('Inactive');
   await expect(card('API Interceptor').locator('.aw-bd')).toHaveText('Paused');
+
+  // With no rules there is nothing to activate, so the card offers the rule list instead.
+  await expect(card('Mock Server').getByRole('button', { name: 'Manage rules', exact: true })).toBeVisible();
+  await expect(card('Chaos Engineering').getByRole('button', { name: 'Configure', exact: true })).toBeVisible();
+  await card('Mock Server').getByRole('button', { name: 'Manage rules', exact: true }).click();
+  await expect(panel(page).locator('.aw-body .aw-h').first()).toHaveText('Mock Server');
+  await goHome(page);
   await expect(indicators).toHaveCount(1);
   await expect(interceptTab.locator('.aw-d')).toBeHidden();
 
