@@ -1,4 +1,4 @@
-import { el, icon, button, iconButton, card, caption, group, labeled, labeledAction, formatJsonButton, prettyJson, disclosure, textField, numberField, selectField, checkField, toggleBox } from "./dom"
+import { el, icon, button, iconButton, card, caption, cardHeading, group, labeled, labeledAction, formatJsonButton, prettyJson, disclosure, textField, numberField, selectField, checkField, toggleBox } from "./dom"
 import {
   CHAOS_PRESETS,
   defaultInterceptRule,
@@ -124,13 +124,14 @@ function matcherFields(matcher: RuleMatcher, ctx: Ctx, onDetach: () => void): HT
 function conditionFields(matcher: RuleMatcher, ctx: Ctx): HTMLElement {
   const query = textField("Query params", matcher.query, (value) => (matcher.query = value), ctx.signal)
   query.input.placeholder = "k=v&k2=v2"
-  const headers = textField("Match headers", matcher.headers, (value) => (matcher.headers = value), ctx.signal)
+  const headers = textField("Headers", matcher.headers, (value) => (matcher.headers = value), ctx.signal)
+  headers.input.setAttribute("aria-label", "Match headers")
   headers.input.placeholder = "k=v&k2=v2"
   const body = textField("Body contains", matcher.bodyContains, (value) => (matcher.bodyContains = value), ctx.signal)
   body.input.placeholder = "substring"
   const section = card()
   section.append(
-    group("aw-row", el("span", "aw-h aw-cap", "Conditional match"), el("span", "aw-bd", "Optional")),
+    cardHeading("Conditional match", el("span", "aw-bd", "Optional")),
     query.field,
     headers.field,
     body.field,
@@ -828,7 +829,8 @@ function patchProblem(operation: PatchOp): string | undefined {
  * The friendly rows and the raw JSON are two views of the same array: a row edit rewrites the raw
  * text, and a raw edit that parses rebuilds the rows. Nothing here executes an imported snippet.
  */
-function patchEditor(ctx: Ctx, transform: Transform, stage: "Request" | "Response", sample?: string): HTMLElement {
+function patchEditor(ctx: Ctx, transform: Transform, stage: "Request" | "Response", sample?: string, endpointName?: string): HTMLElement {
+  const response = stage === "Response"
   const rows = el("div", "aw-col aw-gap8")
   const raw = el("textarea", "aw-ta aw-mono")
   raw.setAttribute("aria-label", `${stage} JSON Patch raw JSON`)
@@ -836,6 +838,18 @@ function patchEditor(ctx: Ctx, transform: Transform, stage: "Request" | "Respons
   status.setAttribute("role", "status")
   const paths = el("datalist")
   paths.id = `aw-paths-${stage.toLowerCase()}-${Math.random().toString(36).slice(2, 8)}`
+  // What Load has to offer, stated before it is pressed, as the reference screen states it.
+  const available = (() => {
+    try {
+      return sample ? pointers(JSON.parse(sample)).length : 0
+    } catch {
+      return 0
+    }
+  })()
+  const pathHint = el("span", "aw-row aw-hint aw-gap6")
+  if (available && endpointName) {
+    pathHint.append(icon("book", "aw-i12"), document.createTextNode(`Paths from ${endpointName} · ${available} paths`))
+  }
 
   const report = () => {
     const problems = transform.patch.map(patchProblem).filter(Boolean)
@@ -956,26 +970,74 @@ function patchEditor(ctx: Ctx, transform: Transform, stage: "Request" | "Respons
   load.disabled = !sample
   load.title = sample ? "Suggest JSON Pointers from the linked sample response" : "Link an endpoint with a sample response first"
 
+  // InterceptRule.html offers the four everyday operations as one-click adds beside the list. The
+  // full set, including move, copy and test, stays on each row's own select.
+  const quickAdd = group(
+    "aw-row aw-gap6",
+    ...PATCH_OPS.slice(0, 4).map(([choice, label]) => {
+      const tone = { replace: "aw-gr", remove: "aw-rd", add: "aw-bl", nullify: "aw-am" }[choice as string] ?? ""
+      const quick = button(`aw-bd ${tone} aw-quick`, label, () => {
+        if (choice === "remove") transform.patch.push({ op: "remove", path: "" })
+        else if (choice === "nullify") transform.patch.push({ op: "replace", path: "", value: null })
+        else transform.patch.push({ op: choice as "replace" | "add", path: "", value: "" })
+        render()
+        syncRaw()
+      }, ctx.signal)
+      quick.setAttribute("aria-label", `Add ${stage.toLowerCase()} ${label.toLowerCase()} operation`)
+      return quick
+    }),
+  )
+
+  // The summary carries the name, so the textarea inside needs no second visible label; its own
+  // aria-label still names the stage.
+  const rawPanel = disclosure(
+    "Raw JSON",
+    group("aw-row aw-actions", el("span", "aw-grow"), formatJsonButton(raw, ctx.signal)),
+    raw,
+  )
+
   render()
   syncRaw()
-  const section = card()
+  const section = el("div", "aw-fld")
+  // Paths are read from the linked endpoint's sample response, so the Load control and the path
+  // count belong to the response stage; the request stage gets the plain editor.
   section.append(
-    group("aw-row", el("span", "aw-h aw-cap aw-grow", `${stage} JSON Patch`), load),
+    response ? group("aw-row aw-actions", el("span", "aw-lbl aw-grow", "JSON Patch"), load) : el("span", "aw-lbl", "JSON Patch"),
+    ...(response ? [quickAdd] : []),
     rows,
     add,
-    labeledAction("Raw JSON", raw, formatJsonButton(raw, ctx.signal)),
+    response
+      ? group("aw-row aw-between", rawPanel, pathHint)
+      : rawPanel,
     status,
     paths,
   )
   return section
 }
 
-function transformCard(ctx: Ctx, transform: Transform, stage: "Request" | "Response", sample?: string): HTMLElement[] {
+function transformCard(ctx: Ctx, transform: Transform, stage: "Request" | "Response", sample?: string, endpointName?: string): HTMLElement {
   const wrapper = card()
-  wrapper.append(caption(`${stage} transform`))
+  wrapper.append(cardHeading(`${stage} transform`))
   if (stage === "Response") {
     const status = numberField("Status override", transform.status, (value) => (transform.status = value), ctx.signal, 0, 599)
-    wrapper.append(status.field, el("p", "aw-hint", "0 keeps the original status. Only 200–599 can be delivered."))
+    // The reference states the no-op beside the field rather than under it, and leaves the field
+    // narrow: a status is three characters wide.
+    status.input.classList.add("aw-w110")
+    status.input.placeholder = "—"
+    // The model stores "keep the original" as 0; the reference shows that state as an empty field,
+    // so the zero is blanked after the field commits it.
+    const blankZero = () => {
+      if (!transform.status) status.input.value = ""
+    }
+    blankZero()
+    status.input.addEventListener("change", blankZero, { signal: ctx.signal })
+    wrapper.append(
+      group(
+        "aw-fld",
+        el("span", "aw-lbl", "Status override"),
+        group("aw-row", status.input, el("span", "aw-hint", "Blank keeps the original status; only 200–599 can be delivered.")),
+      ),
+    )
   }
   const set = el("textarea", "aw-ta aw-mono")
   set.value = transform.setHeaders
@@ -998,9 +1060,11 @@ function transformCard(ctx: Ctx, transform: Transform, stage: "Request" | "Respo
   remove.placeholder = "One header name per line"
   remove.setAttribute("aria-label", `${stage} remove headers`)
   remove.addEventListener("input", () => (transform.removeHeaders = remove.value), { signal: ctx.signal })
-  const find = textField(`${stage} body find`, transform.body.find, (value) => (transform.body.find = value), ctx.signal)
+  const find = textField("Body find", transform.body.find, (value) => (transform.body.find = value), ctx.signal)
   find.input.placeholder = "literal text"
-  const replace = textField(`${stage} body replace`, transform.body.replace, (value) => (transform.body.replace = value), ctx.signal)
+  find.input.setAttribute("aria-label", `${stage} body find`)
+  const replace = textField("Replace", transform.body.replace, (value) => (transform.body.replace = value), ctx.signal)
+  replace.input.setAttribute("aria-label", `${stage} body replace`)
   const scope = selectField(
     `${stage} replace scope`,
     [
@@ -1011,18 +1075,27 @@ function transformCard(ctx: Ctx, transform: Transform, stage: "Request" | "Respo
     (value) => (transform.body.scope = value),
     ctx.signal,
   )
+  // InterceptRule.html orders one card per stage: headers, then the patch, then find/replace.
+  // The scope select has no place in the reference's two-column row, so it sits with the note that
+  // explains what a replacement does, in the same field-plus-hint shape the status override uses.
+  scope.select.classList.add("aw-w140")
   wrapper.append(
-    labeled(`${stage} set headers`, set),
+    labeled("Set headers", set),
     setNotice,
-    labeled(`${stage} remove headers`, remove),
-    group("aw-g3", find.field, replace.field, scope.field),
-    el(
-      "p",
-      "aw-hint",
-      "Find and replace is literal — no regular expressions. A rewritten body drops the original content-length and content-encoding, which no longer describe it.",
+    labeled("Remove headers", remove),
+    patchEditor(ctx, transform, stage, sample, endpointName),
+    group("aw-g2 aw-gap10", find.field, replace.field),
+    group(
+      "aw-row aw-gap8",
+      scope.select,
+      el(
+        "span",
+        "aw-hint",
+        "Literal — no regular expressions. A rewritten body drops the original content-length and content-encoding.",
+      ),
     ),
   )
-  return [wrapper, patchEditor(ctx, transform, stage, sample)]
+  return wrapper
 }
 
 
@@ -1192,25 +1265,27 @@ function breakpointCard(ctx: Ctx, draft: InterceptRule): HTMLElement {
   const breakpoints = (draft.breakpoints ??= { request: false, response: false })
   const wrapper = card()
   const request = checkField(
-    "Pause before dispatch (request stage)",
+    "Break on request",
     breakpoints.request,
     (value) => (breakpoints.request = value),
     ctx.signal,
   )
   const response = checkField(
-    "Pause before delivery (response stage)",
+    "Break on response",
     breakpoints.response,
     (value) => (breakpoints.response = value),
     ctx.signal,
   )
   wrapper.append(
-    group("aw-row", el("span", "aw-h aw-cap", "Breakpoints"), el("span", "aw-bd", "Optional")),
+    cardHeading("Breakpoints"),
     request.field,
     response.field,
+    // The reference card carries no note, but these limits are real and are not guessable from
+    // the two checkboxes, so they stay as one line rather than the earlier paragraph.
     el(
       "p",
       "aw-hint",
-      `Paused requests wait in the queue on the Intercept screen. Each pause continues automatically after ${Math.round(PAUSE_DEADLINE_MS / 1000)} seconds, at most ${MAX_PAUSED_REQUESTS} requests pause at once, and a caller's own abort always wins. A request answered by a mock or a synthetic fault is never paused: there is no dispatch to hold.`,
+      `Paused requests wait on the Intercept screen: ${MAX_PAUSED_REQUESTS} at once, each continuing on its own after ${Math.round(PAUSE_DEADLINE_MS / 1000)}s. A caller's abort wins, and a request answered by a mock or a fault never pauses.`,
     ),
   )
   return wrapper
@@ -1237,7 +1312,8 @@ function interceptEditor(ctx: Ctx, screen: HTMLElement, original: InterceptRule,
         notice.textContent = "Method or URL edited — this rule detaches from its endpoint on save."
       }
     })
-    const sample = endpoints.find((item) => item.id === draft.endpointId)?.sampleResponse?.body
+    const linked = endpoints.find((item) => item.id === draft.endpointId)
+    const sample = linked?.sampleResponse?.body
     const priority = numberField("Priority", draft.priority, (value) => (draft.priority = value), ctx.signal, -999, 999)
     const enabled = checkField("Rule enabled", draft.enabled, (value) => (draft.enabled = value), ctx.signal)
 
@@ -1286,8 +1362,8 @@ function interceptEditor(ctx: Ctx, screen: HTMLElement, original: InterceptRule,
       picker,
       ...matcher,
       breakpointCard(ctx, draft),
-      ...transformCard(ctx, draft.response, "Response", sample),
-      ...transformCard(ctx, draft.request, "Request", sample),
+      transformCard(ctx, draft.response, "Response", sample, linked?.alias),
+      transformCard(ctx, draft.request, "Request", sample, linked?.alias),
       conditionFields(draft.matcher, ctx),
       group("aw-row aw-gap8", priority.field, enabled.field),
       notice,

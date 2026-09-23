@@ -311,11 +311,14 @@ test('M6 the JSON Patch editor and its raw JSON stay in sync, and a bad pointer 
   await panel(page).getByRole('button', { name: 'Intercept', exact: true }).click();
   await panel(page).getByRole('button', { name: /^Patch editor/ }).click();
 
+  // The raw view is a disclosure now, as InterceptRule.html draws it.
+  await panel(page).locator('details:has(textarea[aria-label="Response JSON Patch raw JSON"]) > summary').click();
   const raw = panel(page).getByLabel('Response JSON Patch raw JSON');
   await expect(raw).toHaveValue('[]');
 
-  // A row edit rewrites the raw JSON.
-  await panel(page).getByRole('button', { name: 'Add operation' }).first().click();
+  // A row edit rewrites the raw JSON. The card now also carries one-click adds per operation
+  // kind, so the dashed button is addressed by its exact name.
+  await panel(page).getByRole('button', { name: 'Add operation', exact: true }).first().click();
   // The pointer field carries a suggestion list, so it is addressed by its label, not by role.
   await panel(page).getByLabel('Response JSON Pointer 1').fill('/items/0/name');
   await panel(page).getByLabel('Response JSON value 1').fill('"edited"');
@@ -325,6 +328,19 @@ test('M6 the JSON Patch editor and its raw JSON stay in sync, and a bad pointer 
   await raw.fill('[{"op":"move","from":"/a","path":"/b"}]');
   await raw.blur();
   await expect(panel(page).getByLabel('Response from pointer 1')).toHaveValue('/a');
+
+  // InterceptRule.html's one-click adds append an operation of that kind, including the Nullify
+  // convenience, which is a replace with a null value rather than a standard operation.
+  await raw.fill('[]');
+  await raw.blur();
+  await panel(page).getByRole('button', { name: 'Add response nullify operation', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Add response remove operation', exact: true }).click();
+  expect(JSON.parse(await raw.inputValue())).toEqual([
+    { op: 'replace', path: '', value: null },
+    { op: 'remove', path: '' },
+  ]);
+  await expect(panel(page).getByLabel('Response operation 1', { exact: true })).toHaveValue('nullify');
+  await expect(panel(page).getByLabel('Response operation 2', { exact: true })).toHaveValue('remove');
 
   // A blocked pointer is refused with its reason instead of being saved.
   await raw.fill('[{"op":"replace","path":"/__proto__/owned","value":1}]');

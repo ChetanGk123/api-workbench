@@ -333,7 +333,7 @@ test('M7 a breakpoint authored through the editor pauses live traffic', async ({
   await panel(page).getByRole('button', { name: 'Add rule', exact: true }).click();
   await panel(page).getByRole('textbox', { name: 'Label' }).fill('Authored pause');
   await panel(page).getByRole('textbox', { name: 'URL' }).fill('/api/m7-authored');
-  await panel(page).getByRole('checkbox', { name: 'Pause before dispatch (request stage)' }).check();
+  await panel(page).getByRole('checkbox', { name: 'Break on request', exact: true }).check();
   await panel(page).getByRole('checkbox', { name: 'Rule enabled' }).check();
   await panel(page).locator('.aw-foot').getByRole('button', { name: 'Save' }).click();
   await expect(panel(page).getByText('0 request · 0 response · pause req')).toBeVisible();

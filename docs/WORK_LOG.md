@@ -83,6 +83,68 @@ are unchanged. Manual playground use: `npm run server`, then
 `http://127.0.0.1:4173/fixture`; import `http://127.0.0.1:4173/openapi.json` as a file
 or pasted JSON. Build remains `npm run build` when installer artifacts are needed.
 
+## 2026-09-24 — Edit intercept rule laid out as `InterceptRule.html`
+
+**Scope.** The intercept rule editor, against the reference screen. Two shared helpers changed with
+it, which carries the same correction to the Mock, Chaos and Route editors whose references use the
+same styling.
+
+**Changed files.**
+
+- `src/ui/dom.ts` — `cardHeading()`. Every reference screen heads a card with `.aw-h` at 13px, not
+  the uppercase rule-off caption that separates sections; the editors were using the caption.
+- `src/ui/theme.css` — `.aw-cardh`, the inline widths the reference sets on the status and scope
+  controls, `.aw-gap6`, and `.aw-quick`. The last one restates width and radius because `aw-rd` is
+  two things in the reference sheet — the red badge tone and the 16px radio dot — so a red badge
+  button collapses to a circle without it.
+- `src/ui/rule-screens.ts`:
+  - Breakpoints card: "Break on request" / "Break on response", no Optional badge, and the pause
+    limits compressed from a paragraph to one line. The reference card has no note at all, but the
+    queue size and the deadline are not guessable from two checkboxes.
+  - `transformCard` returns one card per stage in the reference's order: status override, set
+    headers, remove headers, **JSON Patch**, body find/replace. The patch editor was a separate
+    card below; it is now a field inside the stage's card, which is where the reference puts it.
+  - Status override is 110px with a `—` placeholder and its note beside it. The model stores "keep
+    the original" as 0, and the field now shows that state as blank, as the reference draws it.
+  - Labels lost their stage prefix ("Set headers", not "Response set headers") since the card
+    heading already says the stage. The controls keep the prefixed `aria-label`, so both the
+    accessibility tree and the existing tests still address them unambiguously.
+  - `patchEditor` gained the reference's four one-click adds — Replace, Remove, Add, Nullify — and
+    moved raw JSON into a `Raw JSON` disclosure. Load and the "Paths from <endpoint> · N paths"
+    hint are on the response stage only, which is where they mean something: the paths are read
+    from the linked endpoint's sample response.
+  - `conditionFields`: "Headers", not "Match headers", as every rule reference labels it.
+- `tests/m6.spec.mjs` — opens the raw-JSON disclosure before using the textarea, addresses the
+  dashed "Add operation" button exactly now that one-click adds exist, and covers the new buttons:
+  Nullify appends a `replace` with a null value and Remove appends a `remove`.
+- `tests/m7.spec.mjs` — the breakpoint checkbox is addressed by its new label.
+
+**Kept, against the reference.** The replace-scope select (First match / All matches) and the
+literal-replacement note have no place in the reference's two-column row, so they sit below it in
+the same field-and-hint shape the reference uses for the status override. The patch editor's live
+operation count and problem report stay under the disclosure: the reference mock has nothing to
+validate.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0.
+- `npm run build` → exit 0.
+- `npx playwright test tests/m6.spec.mjs tests/m7.spec.mjs` → 24 passed.
+- `npx playwright test` → 188 passed, 1 failed in 1.9 m, Chrome (channel `chrome`), macOS darwin
+  25.6.0. The failure is `tests/m3.spec.mjs:56`, in another change in flight, not in this one: see
+  below.
+- Rendered the editor at 512 px against the supplied reference image.
+
+**Not run.** Edge — not installed on this machine. Saved-bookmark installation, as before.
+
+**Open, not this change.** `tests/m3.spec.mjs:56` fails because the playground fixture is being
+rebuilt in parallel (`984b173` plus uncommitted edits to `tests/fixtures/page.html`, `page.js` and
+`server.mjs`). The redesign moved "Log in to local fixture" inside a closed `<details>`, and a
+closed `<details>` keeps its content out of the accessibility tree, so `getByRole` never resolves
+it. Verified by stashing the fixture work: out, the test passes; in, it fails, with the panel
+source identical either way. The fix belongs with that change — open the tools section, or address
+the button through its summary — and nothing here touches those files.
+
 ## 2026-09-24 — Notify on complete raises a dialog
 
 **Asked for.** "Notify on complete" only wrote an activity line, which is invisible to the person

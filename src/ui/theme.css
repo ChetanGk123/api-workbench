@@ -345,6 +345,37 @@
   gap: 7px;
 }
 
+/* Widths the reference screens set inline on a few controls. */
+.aw-w110 {
+  width: 110px;
+  flex-shrink: 0;
+}
+.aw-w140 {
+  width: 140px;
+  flex-shrink: 0;
+}
+/* A quick-add operation button: a badge that behaves like a button. `aw-rd` is two things in the
+ * reference sheet — the red badge tone and the 16px radio dot — so the geometry is restated here,
+ * after it, or the Remove button collapses to a circle. */
+.aw-quick {
+  height: 24px;
+  width: auto;
+  border-radius: 5px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.aw-gap6 {
+  gap: 6px;
+}
+.aw-between {
+  justify-content: space-between;
+}
+
+/* A card's heading, sized as the reference screens set it inline. */
+.aw-cardh {
+  font-size: 13px;
+}
+
 /* A module that is touching traffic is outlined on Home, so the live card reads at a glance. */
 .aw-card.aw-live {
   border-color: rgba(34, 197, 94, 0.45);

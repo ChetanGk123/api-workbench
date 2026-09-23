@@ -314,6 +314,16 @@ export function card(): HTMLElement {
   return el("section", "aw-card aw-cp aw-col aw-gap12")
 }
 
+/**
+ * A card's own heading. The reference screens set every one of these as `.aw-h` at 13px, which is
+ * the panel heading one step down — not the rule-off uppercase caption that separates sections.
+ */
+export function cardHeading(text: string, ...extra: Node[]): HTMLElement {
+  const heading = el("div", "aw-h aw-cardh", text)
+  if (!extra.length) return heading
+  return group("aw-row aw-gap8", heading, ...extra)
+}
+
 export function caption(text: string): HTMLElement {
   return el("div", "aw-cap aw-capl", text)
 }
