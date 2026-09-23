@@ -1,6 +1,7 @@
 import { el, icon, button, iconButton, card, caption, group, labeled, disclosure, type IconName } from "./dom"
 import { type Endpoint, type HeaderValue, type Profile, type Rule, type RuleKind, type WorkbenchConfig } from "../core/model"
 import type { RuleActivity } from "../network/rules"
+import type { PausedEntry } from "../breakpoints/registry"
 import { chaosScreen, interceptScreen, mockScreen, routeScreen } from "./rule-screens"
 import type { OnceResult } from "../tester/once"
 import type { Recording } from "../recorder/recorder"
@@ -34,6 +35,8 @@ export type UIState = {
   ruleHits: Record<string, number>
   ruleCursors: Record<string, number>
   matched: RuleActivity[]
+  /** Live continuations, not configuration: each entry disappears once it is resolved. */
+  paused: PausedEntry[]
 }
 
 export type Ctx = {
@@ -68,6 +71,7 @@ export type Ctx = {
   resetSequence: (ruleId: string) => void
   /** Next creation sequence for a new rule; ties on priority resolve by it. */
   nextRuleSeq: () => number
+  continueAllPaused: () => void
 }
 
 type Screen = {
@@ -127,7 +131,7 @@ const SCREEN_DATA = {
     points: [
       "Header, body and status edits plus RFC 6902 JSON Patch",
       "Transform outcome log with a rule trace",
-      "Request and response breakpoints (M7)",
+      "Request and response breakpoints with a paused-request queue",
     ],
   },
   route: {
@@ -203,7 +207,7 @@ export const TABS = (Object.keys(SCREEN_DATA) as ScreenId[]).filter((id) => SCRE
 const MODULES = [
   { id: "test", title: "API Tester", milestone: "M3" },
   { id: "mock", title: "Mock Server", milestone: "M5" },
-  { id: "intercept", title: "API Interceptor", milestone: "M6" },
+  { id: "intercept", title: "API Interceptor", milestone: "M6, M7" },
   { id: "route", title: "Page Routing", milestone: "M6" },
   { id: "chaos", title: "Chaos Engineering", milestone: "M5" },
 ] as const

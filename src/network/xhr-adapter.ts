@@ -157,8 +157,10 @@ export function xhrAdapter(
         const intercept = network ? plan.intercept : undefined
         const requestWork = !!intercept?.requestWork
         const responseWork = !!intercept?.responseWork
-        // A real dispatch is wrapped whenever a fault, a route or a transform has to touch it.
-        const wrapped = !!(real || route || requestWork || responseWork)
+        const pauseRequest = !!intercept?.pauseRequest
+        const pauseResponse = !!intercept?.pauseResponse
+        // A real dispatch is wrapped whenever a fault, a route, a transform or a pause touches it.
+        const wrapped = !!(real || route || requestWork || responseWork || pauseRequest || pauseResponse)
         // A binary response type cannot be rebuilt from text, so the work is skipped, not faked.
         const supported = !wrapped || deliverable(xhr.responseType)
         if (wrapped && !supported)
@@ -261,7 +263,15 @@ export function xhrAdapter(
           })
         }
         let inner: XMLHttpRequest | undefined
+        // XHR has no caller signal, so this one mirrors the request's life: aborting it releases
+        // any pause still waiting for a request the page has already abandoned.
+        const gone = new AbortController()
+        // True only while this request is waiting at a breakpoint. Closing the workbench resumes
+        // every pause, so the flow finishes itself on the captured transport; delivering an empty
+        // synthetic response from the shutdown handler as well would be a second, bogus outcome.
+        let awaiting = false
         const clear = () => {
+          gone.abort()
           clearTimeout(timer)
           clearTimeout(deadline)
           clearTimeout(chaosDeadline)
@@ -312,6 +322,7 @@ export function xhrAdapter(
         // Closing the workbench settles owned work: an in-flight real dispatch is aborted, a
         // pending synthetic response is delivered rather than left hanging.
         release = pipeline.own(() => {
+          if (awaiting) return
           if (inner) fail("abort")
           else if (plan.syntheticFailure) fail(plan.syntheticFailure === "timeout" ? "timeout" : "error")
           else deliver()
@@ -355,13 +366,44 @@ export function xhrAdapter(
               copy.withCredentials = credentials
               copy.send(replayBody)
             })
-          const dispatch = () => {
+          const dispatch = async () => {
+            // Stage 3 pause: after the request transform and before any upstream dispatch.
+            if (pauseRequest) {
+              awaiting = true
+              const outcome = await pipeline.breakpoints.pause({
+                stage: "request",
+                transport: "xhr",
+                method,
+                url: target,
+                ruleId: intercept!.ruleId,
+                ruleLabel: intercept!.label,
+                revision: intercept!.revision,
+                profileId: intercept!.profileId,
+                snapshot: { headers: { ...sendHeaders }, body: typeof sendBody === "string" ? sendBody : undefined },
+                bodyEditable: typeof sendBody === "string",
+                bodyReason: typeof sendBody === "string" ? undefined : "this request sends no text body",
+                signal: gone.signal,
+              })
+              awaiting = false
+              if (!valid() || !sent) return
+              if (outcome.diagnostic) lifecycle?.settle("request", `request breakpoint: ${outcome.diagnostic}`)
+              if (outcome.action === "abort") {
+                lifecycle?.settle("abort", "request breakpoint: aborted before any dispatch")
+                fail("abort")
+                return
+              }
+              if (outcome.edit) {
+                sendHeaders = outcome.edit.headers
+                if (outcome.edit.body !== undefined) sendBody = outcome.edit.body
+                lifecycle?.settle("request", "request breakpoint: continued with edited request")
+              }
+            }
             pipeline.counters.dispatched++
             inner = new Captured()
             inner.open(method, target, true)
             for (const [name, value] of Object.entries(sendHeaders)) inner.setRequestHeader(name, value)
             inner.withCredentials = credentials
-            inner.addEventListener("load", () => {
+            inner.addEventListener("load", async () => {
               const headers: Record<string, string> = {}
               for (const line of inner!.getAllResponseHeaders().trim().split(/[\r\n]+/)) {
                 const separator = line.indexOf(":")
@@ -405,6 +447,53 @@ export function xhrAdapter(
                 fail("error")
                 return
               }
+              // Stage 8: the last explicit override. Nothing is emitted to the page while paused,
+              // so the readyState/event sequence it eventually sees is still the native one.
+              if (pauseResponse) {
+                awaiting = true
+                const readable = textLike(headers["content-type"])
+                const outcome = await pipeline.breakpoints.pause({
+                  stage: "response",
+                  transport: "xhr",
+                  method,
+                  url: target,
+                  ruleId: intercept!.ruleId,
+                  ruleLabel: intercept!.label,
+                  revision: intercept!.revision,
+                  profileId: intercept!.profileId,
+                  snapshot: { headers: { ...headers }, body: readable ? deliveryBody : undefined, status },
+                  bodyEditable: readable,
+                  bodyReason: readable ? undefined : "response body is not a text-shaped media type",
+                  signal: gone.signal,
+                })
+                awaiting = false
+                if (!valid() || !sent) return
+                if (outcome.diagnostic) lifecycle?.settle("response", `response breakpoint: ${outcome.diagnostic}`)
+                if (outcome.action === "abort") {
+                  lifecycle?.settle(
+                    "abort",
+                    "response breakpoint: aborted after the upstream request had already completed",
+                  )
+                  fail("abort")
+                  return
+                }
+                if (outcome.edit) {
+                  const finalStatus = outcome.edit.status ?? status
+                  const finalHeaders = { ...outcome.edit.headers }
+                  const body = outcome.edit.body ?? (readable ? deliveryBody : state.delivery.body)
+                  if (body !== deliveryBody) {
+                    delete finalHeaders["content-length"]
+                    delete finalHeaders["content-encoding"]
+                  }
+                  state.delivery = {
+                    status: finalStatus,
+                    statusText: finalStatus === status ? delivered : statusText(finalStatus) || delivered,
+                    headers: finalHeaders,
+                    body,
+                  }
+                  lifecycle?.settle("response", "response breakpoint: final edit applied")
+                }
+              }
               timer = setTimeout(deliver, fault.deliveryDelayMs)
             })
             inner.addEventListener("error", () => {
@@ -421,8 +510,8 @@ export function xhrAdapter(
             // The chaos timeout is bounded independently of the caller's own xhr.timeout.
             if (fault.timeoutMs) chaosDeadline = setTimeout(() => fail("timeout"), fault.timeoutMs)
           }
-          if (fault.preDelayMs > 0) timer = setTimeout(dispatch, fault.preDelayMs)
-          else dispatch()
+          if (fault.preDelayMs > 0) timer = setTimeout(() => void dispatch(), fault.preDelayMs)
+          else void dispatch()
         } else if (plan.syntheticFailure) {
           timer = setTimeout(
             () => fail(plan.syntheticFailure === "timeout" ? "timeout" : "error"),

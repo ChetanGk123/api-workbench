@@ -30,6 +30,7 @@ export type ShellOptions = {
   setModuleActive: Ctx["setModuleActive"]
   resetSequence: Ctx["resetSequence"]
   nextRuleSeq: Ctx["nextRuleSeq"]
+  continueAllPaused: Ctx["continueAllPaused"]
 }
 
 export function createShell(options: ShellOptions) {
@@ -224,6 +225,7 @@ export function createShell(options: ShellOptions) {
     setModuleActive: options.setModuleActive,
     resetSequence: options.resetSequence,
     nextRuleSeq: options.nextRuleSeq,
+    continueAllPaused: options.continueAllPaused,
   }
 
   function go(id: ScreenId) {
@@ -319,7 +321,10 @@ export function createShell(options: ShellOptions) {
   }
 
   const unsubscribe = store.subscribe((state) => {
-    counter.textContent = `${state.observed} request${state.observed === 1 ? "" : "s"} observed · ${location.origin}`
+    const paused = state.paused.length
+    counter.textContent =
+      `${state.observed} request${state.observed === 1 ? "" : "s"} observed · ${location.origin}` +
+      (paused ? ` · ${paused} paused` : "")
     const active = [
       state.moduleActive.mock && "Mock",
       state.moduleActive.intercept && "Intercept",
@@ -327,9 +332,16 @@ export function createShell(options: ShellOptions) {
       state.moduleActive.chaos && "Chaos",
       state.mockEnabled && "Fixture mock",
     ].filter(Boolean)
-    launcherLabel.textContent = active.length ? `${active.join(" + ")} active` : "No active modules"
-    launcherState.title = launcherLabel.textContent ?? ""
-    launcherDot.className = active.length ? "aw-dot aw-a" : "aw-dot"
+    // A paused request is the launcher's headline: the page is waiting on the user, not on a rule.
+    launcherLabel.textContent = paused
+      ? `${paused} request${paused === 1 ? "" : "s"} paused`
+      : active.length
+        ? `${active.join(" + ")} active`
+        : "No active modules"
+    launcherState.title = paused
+      ? `${launcherLabel.textContent} — restore the panel to continue or abort`
+      : (launcherLabel.textContent ?? "")
+    launcherDot.className = paused || active.length ? "aw-dot aw-a" : "aw-dot"
     syncProfiles()
   })
 

@@ -2,11 +2,138 @@
 
 ## Current state
 
-M0–M6 are implemented and verified in Chrome by automated checks (70 checks). Saved-bookmark
+M0–M7 are implemented and verified in Chrome by automated checks (88 checks). Saved-bookmark
 installation and all Edge checks remain outstanding for every milestone.
 
-Current assigned work: M6 interception and routing complete and verified in Chrome. M7 (breakpoints)
-is next.
+Current assigned work: M7 breakpoints complete and verified in Chrome. M8 (Flow/Independent repeat
+runner) is next.
+
+### Milestone status
+
+This is the only live status table. Dated entries below are historical records and are not edited
+when a later milestone lands.
+
+| Milestone | Status |
+| --- | --- |
+| M0 — Feasibility | CODE COMPLETE · automated gates PASS in Chrome · saved-bookmark and Edge checks NOT RUN |
+| M1 — Foundation and panel | CODE COMPLETE · automated gates PASS in Chrome · saved-bookmark and Edge checks NOT RUN |
+| M2 — Transport/rule core | CODE COMPLETE · automated gates PASS in Chrome · browser fixture and build checks verified |
+| M3 — Endpoints, profiles and tester | CODE COMPLETE · automated gates PASS in Chrome · saved-bookmark and Edge checks NOT RUN |
+| M4 — Recorder | CODE COMPLETE · focused unit and Chrome browser gates PASS · saved-bookmark, Edge, XHR and durable recovery checks NOT RUN |
+| M5 — Mock and chaos | CODE COMPLETE · all M5 acceptance gates PASS in Chrome · saved-bookmark and Edge checks NOT RUN |
+| M6 — Intercept and routing | CODE COMPLETE · all M6 acceptance gates PASS in Chrome (70 checks) · saved-bookmark and Edge checks NOT RUN |
+| M7 — Breakpoints | CODE COMPLETE · all M7 acceptance gates PASS in Chrome (88 checks) · saved-bookmark and Edge checks NOT RUN |
+| M8 — Flow/Independent runs | NOT STARTED |
+| M9 — Complete import support | NOT STARTED |
+| M10 — Integrated release | NOT STARTED |
+
+## 2026-09-23 — M7 breakpoints
+
+**Scope.** M7 only: the paused-request registry, request- and response-stage pauses on both
+transports, the paused-request queue with per-entry editors, Continue/Abort/Continue all, the
+30-second deadline, the 20-pause queue limit, and disposal. No other milestone's work was touched;
+the intercept editor's "breakpoints arrive in M7" placeholder is now the real control.
+
+**Changed files.**
+
+- `src/breakpoints/registry.ts` (new) — `createBreakpoints`. Each pause is one single-use
+  continuation resolved exactly once, by the user, the deadline, the caller's abort signal or
+  disposal, so no adapter can be left awaiting a promise nothing will settle. A pause carries the
+  stage, transport, method/URL, matching rule id/label, the rule revision and profile id it matched,
+  the editable snapshot and why a body is not editable when it is not. Over the limit, `pause()`
+  resolves immediately with a queue-limit diagnostic and never joins the queue; after `dispose()` it
+  resolves immediately with a closed diagnostic.
+- `src/core/model.ts` — `InterceptRule.breakpoints?: { request, response }` (optional, so a rule
+  saved before M7 pauses at neither stage), `MAX_PAUSED_REQUESTS = 20`, `PAUSE_DEADLINE_MS = 30000`.
+- `src/network/rules.ts` — `InterceptPlan` carries `pauseRequest`, `pauseResponse`, `revision` and
+  `profileId`, frozen with the rest of the plan at intake. A synthetic winner records
+  "breakpoints not applied: a request answered without a dispatch is never paused in v1" in `why`.
+- `src/network/pipeline.ts` — `createPipeline(report, breakpoints?)` exposes the registry to both
+  adapters and disposes it in `close()` before owned timers settle.
+- `src/network/fetch-adapter.ts` — a configured pause forces the wrapper path. The stage 3 pause runs
+  inside `dispatch()`, after the request transform and before the single `captured.call`, so an abort
+  there dispatches nothing; `counters.dispatched++` moved to the three points that actually dispatch.
+  The stage 8 pause runs after the response transform and real-traffic chaos, and its edit is the
+  final override, dropping `content-length`/`content-encoding` when it rewrites the body.
+- `src/network/xhr-adapter.ts` — the same two stages on the inner native request. Nothing is emitted
+  to the page while a request waits, so the event sequence it eventually sees is still the native
+  one. A per-send `AbortController` releases a pause whose request the page has already abandoned,
+  and an `awaiting` flag keeps the shutdown handler from delivering a second, empty outcome to a
+  request the registry is about to resume.
+- `src/ui/rule-screens.ts` — `pausedQueue`/`pausedCard` (the queue leads the Intercept screen) and
+  `breakpointCard` in the intercept editor. A card shows id, stage, method/URL, transport, rule,
+  a live age against the deadline, and a stale line when the rule was edited or deleted or the
+  profile switched while the request waited. Cards are reconciled by id, so a state change never
+  discards a half-typed edit. A request-stage edit that sets a forbidden header is refused with the
+  reason instead of being sent.
+- `src/ui/screens.ts`, `src/ui/shell.ts`, `src/entry.ts` — `paused` in `UIState`,
+  `continueAllPaused` in `Ctx`, the footer counter and the minimized launcher both report the paused
+  count (a pause becomes the launcher's headline, since the page is waiting on the user), version
+  `0.1.0-m7`.
+- `tests/m7-core.spec.mjs` (new, 6 checks), `tests/m7.spec.mjs` (new, 12 checks).
+
+**Commands and outcomes.**
+
+- `npm run build` → exit 0, with `Payload probes smaller than the bundle were skipped: 131072`.
+  raw 250,978 B, minified 146,197 B, encoded bookmark URL 207,587 characters (after M6: 230,863 /
+  135,630 / 192,748). The zero-import, no-`eval` and no-external-URL assertions still pass.
+- `npm test` (build + Playwright) → **88 passed in 59.7 s**. Chrome 153.0.8010.53, macOS
+  darwin 25.6.0, Node v24.21.0, Playwright 1.63.0.
+
+**Verification (measured).** A request-stage pause holds a `POST` with the server's hit counter
+unchanged; editing its headers and body in the queue and pressing Continue makes the fixture receive
+exactly the edited header and body, with the counter moving by exactly 1. A response-stage pause is
+reached only after that single dispatch, shows the header the M6 response transform already applied,
+and its status/header/body edit is what the page receives (418 `I'm a Teapot`). Abort at the request
+stage rejects the caller with `AbortError` and leaves the counter untouched. Continue all releases
+three waiting requests, each dispatching exactly once. A paused XHR has emitted only
+`readystatechange:1` and `loadstart:1` while it waits; after both stages are continued the page sees
+`[1,2,3,4]` and `loadstart → progress → load → loadend`, with one dispatch. A mocked request is never
+paused and the queue stays empty. The minimized launcher reports "1 request paused" with an active
+dot. Closing the workbench while a fetch and an XHR are paused lets both complete on the captured
+transport, once each, with no hang. An edited rule marks a waiting pause stale without changing its
+snapshot. An unanswered pause continued on its own after 30.4 s measured, dispatching the original
+unedited request exactly once. A breakpoint authored entirely through the editor (label, URL, the
+request-stage checkbox, enable, Save) pauses live traffic. Core checks cover single-use resolution,
+the 20-pause limit and its diagnostic, the deadline, caller abort precedence, disposal leaving no
+unresolved pause, and the plan's pause flags including the pre-M7 rule with no field.
+
+**Not run.** Saved-bookmark installation and restart persistence; all Edge checks (Edge is not
+installed on this machine); screen-reader verification and keyboard-only sweeps of the queue. The
+20-pause queue limit is measured in the core spec only, not through 21 live browser requests.
+
+**Limitations.**
+
+1. A request answered without a dispatch — a mock or a synthetic chaos fault — is never paused. The
+   editor and the rule trace both say so. Holding such a request would mean pausing inside the
+   synthetic delivery path that carries the tested XHR event sequence, which is not worth the risk
+   to that sequence in v1.
+2. The deadline and the queue limit are constants, not settings. The editor states both values.
+3. Replay copies are still prepared from the frozen pre-pause request, so a request-stage edit
+   changes the primary request only.
+4. A response-stage body is editable only for text-shaped media types; anything else is shown with
+   the reason and delivered unchanged.
+5. A request-stage pause on a `GET`/`HEAD` has no body to edit, which the card states.
+6. The caller's own `xhr.timeout` keeps running while a request is paused, so a long pause can time
+   the request out. That is deliberate: caller cancellation always wins over a workbench pause.
+
+**Decisions.**
+
+- **Closing the workbench continues every pause rather than aborting it.** The page's request was
+  browser-owned before Workbench touched it, so shutdown hands it back instead of failing it.
+- **The deadline continues unchanged and logs that it did**, so an unattended pause can never turn
+  into a stuck application request.
+- **The request pause sits after the request transform and inside `dispatch()`**; the response pause
+  sits after real-traffic chaos. Together they keep the plan's stage order: a manual edit is the last
+  explicit override, and nothing upstream happens before a request-stage Abort.
+- **Rule edits never mutate a waiting pause.** The entry keeps the revision and profile it matched
+  and the queue marks it stale, rather than re-reading configuration that has moved on.
+- **The queue lives on the Intercept screen**, with the paused count on the footer of every screen
+  and on the minimized launcher. The reference screens have no queue, so this follows plan §8.5.
+
+**Next task.** M8 — Flow/Independent repeat runner: the dependency DAG, the specified built-ins and
+restricted expression parser, context discovery, setup/job scopes, concurrency and ramp-up,
+cancellation, and P95/history/export.
 
 ## 2026-09-23 — M6 intercept and routing
 
@@ -482,19 +609,8 @@ matching, at which point the active-module indicators and rule lists above becom
 
 **Next task.** Finish M3 profile/environment selection, variable entry and visible check details, then add native JSON import UI and result history before moving to M4.
 
-| Milestone                           | Status                                                                                                                     |
-| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| M0 — Feasibility                    | CODE COMPLETE · automated gates PASS in Chrome · saved-bookmark and Edge checks NOT RUN                                    |
-| M1 — Foundation and panel           | CODE COMPLETE · automated gates PASS in Chrome · saved-bookmark and Edge checks NOT RUN                                    |
-| M2 — Transport/rule core            | CODE COMPLETE · automated gates PASS in Chrome · browser fixture and build checks verified                                 |
-| M3 — Endpoints, profiles and tester | CODE COMPLETE · automated gates PASS in Chrome · saved-bookmark and Edge checks NOT RUN                                    |
-| M4 — Recorder                       | CODE COMPLETE · focused unit and Chrome browser gates PASS · saved-bookmark, Edge, XHR and durable recovery checks NOT RUN |
-| M5 — Mock and chaos                 | NOT STARTED                                                                                                                |
-| M6 — Intercept and routing          | NOT STARTED                                                                                                                |
-| M7 — Breakpoints                    | NOT STARTED                                                                                                                |
-| M8 — Flow/Independent runs          | NOT STARTED                                                                                                                |
-| M9 — Complete import support        | NOT STARTED                                                                                                                |
-| M10 — Integrated release            | NOT STARTED                                                                                                                |
+The milestone status table that used to sit here has moved to **Current state** at the top of this
+file, where it is kept correct; this entry keeps only what was true on its own date.
 
 ## 2026-09-23 — M2 transport and rule core (verified)
 

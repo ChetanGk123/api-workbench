@@ -223,7 +223,24 @@ export type Transform = {
   status: number;
 };
 
-export type InterceptRule = RuleBase & { kind: 'intercept'; request: Transform; response: Transform };
+/**
+ * A pause is enabled per stage. A request pause happens before any upstream dispatch; a response
+ * pause happens after the upstream request has already completed, so it cannot undo a server-side
+ * action.
+ */
+export type Breakpoints = { request: boolean; response: boolean };
+
+export type InterceptRule = RuleBase & {
+  kind: 'intercept';
+  request: Transform;
+  response: Transform;
+  /** Optional: rules saved before M7 have no field, and pause at neither stage. */
+  breakpoints?: Breakpoints;
+};
+
+/** Plan §8.5 defaults. Neither is user-configurable in v1. */
+export const MAX_PAUSED_REQUESTS = 20;
+export const PAUSE_DEADLINE_MS = 30_000;
 
 export type RouteRule = RuleBase & {
   kind: 'route';
@@ -262,7 +279,10 @@ export function defaultTransform(): Transform {
 }
 
 export function defaultInterceptRule(profileId: string, seq: number): InterceptRule {
-  return { ...ruleBase(profileId, seq, 'New intercept rule'), kind: 'intercept', request: defaultTransform(), response: defaultTransform() };
+  return {
+    ...ruleBase(profileId, seq, 'New intercept rule'), kind: 'intercept',
+    request: defaultTransform(), response: defaultTransform(), breakpoints: { request: false, response: false },
+  };
 }
 
 export function defaultRouteRule(profileId: string, seq: number): RouteRule {

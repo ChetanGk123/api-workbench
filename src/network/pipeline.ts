@@ -1,4 +1,5 @@
 import { RULE_KINDS, type Rule, type RuleKind } from "../core/model"
+import { createBreakpoints, type Breakpoints } from "../breakpoints/registry"
 import {
   createRequestContext,
   createRuleEngine,
@@ -96,7 +97,7 @@ function matchLegacyCondition(rule: PipelineRule, url: string, requestHeaders?: 
   return true
 }
 
-export function createPipeline(report: (message: string) => void) {
+export function createPipeline(report: (message: string) => void, breakpoints?: Breakpoints) {
   let active = true
   const settings = { enabled: false, delay: 0 }
   const pending = new Set<() => void>()
@@ -105,6 +106,7 @@ export function createPipeline(report: (message: string) => void) {
   const trafficListeners = new Set<(event: TrafficEvent) => void>()
   const activityListeners = new Set<(activity: RuleActivity) => void>()
   const engine = createRuleEngine()
+  const pauses = breakpoints ?? createBreakpoints({ report })
   let nextId = 1
   let traceIndex = 0
   // Primary application requests and actual network dispatches are different counts.
@@ -232,6 +234,7 @@ export function createPipeline(report: (message: string) => void) {
     rules,
     trace,
     engine,
+    breakpoints: pauses,
     counters,
     addRule,
     clearRules() {
@@ -365,6 +368,8 @@ export function createPipeline(report: (message: string) => void) {
     close() {
       active = false
       settings.enabled = false
+      // Paused requests are continued before owned timers settle, so nothing awaits a dead promise.
+      pauses.dispose()
       for (const kind of RULE_KINDS) engine.setActive(kind, false)
       for (const finish of [...pending]) finish()
       pending.clear()

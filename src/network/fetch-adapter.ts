@@ -99,7 +99,9 @@ export function fetchAdapter(captured: typeof fetch, pipeline: Pipeline): typeof
       const intercept = plan.intercept
       const requestWork = !!intercept?.requestWork
       const responseWork = !!intercept?.responseWork
-      if (!real && !plan.route && !requestWork && !responseWork) {
+      const pauseRequest = !!intercept?.pauseRequest
+      const pauseResponse = !!intercept?.pauseResponse
+      if (!real && !plan.route && !requestWork && !responseWork && !pauseRequest && !pauseResponse) {
         pipeline.counters.dispatched++
         return captured
           .call(window, input, init)
@@ -170,13 +172,16 @@ export function fetchAdapter(captured: typeof fetch, pipeline: Pipeline): typeof
        * so a binary or form payload is re-sent byte-for-byte rather than decoded and guessed at.
        */
       const dispatch = async (): Promise<Response> => {
-        if (!plan.route && !requestWork)
+        if (!plan.route && !requestWork && !pauseRequest) {
+          pipeline.counters.dispatched++
           return captured.call(window, input, { ...(init ?? {}), signal: controller.signal })
+        }
         let prepared: Request
         try {
           prepared = new Request(input, init)
         } catch (error) {
           lifecycle.settle("error", `request transform skipped: ${(error as Error).message}`)
+          pipeline.counters.dispatched++
           return captured.call(window, input, { ...(init ?? {}), signal: controller.signal })
         }
         let headers = Object.fromEntries(prepared.headers.entries())
@@ -191,7 +196,39 @@ export function fetchAdapter(captured: typeof fetch, pipeline: Pipeline): typeof
           if (outcome.bodyChanged) body = outcome.body
           lifecycle.settle("request", outcome.summary)
         }
+        // Stage 3 pause: after the request transform and before any upstream dispatch.
+        if (pauseRequest) {
+          const outcome = await pipeline.breakpoints.pause({
+            stage: "request",
+            transport: "fetch",
+            method: prepared.method,
+            url: plan.route?.to ?? url,
+            ruleId: intercept!.ruleId,
+            ruleLabel: intercept!.label,
+            revision: intercept!.revision,
+            profileId: intercept!.profileId,
+            snapshot: { headers: { ...headers }, body: text },
+            bodyEditable: text !== undefined,
+            bodyReason: !hasBody
+              ? `a ${prepared.method} request sends no body`
+              : text === undefined
+                ? "request body is not a text-shaped media type"
+                : undefined,
+            signal,
+          })
+          if (outcome.diagnostic) lifecycle.settle("request", `request breakpoint: ${outcome.diagnostic}`)
+          if (outcome.action === "abort") {
+            lifecycle.settle("abort", "request breakpoint: aborted before any dispatch")
+            throw outcome.reason ?? new DOMException("Aborted at a request breakpoint", "AbortError")
+          }
+          if (outcome.edit) {
+            headers = outcome.edit.headers
+            if (outcome.edit.body !== undefined && outcome.edit.body !== text) body = outcome.edit.body
+            lifecycle.settle("request", "request breakpoint: continued with edited request")
+          }
+        }
         for (const name of plan.route?.stripped ?? []) delete headers[name]
+        pipeline.counters.dispatched++
         return captured.call(window, plan.route?.to ?? url, {
           method: prepared.method,
           headers,
@@ -207,10 +244,7 @@ export function fetchAdapter(captured: typeof fetch, pipeline: Pipeline): typeof
       }
 
       return wait(fault.preDelayMs)
-        .then(() => {
-          pipeline.counters.dispatched++
-          return dispatch()
-        })
+        .then(() => dispatch())
         .then(async (received) => {
           clearTimeout(deadline)
           await wait(fault.deliveryDelayMs)
@@ -268,6 +302,64 @@ export function fetchAdapter(captured: typeof fetch, pipeline: Pipeline): typeof
                 headers: rewritten(),
               })
             } else lifecycle.settle("error", "malformed JSON skipped: unsupported response body")
+          }
+          // Stage 8: the last explicit override, after the response transform and real chaos.
+          if (pauseResponse) {
+            const readable = textLike(delivered.headers.get("content-type")) && delivered.body !== null
+            const current = readable ? await delivered.clone().text() : undefined
+            const outcome = await pipeline.breakpoints.pause({
+              stage: "response",
+              transport: "fetch",
+              method: requestContext.method,
+              url: delivered.url || plan.route?.to || url,
+              ruleId: intercept!.ruleId,
+              ruleLabel: intercept!.label,
+              revision: intercept!.revision,
+              profileId: intercept!.profileId,
+              snapshot: {
+                headers: Object.fromEntries(delivered.headers.entries()),
+                body: current,
+                status: delivered.status,
+              },
+              bodyEditable: readable,
+              bodyReason: readable ? undefined : "response body is not a text-shaped media type",
+              signal,
+            })
+            if (outcome.diagnostic) lifecycle.settle("response", `response breakpoint: ${outcome.diagnostic}`)
+            if (outcome.action === "abort") {
+              const reason =
+                outcome.reason ?? new DOMException("Aborted at a response breakpoint", "AbortError")
+              lifecycle.settle(
+                "abort",
+                "response breakpoint: aborted after the upstream request had already completed",
+              )
+              lifecycle.finish("aborted at a response breakpoint")
+              publishError(reason)
+              throw reason
+            }
+            if (outcome.edit) {
+              const status = outcome.edit.status ?? delivered.status
+              const edited = outcome.edit.body !== undefined && outcome.edit.body !== current
+              const headers = new Headers(outcome.edit.headers)
+              if (edited) {
+                headers.delete("content-length")
+                headers.delete("content-encoding")
+              }
+              const empty = status === 204 || status === 304
+              const next = new Response(
+                empty
+                  ? null
+                  : edited
+                    ? outcome.edit.body
+                    : readable
+                      ? current
+                      : await delivered.clone().arrayBuffer(),
+                { status, statusText: statusText(status) || delivered.statusText, headers },
+              )
+              Object.defineProperty(next, "url", { value: delivered.url, configurable: true })
+              delivered = next
+              lifecycle.settle("response", "response breakpoint: final edit applied")
+            }
           }
           lifecycle.settle("response", plan.why.join(" · "))
           lifecycle.finish(`real ${delivered.status}`)

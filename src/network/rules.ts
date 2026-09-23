@@ -324,6 +324,12 @@ export type InterceptPlan = {
   response: CompiledTransform
   requestWork: boolean
   responseWork: boolean
+  /** Stage 3 and stage 8 pauses, frozen with the rest of the plan at intake. */
+  pauseRequest: boolean
+  pauseResponse: boolean
+  /** Rule identity at intake, so a waiting pause can be reported as stale after an edit. */
+  revision: number
+  profileId: string
 }
 
 export type Plan = {
@@ -464,6 +470,10 @@ export function createRuleEngine() {
             response: compileTransform(interceptRule.response),
             requestWork: transformHasWork(compileTransform(interceptRule.request)),
             responseWork: transformHasWork(compileTransform(interceptRule.response)),
+            pauseRequest: !!interceptRule.breakpoints?.request,
+            pauseResponse: !!interceptRule.breakpoints?.response,
+            revision: interceptRule.revision,
+            profileId: interceptRule.profileId,
           }
         : null
       const routeRule = active.route
@@ -486,6 +496,10 @@ export function createRuleEngine() {
         why.push(`intercept ${intercept.label} matched`)
         if (intercept.requestWork)
           why.push("request transform not applied: this request is answered without a dispatch")
+        if (intercept.pauseRequest || intercept.pauseResponse)
+          why.push(
+            "breakpoints not applied: a request answered without a dispatch is never paused in v1",
+          )
         if (!intercept.responseWork) return plan
         if (!plan.synthetic) {
           why.push("response transform not applied: this outcome has no HTTP response to edit")
@@ -629,8 +643,15 @@ export function createRuleEngine() {
       if (intercept) {
         plan.intercept = intercept
         count(intercept.ruleId)
+        const pauses = [intercept.pauseRequest && "request", intercept.pauseResponse && "response"].filter(Boolean)
         why.push(
-          `intercept ${intercept.label} matched${intercept.requestWork || intercept.responseWork ? "" : " with no configured operations"}`,
+          `intercept ${intercept.label} matched${
+            intercept.requestWork || intercept.responseWork || pauses.length
+              ? pauses.length
+                ? ` with ${pauses.join(" and ")} breakpoint${pauses.length === 1 ? "" : "s"}`
+                : ""
+              : " with no configured operations"
+          }`,
         )
       }
       if (routeRule) {

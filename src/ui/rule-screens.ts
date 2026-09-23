@@ -7,6 +7,8 @@ import {
   MAX_REPLAY_COPIES,
   defaultChaosRule,
   defaultMockRule,
+  MAX_PAUSED_REQUESTS,
+  PAUSE_DEADLINE_MS,
   defaultMockSlot,
   matcherFromEndpoint,
   type ChaosFault,
@@ -23,6 +25,7 @@ import {
   type RuleMatcher,
 } from "../core/model"
 import { getPathname, routeTarget, validateRewrite } from "../network/rules"
+import type { PauseEdit, PausedEntry } from "../breakpoints/registry"
 import { parseHeaderLines, parseHeaderNames } from "../network/transform"
 import { parsePointer, pointers } from "../network/patch"
 import type { Ctx } from "./screens"
@@ -1078,6 +1081,197 @@ function transformCard(ctx: Ctx, transform: Transform, stage: "Request" | "Respo
   return [wrapper, patchEditor(ctx, transform, stage, sample)]
 }
 
+
+/* ── Paused requests (M7) ──────────────────────────────────────────────────── */
+
+const headerLines = (headers: Record<string, string>) =>
+  Object.entries(headers)
+    .map(([name, value]) => `${name}: ${value}`)
+    .join("\n")
+
+/**
+ * One waiting request. The reference screens have no paused queue, so this follows plan §8.5: id,
+ * stage, method/URL, age, matching rule, the editable supported fields, Continue and Abort.
+ */
+function pausedCard(ctx: Ctx, entry: PausedEntry) {
+  const wrapper = card()
+  wrapper.classList.add("aw-paused")
+  const stage = entry.stage === "request" ? "Request stage" : "Response stage"
+  const path = el("span", "aw-grow aw-tr aw-mono aw-xs", entry.url)
+  path.title = entry.url
+  const age = document.createTextNode("0s")
+  const ageLabel = el("span", "aw-xs aw-mu")
+  ageLabel.append(age)
+  const notice = el("p", "aw-hint")
+  notice.setAttribute("role", "status")
+  const stale = el("p", "aw-hint")
+
+  const status = numberField(
+    `Status for ${entry.id}`,
+    entry.snapshot.status ?? 0,
+    () => {},
+    ctx.signal,
+    100,
+    599,
+  )
+  const headers = el("textarea", "aw-ta aw-mono")
+  headers.value = headerLines(entry.snapshot.headers)
+  headers.setAttribute("aria-label", `${stage} headers for ${entry.id}`)
+  const body = el("textarea", "aw-ta aw-mono")
+  body.value = entry.snapshot.body ?? ""
+  body.setAttribute("aria-label", `${stage} body for ${entry.id}`)
+  if (!entry.bodyEditable) {
+    body.disabled = true
+    body.placeholder = entry.bodyReason ?? "not editable at this stage"
+  }
+
+  const edited = (): PauseEdit | undefined => {
+    const next: PauseEdit = { headers: parseHeaderLines(headers.value) }
+    let changed = headerLines(next.headers) !== headerLines(entry.snapshot.headers)
+    if (entry.bodyEditable) {
+      next.body = body.value
+      changed = changed || body.value !== (entry.snapshot.body ?? "")
+    }
+    if (entry.stage === "response") {
+      const value = Math.min(599, Math.max(100, Math.round(Number(status.input.value) || 0)))
+      next.status = value
+      changed = changed || value !== entry.snapshot.status
+    }
+    return changed ? next : undefined
+  }
+
+  const resume = button(
+    "aw-btn aw-pri aw-sm",
+    "Continue",
+    () => {
+      const edit = edited()
+      const refused =
+        entry.stage === "request" && edit ? Object.keys(edit.headers).filter(forbiddenRequestHeader) : []
+      if (refused.length) {
+        notice.textContent = `The browser forbids setting ${refused.join(", ")} on a request; remove ${refused.length === 1 ? "that line" : "those lines"} to continue.`
+        return
+      }
+      entry.resume(edit)
+    },
+    ctx.signal,
+  )
+  resume.prepend(icon("play", "aw-i12"))
+  const stop = button("aw-btn aw-dst aw-sm", "Abort", () => entry.abort(), ctx.signal)
+
+  wrapper.append(
+    group(
+      "aw-row aw-gap8",
+      el("span", `aw-bd aw-m aw-${entry.method || "GET"}`, entry.method || "·"),
+      path,
+      el("span", "aw-bd aw-s", stage),
+      ageLabel,
+    ),
+    el(
+      "p",
+      "aw-hint",
+      `${entry.id} · ${entry.transport === "xhr" ? "XHR" : "fetch"} · rule ${entry.ruleLabel}`,
+    ),
+    stale,
+    ...(entry.stage === "response" ? [status.field] : []),
+    labeled(`${stage} headers`, headers),
+    labeled(`${stage} body`, body),
+    entry.bodyEditable
+      ? el("p", "aw-hint", "Edits here are the final explicit override for this one request.")
+      : el("p", "aw-hint", entry.bodyReason ?? "This body cannot be edited at this stage."),
+    notice,
+    group("aw-row aw-gap8", resume, stop),
+  )
+  return { wrapper, age, stale, entry }
+}
+
+export function pausedQueue(ctx: Ctx): HTMLElement {
+  const wrapper = el("div", "aw-col aw-gap8")
+  const count = el("span", "aw-bd aw-s", "0")
+  const rows = el("div", "aw-col aw-gap8")
+  const all = button("aw-btn aw-out aw-sm", "Continue all", () => ctx.continueAllPaused(), ctx.signal)
+  wrapper.append(
+    group("aw-row aw-gap8", el("span", "aw-lbl aw-grow", "Paused requests"), count, all),
+    rows,
+  )
+  const cards = new Map<string, ReturnType<typeof pausedCard>>()
+  const tick = () => {
+    for (const made of cards.values())
+      made.age.textContent = `${Math.max(0, Math.round((Date.now() - made.entry.at) / 1000))}s of ${Math.round((made.entry.deadlineAt - made.entry.at) / 1000)}s`
+  }
+  ctx.watch((state) => {
+    count.textContent = String(state.paused.length)
+    all.disabled = !state.paused.length
+    const live = new Set(state.paused.map((entry) => entry.id))
+    for (const [id, made] of [...cards])
+      if (!live.has(id)) {
+        made.wrapper.remove()
+        cards.delete(id)
+      }
+    for (const entry of state.paused)
+      if (!cards.has(entry.id)) {
+        const made = pausedCard(ctx, entry)
+        cards.set(entry.id, made)
+        rows.append(made.wrapper)
+      }
+    // A rule edited or a profile switched while a request waits does not mutate that pause.
+    for (const made of cards.values()) {
+      const rule = state.config.rules?.find((item) => item.id === made.entry.ruleId)
+      const stale =
+        made.entry.profileId !== state.config.profile.id
+          ? "Paused under a different profile — this request keeps the rule it matched."
+          : !rule
+            ? "The matching rule has been deleted — this request keeps the rule it matched."
+            : rule.revision !== made.entry.revision
+              ? "The matching rule has been edited since this request paused — the snapshot below is the one it matched."
+              : ""
+      made.stale.textContent = stale
+    }
+    if (!state.paused.length)
+      rows.replaceChildren(
+        el(
+          "div",
+          "aw-empty",
+          "No paused requests. Enable a breakpoint on an intercept rule to pause matching traffic.",
+        ),
+      )
+    else if (rows.firstElementChild?.classList.contains("aw-empty")) {
+      rows.replaceChildren(...[...cards.values()].map((made) => made.wrapper))
+    }
+    tick()
+  })
+  const ticker = setInterval(tick, 1000)
+  ctx.signal.addEventListener("abort", () => clearInterval(ticker), { once: true })
+  return wrapper
+}
+
+function breakpointCard(ctx: Ctx, draft: InterceptRule): HTMLElement {
+  const breakpoints = (draft.breakpoints ??= { request: false, response: false })
+  const wrapper = card()
+  const request = checkField(
+    "Pause before dispatch (request stage)",
+    breakpoints.request,
+    (value) => (breakpoints.request = value),
+    ctx.signal,
+  )
+  const response = checkField(
+    "Pause before delivery (response stage)",
+    breakpoints.response,
+    (value) => (breakpoints.response = value),
+    ctx.signal,
+  )
+  wrapper.append(
+    group("aw-row", el("span", "aw-h aw-cap", "Breakpoints"), el("span", "aw-bd", "Optional")),
+    request.field,
+    response.field,
+    el(
+      "p",
+      "aw-hint",
+      `Paused requests wait in the queue on the Intercept screen. Each pause continues automatically after ${Math.round(PAUSE_DEADLINE_MS / 1000)} seconds, at most ${MAX_PAUSED_REQUESTS} requests pause at once, and a caller's own abort always wins. A request answered by a mock or a synthetic fault is never paused: there is no dispatch to hold.`,
+    ),
+  )
+  return wrapper
+}
+
 function interceptEditor(ctx: Ctx, screen: HTMLElement, original: InterceptRule, isNew: boolean) {
   const draft: InterceptRule = structuredClone(original)
   const detached = { value: false }
@@ -1147,11 +1341,7 @@ function interceptEditor(ctx: Ctx, screen: HTMLElement, original: InterceptRule,
       label.field,
       picker,
       ...matcher,
-      el(
-        "p",
-        "aw-hint",
-        "Request and response breakpoints are built in M7; this rule transforms traffic without pausing it.",
-      ),
+      breakpointCard(ctx, draft),
       ...transformCard(ctx, draft.response, "Response", sample),
       ...transformCard(ctx, draft.request, "Request", sample),
       conditionFields(draft.matcher, ctx),
@@ -1187,7 +1377,8 @@ export function interceptScreen(ctx: Ctx): HTMLElement {
       (transform.status ? 1 : 0)
     const request = count(intercept.request)
     const response = count(intercept.response)
-    return `${request} request · ${response} response`
+    const pauses = [intercept.breakpoints?.request && "req", intercept.breakpoints?.response && "res"].filter(Boolean)
+    return `${request} request · ${response} response${pauses.length ? ` · pause ${pauses.join("/")}` : ""}`
   }
   const linked = rules.filter((rule) => rule.endpointId)
   const adhoc = rules.filter((rule) => !rule.endpointId)
@@ -1197,6 +1388,7 @@ export function interceptScreen(ctx: Ctx): HTMLElement {
   fromEndpoint.title = endpoints.length ? "Create a rule linked to an endpoint" : "Add an endpoint first"
   screen.append(
     moduleHeader(ctx, "intercept", "API Interceptor", () => ctx.setModuleActive("intercept", !ctx.state().moduleActive.intercept)),
+    pausedQueue(ctx),
     section(
       "Endpoint rules",
       linked.length,

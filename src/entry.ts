@@ -16,8 +16,9 @@ import {
 import { importConfig as parseConfig, loadConfig, saveConfig, exportConfig } from "./core/storage"
 import { executeOnce } from "./tester/once"
 import { createRecorder, type Recording } from "./recorder/recorder"
+import { createBreakpoints } from "./breakpoints/registry"
 
-const version = "0.1.0-m6"
+const version = "0.1.0-m7"
 const key = "__api_workbench_7f49a1_v1__"
 type Instance = { version: string; restore: () => void }
 const registry = window as unknown as Record<string, Instance | undefined>
@@ -50,6 +51,7 @@ if (existing) {
     ruleHits: {},
     ruleCursors: {},
     matched: [],
+    paused: [],
   })
   let configDirty = false
   let directFetch: typeof window.fetch = window.fetch
@@ -58,9 +60,13 @@ if (existing) {
     store.set({ config })
     void saveConfig(config)
   }
-  const pipeline = createPipeline((message) =>
-    store.set({ observed: store.state.observed + 1, activity: message }),
-  )
+  const report = (message: string) =>
+    store.set({ observed: store.state.observed + 1, activity: message })
+  const breakpoints = createBreakpoints({ report })
+  const pipeline = createPipeline(report, breakpoints)
+  // A pause makes the page wait on the user, so restore a minimized panel's launcher visibly and
+  // keep the queue in state for the Intercept screen.
+  breakpoints.onChange((paused) => store.set({ paused }))
   const recorder = createRecorder(pipeline, (recordings) =>
     store.set({ recordings: [...recordings] }),
   )
@@ -223,6 +229,7 @@ if (existing) {
     },
     nextRuleSeq: () =>
       rulesOf(store.state.config).reduce((highest, rule) => Math.max(highest, rule.seq), 0) + 1,
+    continueAllPaused: () => breakpoints.continueAll(),
     promoteRecording: (recording: Recording) => {
       const url = new URL(recording.url)
       const endpoint: Endpoint = {
