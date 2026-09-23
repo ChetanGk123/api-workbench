@@ -324,6 +324,82 @@ export function createShell(options: ShellOptions) {
   }
   draggable(header)
   draggable(launcher)
+
+  // Resize: one grip per edge and corner. A grip that moves the panel's left or top edge has to
+  // move the host by the same amount, since the host is anchored by left/top.
+  const grip = (edge: string) => {
+    const handle = el("div", `aw-rs aw-rs-${edge}`)
+    let active = false
+    let startX = 0,
+      startY = 0,
+      startW = 0,
+      startH = 0,
+      left = 0,
+      top = 0,
+      minW = 0,
+      minH = 0,
+      maxW = 0,
+      maxH = 0
+    handle.addEventListener(
+      "pointerdown",
+      (event) => {
+        if (event.button !== 0) return
+        const box = panel.getBoundingClientRect()
+        const style = getComputedStyle(panel)
+        startX = event.clientX
+        startY = event.clientY
+        startW = box.width
+        startH = box.height
+        left = position.x
+        top = position.y
+        minW = parseFloat(style.minWidth)
+        minH = parseFloat(style.minHeight)
+        // Growing west or north can only eat the gap to that viewport edge; growing east or
+        // south, the gap to the opposite one. Without this the panel would grow off-screen and
+        // place() would then slide it back under the pointer.
+        maxW = Math.min(
+          parseFloat(style.maxWidth),
+          edge.includes("w") ? left + startW - 8 : window.innerWidth - left - 8,
+        )
+        maxH = Math.min(
+          parseFloat(style.maxHeight),
+          edge.includes("n") ? top + startH - 8 : window.innerHeight - top - 8,
+        )
+        active = true
+        handle.setPointerCapture(event.pointerId)
+        event.preventDefault()
+      },
+      { signal },
+    )
+    handle.addEventListener(
+      "pointermove",
+      (event) => {
+        if (!active) return
+        const dx = event.clientX - startX
+        const dy = event.clientY - startY
+        const width = edge.includes("e") ? startW + dx : edge.includes("w") ? startW - dx : startW
+        const height = edge.includes("s") ? startH + dy : edge.includes("n") ? startH - dy : startH
+        const w = Math.min(Math.max(width, minW), maxW)
+        const h = Math.min(Math.max(height, minH), maxH)
+        panel.style.width = `${w}px`
+        panel.style.height = `${h}px`
+        // Clamped sizes drive the move, so hitting a limit pins the edge instead of drifting.
+        place(
+          edge.includes("w") ? left + startW - w : left,
+          edge.includes("n") ? top + startH - h : top,
+        )
+      },
+      { signal },
+    )
+    const stopResize = (event: PointerEvent) => {
+      active = false
+      if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId)
+    }
+    handle.addEventListener("pointerup", stopResize, { signal })
+    handle.addEventListener("pointercancel", stopResize, { signal })
+    return handle
+  }
+  panel.append(...["n", "e", "s", "w", "nw", "ne", "sw", "se"].map(grip))
   window.addEventListener("resize", () => place(position.x, position.y), { signal })
 
   function apply() {

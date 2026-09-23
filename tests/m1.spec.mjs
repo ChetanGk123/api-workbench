@@ -128,8 +128,46 @@ test('dragging the header moves the panel and clamps it inside the viewport', as
 
 test('the panel is resizable and stays usable at its smallest size', async ({ page }) => {
   await launch(page);
-  expect(await page.locator(panel).evaluate(node => getComputedStyle(node).resize)).toBe('both');
   const viewport = page.viewportSize();
+
+  // Every edge and corner resizes; the ones that move the top or left edge move the panel too.
+  const header = await box(page, `${panel} .aw-tb`);
+  await page.mouse.move(header.x + 40, header.y + header.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(240, 140, { steps: 4 });
+  await page.mouse.up();
+  const pull = async (edge, dx, dy) => {
+    const before = await box(page, panel);
+    const grip = await box(page, `${panel} .aw-rs-${edge}`);
+    const x = grip.x + grip.width / 2, y = grip.y + grip.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + dx, y + dy, { steps: 4 });
+    await page.mouse.up();
+    const after = await box(page, panel);
+    return {
+      width: Math.round(after.width - before.width), height: Math.round(after.height - before.height),
+      x: Math.round(after.x - before.x), y: Math.round(after.y - before.y), after,
+    };
+  };
+  expect(await pull('w', -60, 0)).toMatchObject({ width: 60, height: 0, x: -60, y: 0 });
+  expect(await pull('e', 50, 0)).toMatchObject({ width: 50, height: 0, x: 0, y: 0 });
+  expect(await pull('n', 0, -40)).toMatchObject({ width: 0, height: 40, x: 0, y: -40 });
+  expect(await pull('s', 0, -30)).toMatchObject({ width: 0, height: -30, x: 0, y: 0 });
+  expect(await pull('nw', -30, -20)).toMatchObject({ width: 30, height: 20, x: -30, y: -20 });
+  expect(await pull('ne', 25, 15)).toMatchObject({ width: 25, height: -15, x: 0, y: 15 });
+  expect(await pull('sw', -20, -25)).toMatchObject({ width: 20, height: -25, x: -20, y: 0 });
+  expect(await pull('se', 15, 20)).toMatchObject({ width: 15, height: 20, x: 0, y: 0 });
+
+  // Past the viewport the edge pins instead of dragging the panel off-screen with it.
+  const grown = (await pull('se', 4000, 4000)).after;
+  expect(grown.x + grown.width).toBeLessThanOrEqual(viewport.width - 8);
+  expect(grown.y + grown.height).toBeLessThanOrEqual(viewport.height - 8);
+  const shrunk = (await pull('nw', 4000, 4000)).after;
+  expect(shrunk.width).toBeLessThan(grown.width);
+  expect(shrunk.height).toBeLessThan(grown.height);
+  await page.locator(panel).evaluate(node => { node.style.width = '480px'; node.style.height = '560px'; });
+
   const limits = await page.locator(panel).evaluate(node => {
     const style = getComputedStyle(node);
     return { maxWidth: parseFloat(style.maxWidth), maxHeight: parseFloat(style.maxHeight) };

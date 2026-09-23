@@ -1282,6 +1282,41 @@ Playwright; blob downloads under a host-page CSP `sandbox` directive are unteste
 
 **Next task.** M8 — Flow/Independent repeat runner.
 
+## 2026-09-23 — Resize from every edge and corner
+
+**Scope.** Panel resizing only. No feature, transport or storage change.
+
+**Changed files.**
+
+- `src/ui/theme.css` — dropped `resize: both` from `.aw-root` (and the now-redundant `resize: none`
+  on `.aw-min`), made the panel a positioning context, and added the `.aw-rs-*` grip geometry: 6 px
+  edge strips, 16 px corners, corner cursors, and a diagonal-ridge background on the bottom-right
+  corner as the visible affordance the native grip used to provide.
+- `src/ui/shell.ts` — eight pointer-driven grips appended to the panel. Each records the panel box,
+  the host position and the resolved min/max from computed style on `pointerdown`, then applies the
+  clamped size on `pointermove`. A west or north grip also moves the host by `startSize - newSize`,
+  so the opposite edge stays pinned. The per-drag max is additionally capped by the distance to the
+  viewport edge the drag grows toward, so a grip cannot push the panel off-screen and have `place()`
+  slide it back under the pointer.
+- `tests/m1.spec.mjs` — the resize test now drags each of the eight grips and asserts the size and
+  position deltas, plus the pinning behavior at the viewport limit, instead of asserting
+  `resize: both`.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0.
+- `npm run build` → exit 0. raw 412,805 B, minified 235,645 B, encoded bookmark URL 339,413 characters.
+- `npx playwright test` → 184 passed in 1.4 m, Chrome (channel `chrome`), macOS darwin 25.6.0.
+
+**Not run.** Edge — not installed on this machine. Saved-bookmark installation, as before. Touch and
+keyboard resizing are untested because neither is implemented.
+
+**Limitations.** Pointer only: there is no keyboard path to resize, which the native grip did not
+provide either (`ponytail:` note kept in `theme.css`). The top 6 px of the title bar now resizes
+rather than drags. Size is not persisted across launches, unchanged from before.
+
+**Next task.** M10 (integrated release), unchanged.
+
 ## 2026-09-23 — UI/UX pass against the reference screens (no new features)
 
 **Scope.** Side-by-side comparison of every built screen against `design/reference/screens/*` in

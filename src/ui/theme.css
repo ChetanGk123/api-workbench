@@ -36,11 +36,83 @@
   max-width: calc(100vw - 16px);
   max-height: calc(100vh - 16px);
   box-shadow: 0 12px 40px #0006;
-  resize: both;
   container-type: inline-size;
+  position: relative;
 }
-/* ponytail: native CSS resize grip (bottom-right, pointer only). Custom handles only if
- * keyboard resizing or edge handles become a requirement. */
+
+/* Resize grips: four edges and four corners, since the native CSS grip offers the bottom-right
+ * corner only. Laid inside the panel because .aw-root clips its overflow.
+ * ponytail: pointer only. Keyboard resizing if it becomes a requirement. */
+.aw-rs {
+  position: absolute;
+  touch-action: none;
+}
+.aw-rs-n,
+.aw-rs-s {
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: ns-resize;
+}
+.aw-rs-e,
+.aw-rs-w {
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: ew-resize;
+}
+.aw-rs-n {
+  top: 0;
+}
+.aw-rs-s {
+  bottom: 0;
+}
+.aw-rs-e {
+  right: 0;
+}
+.aw-rs-w {
+  left: 0;
+}
+/* Corners come last in the DOM, so they take the hit over the edges they overlap. */
+.aw-rs-nw,
+.aw-rs-ne,
+.aw-rs-sw,
+.aw-rs-se {
+  width: 16px;
+  height: 16px;
+}
+.aw-rs-nw {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+}
+.aw-rs-ne {
+  top: 0;
+  right: 0;
+  cursor: nesw-resize;
+}
+.aw-rs-sw {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
+}
+.aw-rs-se {
+  bottom: 0;
+  right: 0;
+  cursor: nwse-resize;
+  /* The only visible affordance, standing in for the native grip's diagonal ridges. */
+  background: linear-gradient(
+    135deg,
+    transparent 58%,
+    var(--aw-zinc-700) 58%,
+    var(--aw-zinc-700) 70%,
+    transparent 70%,
+    transparent 78%,
+    var(--aw-zinc-700) 78%,
+    var(--aw-zinc-700) 90%,
+    transparent 90%
+  );
+}
 .aw-min {
   width: 400px;
   height: 52px;
@@ -50,7 +122,6 @@
   gap: 8px;
   padding: 0 8px 0 12px;
   border-radius: 14px;
-  resize: none;
 }
 .aw-min .aw-sel {
   max-width: 132px;
