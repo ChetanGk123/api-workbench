@@ -30,6 +30,70 @@ when a later milestone lands.
 | M9 — Complete import support | CODE COMPLETE · all M9 acceptance gates PASS in Chrome (38 checks) · saved-bookmark and Edge checks NOT RUN |
 | M10 — Integrated release | NOT STARTED |
 
+## 2026-09-23 — Results screen laid out as `Results.html`
+
+**Reported.** The Results screen did not match `design/reference/screens/Results.html`.
+
+**Change.** The header is the reference's: a bolt-marked `Results: <plan>`, the run-state badge, a
+`Flow · 10×1` badge, the progress bar (now an ARIA `progressbar`) and a centred `10 / 10 iterations`
+line. The four tiles are coloured as in the reference — Passed green, Failed red (renamed from "Not
+passed"), P95 amber when there is a sample — with the `ms` unit in the reference's smaller muted
+type. The per-endpoint breakdown is a real `<table>` with the reference's fixed column widths, a
+sticky-looking header row, truncating endpoint cells, a wrench marker on setup-phase rows, green
+pass / red fail counts and an amber `…ms` P95. `wrench` was added to the icon set for that marker.
+
+**Not changed.** The outcome-breakdown card has no counterpart in the reference but stays, moved
+below the table: it carries the run's errors, warnings and the latency-sample caveat. The footer
+keeps JSON, CSV, Stop and Run again — Back is already the panel's sub-header control, and the
+reference's run-history icon has no destination now that history lives on the Test screen.
+
+**Tests changed with the UI.** `tests/m8.spec.mjs` — the progress line reads `N of M requests`
+(was `N of M planned requests`).
+
+**Commands run.** `npm run build` (exit 0, minified 231,894 B, encoded bookmark 333,846 chars),
+`npx playwright test` — 182 checks PASS in Chrome 153.0.8010.53, macOS darwin 25.6.0, Node v24.21.0.
+
+**Not run.** Saved-bookmark installation and every Edge check. No visual-regression harness: the
+comparison was a screenshot of the rendered panel against the reference HTML.
+
+**Next task.** M10 (integrated release).
+
+## 2026-09-23 — Test screen laid out as `Test.html`
+
+**Reported.** The Test screen did not match `design/reference/screens/Test.html`.
+
+**Change.** The Load view now follows the reference layout: the plan row (status dot + editable plan
+name) above a left-aligned Once/Load segment, no in-body `API Tester` title and no duplicate
+Endpoints button (Home already reaches Endpoints), Base URLs as the reference's one-line collapsible
+with the resolved environment and `(auto)`, and a Load config card of fixed-width label rows —
+Strategy, Iterations, Concurrency, `Batch delay` + `ms` (110 px inputs), a separator, and Ramp-up as
+the theme's `.aw-sw` switch with its hint. `Tester mode` moved into that card as **Mode**, beside
+**On failure**. `Notify on complete` uses the reference tick-box, and the footer reads
+`N selected · 10×1`. The panels the reference does not show — Page context, Expression reference and
+Load run history — are collapsed disclosures; the preflight card stays visible because it is what
+disables **Run Load**.
+
+**Not changed.** Step rows keep the working **To setup**/**To load** control instead of the
+reference's `modified` badge and chevron: there is no modified-since-capture state in the model, and
+the chevron's endpoint editor is reached from Endpoints. The plan row has no rename/save icon pair,
+because v1 stores one plan per profile — the name is edited in place instead. Both need model work,
+not layout work.
+
+**Tests changed with the UI.** `tests/m1.spec.mjs` (Test has no in-body title; it asserts the plan
+name field instead), `tests/m8.spec.mjs` (footer copy, and the scan test opens the Page context
+disclosure first).
+
+**Commands run.** `npm run build` (exit 0, minified 230,094 B, encoded bookmark 331,232 chars),
+`npx playwright test` — 182 checks PASS in Chrome 153.0.8010.53, macOS darwin 25.6.0, Node v24.21.0.
+An earlier run of the same suite showed three unrelated flakes (`m7` pause deadline, two `m8`
+hit-counter checks) that pass on rerun; they are timing-sensitive, not layout-dependent.
+
+**Not run.** Saved-bookmark installation and every Edge check, as for all milestones. No visual
+regression harness exists: the comparison was a screenshot of the rendered panel against the
+reference HTML.
+
+**Next task.** M10 (integrated release).
+
 ## 2026-09-23 — Rule editors: the label follows the linked endpoint
 
 **Reported.** In the mock rule editor, changing **Endpoint** re-synced Method and URL but left the

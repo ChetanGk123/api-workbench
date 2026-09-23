@@ -7,7 +7,8 @@ const panel = '#api-workbench .aw-root:not(.aw-min)';
 const launcher = '#api-workbench .aw-min';
 const TABS = ['Home', 'Test', 'Mock', 'Intercept', 'Route', 'Chaos'];
 // A module screen is headed by its full product name; a non-tab screen by the Back sub-header.
-const MODULE_TITLE = { Test: 'API Tester', Mock: 'Mock Server', Intercept: 'API Interceptor', Route: 'Page Routing', Chaos: 'Chaos Engineering' };
+// Test follows Test.html, which opens on the plan row instead of an in-body title.
+const MODULE_TITLE = { Mock: 'Mock Server', Intercept: 'API Interceptor', Route: 'Page Routing', Chaos: 'Chaos Engineering' };
 const subTitle = page => page.locator(`${panel} .aw-sub .aw-subtitle`);
 const box = (page, selector) => page.locator(selector).boundingBox();
 const styles = page => page.evaluate(() => {
@@ -36,7 +37,8 @@ test('tabs and links navigate inside the panel without touching the host page', 
   for (const label of TABS.slice(1)) {
     await page.getByRole('button', { name: label, exact: true }).click();
     await expect(page.getByRole('button', { name: label, exact: true })).toHaveAttribute('aria-current', 'page');
-    await expect(page.locator(`${panel} .aw-body .aw-h`).first()).toHaveText(MODULE_TITLE[label]);
+    if (label === 'Test') await expect(page.locator(panel).getByRole('textbox', { name: 'Plan name', exact: true })).toBeVisible();
+    else await expect(page.locator(`${panel} .aw-body .aw-h`).first()).toHaveText(MODULE_TITLE[label]);
     // The tab strip is the way back; a duplicate in-body control would only add chrome.
     await expect(page.locator(`${panel} .aw-tabs`)).toBeVisible();
     await expect(page.locator(`${panel} .aw-sub`)).toBeHidden();

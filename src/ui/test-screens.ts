@@ -44,6 +44,27 @@ function methodBadge(method: string): HTMLElement {
   return el("span", `aw-bd aw-m aw-${method}`, method)
 }
 
+/** Test.html's config row: a fixed-width label beside its control, not stacked above it. */
+function fieldRow(label: string, control: HTMLElement, ...rest: Node[]): HTMLElement {
+  const text = el("span", "aw-lbl", label)
+  text.style.cssText = "width:104px;flex-shrink:0"
+  const row = el("label", "aw-row")
+  row.append(text, control, ...rest)
+  return row
+}
+
+/** The reference switch: a button, so a row click never submits or navigates. */
+function switchBox(label: string, checked: boolean, onChange: (value: boolean) => void, signal: AbortSignal): HTMLElement {
+  const control = el("button", `aw-sw${checked ? " aw-on" : ""}`)
+  control.type = "button"
+  control.setAttribute("role", "switch")
+  control.setAttribute("aria-checked", String(checked))
+  control.setAttribute("aria-label", label)
+  control.append(el("span", "aw-th"))
+  control.addEventListener("click", () => onChange(!checked), { signal })
+  return control
+}
+
 /** One endpoint row: included/excluded, the method, its alias, and which phase it sits in. */
 function stepRow(ctx: Ctx, plan: TestPlan, endpoint: Endpoint): HTMLElement {
   const phase = stepPhase(plan, endpoint.id)
@@ -174,7 +195,7 @@ function contextCard(ctx: Ctx): HTMLElement {
   }, ctx.signal)
 
   box.append(
-    group("aw-row aw-actions", el("span", "aw-lbl aw-grow", "Page context"), scan),
+    group("aw-row aw-actions", el("span", "aw-grow"), scan),
     pickers,
     rootField.field,
     status,
@@ -294,32 +315,65 @@ export function testScreen(ctx: Ctx): HTMLElement {
     const running = !!state.run && state.run.state === "running"
 
     const config = card()
+    config.style.gap = "10px"
+    const strategy = selectField(
+      "Strategy",
+      [
+        ["flow", "Flow — ordered sequence per iteration"],
+        ["independent", "Independent — one queue per endpoint"],
+      ] as const,
+      plan.strategy,
+      (value) => ctx.updatePlan({ ...plan, strategy: value }),
+      ctx.signal,
+    )
+    strategy.select.classList.add("aw-grow")
+    const iterations = numberField("Iterations", plan.iterations, (value) => ctx.updatePlan({ ...plan, iterations: value }), ctx.signal, 1, MAX_ITERATIONS)
+    const concurrency = numberField("Concurrency", plan.concurrency, (value) => ctx.updatePlan({ ...plan, concurrency: value }), ctx.signal, 1, MAX_CONCURRENCY)
+    const delay = numberField("Batch delay", plan.delayMs, (value) => ctx.updatePlan({ ...plan, delayMs: value }), ctx.signal, 0, 60000)
+    for (const field of [iterations, concurrency, delay]) field.input.style.width = "110px"
+    const mode = selectField(
+      "Mode",
+      [
+        ["direct", "Direct — bypass active rules"],
+        ["rules", "Apply active rules"],
+      ] as const,
+      plan.mode,
+      (value) => ctx.updatePlan({ ...plan, mode: value }),
+      ctx.signal,
+    )
+    mode.select.classList.add("aw-grow")
+    const onFailure = selectField(
+      "On failure",
+      [
+        ["continue", "Continue unrelated steps"],
+        ["stop", "Stop the run"],
+      ] as const,
+      plan.onFailure,
+      (value) => ctx.updatePlan({ ...plan, onFailure: value }),
+      ctx.signal,
+    )
+    onFailure.select.classList.add("aw-grow")
+    const separator = () => {
+      const line = el("div", "aw-sep")
+      line.style.margin = "2px 0"
+      return line
+    }
     config.append(
-      caption("Load config"),
-      selectField(
-        "Strategy",
-        [
-          ["flow", "Flow — ordered sequence per iteration"],
-          ["independent", "Independent — one queue per endpoint"],
-        ] as const,
-        plan.strategy,
-        (value) => ctx.updatePlan({ ...plan, strategy: value }),
-        ctx.signal,
-      ).field,
-      numberField("Iterations", plan.iterations, (value) => ctx.updatePlan({ ...plan, iterations: value }), ctx.signal, 1, MAX_ITERATIONS).field,
-      numberField("Concurrency", plan.concurrency, (value) => ctx.updatePlan({ ...plan, concurrency: value }), ctx.signal, 1, MAX_CONCURRENCY).field,
-      numberField("Delay after each iteration (ms)", plan.delayMs, (value) => ctx.updatePlan({ ...plan, delayMs: value }), ctx.signal, 0, 60000).field,
-      checkField(`Ramp-up — admit a worker every ${RAMP_STEP_MS} ms`, plan.rampUp, (value) => ctx.updatePlan({ ...plan, rampUp: value }), ctx.signal).field,
-      selectField(
-        "On failure",
-        [
-          ["continue", "Continue unrelated steps"],
-          ["stop", "Stop the run"],
-        ] as const,
-        plan.onFailure,
-        (value) => ctx.updatePlan({ ...plan, onFailure: value }),
-        ctx.signal,
-      ).field,
+      el("div", "aw-cap", "Load config"),
+      fieldRow("Strategy", strategy.select),
+      fieldRow("Iterations", iterations.input),
+      fieldRow("Concurrency", concurrency.input),
+      fieldRow("Batch delay", delay.input, el("span", "aw-xs aw-mu", "ms")),
+      separator(),
+      group(
+        "aw-row",
+        switchBox("Ramp-up", plan.rampUp, (value) => ctx.updatePlan({ ...plan, rampUp: value }), ctx.signal),
+        el("span", "aw-lbl", "Ramp-up"),
+        el("span", "aw-xs aw-mu", `Admit a worker every ${RAMP_STEP_MS} ms`),
+      ),
+      separator(),
+      fieldRow("Mode", mode.select),
+      fieldRow("On failure", onFailure.select),
       el(
         "p",
         "aw-hint",
@@ -330,7 +384,12 @@ export function testScreen(ctx: Ctx): HTMLElement {
     )
 
     const baseUrls = disclosure("Base URLs")
-    const hosts = state.config.profile.environments[state.config.profile.activeEnvironment] ?? {}
+    const environment = state.config.profile.activeEnvironment
+    const summary = baseUrls.firstElementChild as HTMLElement
+    summary.classList.add("aw-card")
+    summary.style.cssText = "height:36px;padding:0 12px"
+    summary.append(icon("right", "aw-i12"), el("span", "aw-mono aw-xs", environment), el("span", "aw-xs aw-mu", "(auto)"))
+    const hosts = state.config.profile.environments[environment] ?? {}
     const hostList = el("div", "aw-card aw-list")
     for (const [key, origin] of Object.entries(hosts))
       hostList.append(group("aw-li aw-xs", el("span", "aw-mono aw-grow", key), el("span", "aw-mu", origin || "(this page's origin)")))
@@ -347,19 +406,30 @@ export function testScreen(ctx: Ctx): HTMLElement {
     const stop = button("aw-btn aw-out", "Stop", () => ctx.stopRun(), ctx.signal)
     stop.disabled = !running
     const selectedCount = endpoints.length - plan.excluded.length
-    const label = el("span", "aw-xs aw-mu", `${plural(selectedCount, "endpoint")} selected · ${plan.iterations}×${plan.concurrency}`)
+    const label = el("span", "aw-xs aw-mu")
+    label.style.whiteSpace = "nowrap"
+    label.append(
+      el("span", "aw-lbl", `${selectedCount} selected`),
+      document.createTextNode(" · "),
+      el("span", "aw-mono", `${plan.iterations}×${plan.concurrency}`),
+    )
 
+    const notify = group(
+      "aw-chk aw-xs",
+      toggleBox("Notify on complete", plan.notifyOnComplete, (value) => ctx.updatePlan({ ...plan, notifyOnComplete: value }), ctx.signal),
+      el("span", "", "Notify on complete"),
+    )
+    const historyPanel = disclosure("Load run history", history)
     loadPanel.replaceChildren(
       baseUrls,
       config,
       phaseList(ctx, plan, setupEndpoints, "Setup phase", "No setup steps. Move an endpoint here to run it once per run."),
       phaseList(ctx, plan, loadEndpoints, "Load phase", "No load steps. Add endpoints in Endpoints first."),
-      context,
-      builtinsCard(),
+      notify,
       preflightCard(check, plan),
-      checkField("Notify on complete", plan.notifyOnComplete, (value) => ctx.updatePlan({ ...plan, notifyOnComplete: value }), ctx.signal).field,
-      caption("Load run history"),
-      history,
+      disclosure("Page context", context),
+      builtinsCard(),
+      historyPanel,
     )
     actions = [label, stop, runButton]
     if (view === "load") ctx.chrome({ actions })
@@ -375,16 +445,16 @@ export function testScreen(ctx: Ctx): HTMLElement {
     ctx.chrome(view === "once" ? { actions: undefined } : { actions })
   }
 
-  const mode = selectField(
-    "Tester mode",
-    [
-      ["direct", "Direct — bypass active rules"],
-      ["rules", "Apply active rules"],
-    ] as const,
-    ctx.plan().mode,
-    (value) => ctx.updatePlan({ ...ctx.plan(), mode: value }),
-    ctx.signal,
-  )
+  // Built once: a re-render on every plan edit would take the focus out of the name while typing.
+  const planName = el("input", "aw-in aw-grow")
+  planName.value = ctx.plan().name
+  planName.setAttribute("aria-label", "Plan name")
+  planName.addEventListener("change", () => {
+    const current = ctx.plan()
+    const next = planName.value.trim()
+    if (!next) planName.value = current.name
+    else if (next !== current.name) ctx.updatePlan({ ...current, name: next })
+  }, { signal: ctx.signal })
 
   // An edit anywhere in the plan changes the preflight, the footer and which steps are listed.
   let lastPlan: unknown
@@ -398,9 +468,13 @@ export function testScreen(ctx: Ctx): HTMLElement {
     renderLoad()
   })
 
+  const segment = group("aw-seg", once, load)
+  segment.style.alignSelf = "flex-start"
+  segment.setAttribute("role", "group")
+  segment.setAttribute("aria-label", "Run mode")
   screen.append(
-    group("aw-row", el("div", "aw-h aw-grow", "API Tester"), button("aw-btn aw-out aw-sm", "Endpoints", () => ctx.go("endpoints"), ctx.signal)),
-    group("aw-row aw-actions", group("aw-seg", once, load), el("span", "aw-grow"), mode.field),
+    group("aw-row", el("span", "aw-dot aw-g"), planName),
+    segment,
     direct.panel,
     loadPanel,
   )
@@ -435,15 +509,96 @@ function planRunHistory(ctx: Ctx): HTMLElement {
 
 /* ── Results screen ────────────────────────────────────────────────────────── */
 
-function tile(label: string, value: string, unit = ""): HTMLElement {
+const PASS_GREEN = "#4ade80"
+const FAIL_RED = "#f87171"
+const SLOW_AMBER = "#fbbf24"
+
+/** Results.html's stat tile: a muted label over one big number, coloured by what it reports. */
+function tile(label: string, value: string, unit = "", color = ""): HTMLElement {
   const box = el("div", "aw-card aw-cp aw-col")
+  box.style.gap = "4px"
   const big = el("span", "aw-big", value)
-  if (unit) big.append(el("span", "aw-mu aw-xs", unit))
+  if (color) big.style.color = color
+  if (unit) {
+    const suffix = el("span", "", unit)
+    suffix.style.cssText = "font-size:14px;color:var(--aw-zinc-400);font-weight:500"
+    big.append(suffix)
+  }
   box.append(el("span", "aw-xs aw-mu", label), big)
   return box
 }
 
 const show = (value: number | undefined) => (value === undefined ? "—" : String(value))
+
+/** Header cells, in order, with the reference's fixed widths. */
+const COLUMNS: readonly (readonly [string, string])[] = [
+  ["Endpoint", "text-align:left;padding-left:12px"],
+  ["Pass", "width:38px"],
+  ["Fail", "width:36px"],
+  ["Avg", "width:50px"],
+  ["Min", "width:50px"],
+  ["Max", "width:50px"],
+  ["P95", "width:62px;padding-right:12px"],
+] as const
+
+/** One numeric cell: muted when the run has no sample for it. */
+function numberCell(value: string, style = ""): HTMLElement {
+  const cell = el("td", `aw-num${value === "—" ? " aw-mu" : ""}`)
+  cell.textContent = value
+  if (style) cell.style.cssText = style
+  return cell
+}
+
+function breakdownTable(run: RunState): HTMLElement {
+  const table = el("table")
+  table.style.cssText = "width:100%;border-collapse:collapse;table-layout:fixed"
+  const header = el("tr")
+  header.style.cssText = "height:32px;border-bottom:1px solid var(--aw-zinc-800);background:var(--aw-zinc-950)"
+  for (const [label, width] of COLUMNS) {
+    const cell = el("th", label === "Endpoint" ? "" : "aw-num", label)
+    cell.style.cssText = `${width};font-size:11px;font-weight:500;color:var(--aw-zinc-400)`
+    header.append(cell)
+  }
+  const head = el("thead")
+  head.append(header)
+  const rows = el("tbody")
+  for (const endpoint of run.endpoints) {
+    const stats = endpointStats(endpoint)
+    const notPassed = OUTCOMES.filter((outcome) => outcome !== "passed").reduce((sum, outcome) => sum + endpoint.counts[outcome], 0)
+    const name = group("aw-row", methodBadge(endpoint.method))
+    name.style.gap = "6px"
+    if (endpoint.phase === "setup") {
+      const marker = el("span", "aw-mu")
+      marker.title = "Setup phase"
+      marker.append(icon("wrench", "aw-i12"))
+      name.append(marker)
+    }
+    const alias = el("span", "aw-tr aw-xs aw-mono", endpoint.alias)
+    alias.title = endpoint.alias
+    name.append(alias)
+    const first = el("td")
+    first.style.paddingLeft = "12px"
+    first.append(name)
+    const row = el("tr")
+    row.style.cssText = "height:34px;border-bottom:1px solid var(--aw-zinc-800)"
+    row.append(
+      first,
+      numberCell(String(endpoint.counts.passed), `color:${PASS_GREEN}`),
+      numberCell(String(notPassed), `color:${FAIL_RED}`),
+      numberCell(show(stats.avgMs)),
+      numberCell(show(stats.minMs)),
+      numberCell(show(stats.maxMs)),
+      numberCell(stats.p95Ms === undefined ? "—" : `${stats.p95Ms}ms`, `padding-right:12px${stats.p95Ms === undefined ? "" : `;color:${SLOW_AMBER}`}`),
+    )
+    rows.append(row)
+  }
+  table.append(head, rows)
+  const box = el("div", "aw-card")
+  box.style.overflow = "hidden"
+  box.setAttribute("aria-label", "Per-endpoint breakdown")
+  box.append(table)
+  return box
+}
 
 export function resultsScreen(ctx: Ctx): HTMLElement {
   const screen = el("div", "aw-col aw-gap12")
@@ -459,32 +614,41 @@ export function resultsScreen(ctx: Ctx): HTMLElement {
       return
     }
     const overall = overallStats(run)
+    const title = el("span", "aw-h aw-row", `Results: ${run.planName}`)
+    title.style.gap = "6px"
+    title.prepend(icon("bolt", "aw-i14"))
+    const shape = el("span", "aw-bd", `${run.strategy === "flow" ? "Flow" : "Independent"} · ${run.iterations}×${run.concurrency}`)
+    shape.prepend(icon("link", "aw-i12"))
+    const percent = run.progressTotal ? Math.round((run.progress / run.progressTotal) * 100) : 0
     const progress = el("div", "aw-prog")
+    progress.setAttribute("role", "progressbar")
+    progress.setAttribute("aria-label", run.strategy === "flow" ? "Iterations complete" : "Jobs complete")
+    progress.setAttribute("aria-valuenow", String(percent))
+    progress.setAttribute("aria-valuemin", "0")
+    progress.setAttribute("aria-valuemax", "100")
     const bar = el("span")
-    bar.style.width = `${run.progressTotal ? Math.round((run.progress / run.progressTotal) * 100) : 0}%`
+    bar.style.width = `${percent}%`
     progress.append(bar)
-    body.append(
-      group(
-        "aw-row",
-        el("span", "aw-h aw-grow", `Results: ${run.planName}`),
-        el("span", "aw-bd aw-s", run.state),
-        el("span", "aw-bd", `${run.strategy} · ${run.iterations}×${run.concurrency}`),
-      ),
-      progress,
-      el(
-        "div",
-        "aw-xs aw-mu",
-        `${run.progress} / ${run.progressTotal} ${run.strategy === "flow" ? "iterations" : "jobs"} · ${run.completed} of ${run.planned} planned requests`,
-      ),
+    const done = el("span", "aw-mono", `${run.progress} / ${run.progressTotal}`)
+    done.style.color = "var(--aw-zinc-50)"
+    const counted = el("div", "aw-xs aw-mu")
+    counted.style.textAlign = "center"
+    counted.append(
+      done,
+      document.createTextNode(` ${run.strategy === "flow" ? "iterations" : "jobs"} · ${run.completed} of ${run.planned} requests`),
     )
+    const header = el("div", "aw-col")
+    header.style.gap = "8px"
+    header.append(group("aw-row", title, el("span", "aw-grow"), el("span", "aw-bd aw-s", run.state), shape), progress, counted)
     const tiles = el("div", "aw-g2")
+    tiles.style.gap = "10px"
     tiles.append(
-      tile("Passed", String(passedCount(run))),
-      tile("Not passed", String(failedCount(run))),
+      tile("Passed", String(passedCount(run)), "", PASS_GREEN),
+      tile("Failed", String(failedCount(run)), "", FAIL_RED),
       tile("Avg latency", show(overall.avgMs), "ms"),
-      tile("P95 latency", show(overall.p95Ms), "ms"),
+      tile("P95 latency", show(overall.p95Ms), "ms", overall.p95Ms === undefined ? "" : SLOW_AMBER),
     )
-    body.append(tiles)
+    body.append(header, tiles, caption("Per-endpoint breakdown"), breakdownTable(run))
 
     const breakdown = card()
     breakdown.append(el("span", "aw-lbl", "Outcome breakdown"))
@@ -501,39 +665,6 @@ export function resultsScreen(ctx: Ctx): HTMLElement {
     for (const message of run.errors) breakdown.append(el("p", "aw-hint aw-rd", message))
     for (const message of run.warnings) breakdown.append(el("p", "aw-hint aw-am", message))
     body.append(breakdown)
-
-    body.append(caption("Per-endpoint breakdown"))
-    const table = el("div", "aw-card aw-list")
-    table.setAttribute("aria-label", "Per-endpoint breakdown")
-    table.append(
-      group(
-        "aw-li aw-xs aw-mu",
-        el("span", "aw-grow", "Endpoint"),
-        el("span", "aw-num", "Pass"),
-        el("span", "aw-num", "Fail"),
-        el("span", "aw-num", "Avg"),
-        el("span", "aw-num", "Min"),
-        el("span", "aw-num", "Max"),
-        el("span", "aw-num", "P95"),
-      ),
-    )
-    for (const endpoint of run.endpoints) {
-      const stats = endpointStats(endpoint)
-      const notPassed = OUTCOMES.filter((outcome) => outcome !== "passed").reduce((sum, outcome) => sum + endpoint.counts[outcome], 0)
-      table.append(
-        group(
-          "aw-li aw-xs",
-          group("aw-row aw-gap6 aw-grow", methodBadge(endpoint.method), el("span", "aw-tr aw-mono", endpoint.alias)),
-          el("span", "aw-num", String(endpoint.counts.passed)),
-          el("span", "aw-num", String(notPassed)),
-          el("span", "aw-num", show(stats.avgMs)),
-          el("span", "aw-num", show(stats.minMs)),
-          el("span", "aw-num", show(stats.maxMs)),
-          el("span", "aw-num", show(stats.p95Ms)),
-        ),
-      )
-    }
-    body.append(table)
   }
 
   ctx.watch((state) => {

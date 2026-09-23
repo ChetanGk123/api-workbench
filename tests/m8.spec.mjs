@@ -55,7 +55,7 @@ test('M8 the Load view states the planned request count, destinations and mode b
   await expect(preflight).toContainText('http://127.0.0.1:4173');
   await expect(preflight).toContainText('Direct — active rules are bypassed');
   await expect(preflight).toContainText('Can change data: child');
-  await expect(panel(page).locator('.aw-foot')).toContainText('2 endpoints selected · 4×1');
+  await expect(panel(page).locator('.aw-foot')).toContainText('2 selected · 4×1');
 });
 
 test('M8 a Flow iteration passes its own producer value to its own consumer', async ({ page, request }) => {
@@ -156,7 +156,7 @@ test('M8 Stop ends the run and reports it as stopped', async ({ page }) => {
   await expect(panel(page).locator('.aw-bd.aw-s')).toHaveText('stopped', { timeout: 15000 });
   // 20 iterations of a 1.5 s endpoint cannot have completed in the time before Stop.
   const completed = await panel(page).locator('.aw-xs.aw-mu').first().textContent();
-  expect(Number(completed.match(/(\d+) of 20 planned/)[1])).toBeLessThan(20);
+  expect(Number(completed.match(/(\d+) of 20 requests/)[1])).toBeLessThan(20);
 });
 
 test('M8 a run exports as JSON and CSV with the run statistics', async ({ page }) => {
@@ -209,6 +209,8 @@ test('M8 Scan page lists page values masked and turns one into a named binding',
   await page.evaluate(() => { document.cookie = 'aw_scan_demo=super-secret-value; Path=/'; });
   await install(page, [endpoint('one', 'GET', '/api/m8-scan')], {});
   await openLoad(page);
+  // Page context sits in a disclosure: Test.html shows the plan, not the scanner.
+  await panel(page).getByText('Page context', { exact: true }).click();
   await panel(page).getByRole('button', { name: 'Scan page' }).click();
   const results = panel(page).locator('[aria-label="Scan results"]');
   await expect(results).toContainText('aw_scan_demo');
