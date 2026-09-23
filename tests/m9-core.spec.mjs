@@ -157,6 +157,14 @@ test('M9 a JSON document that merely contains a request field is not identified'
   assert.equal(outcome.normalized, undefined);
 });
 
+test('M9 a Format override that contradicts the source names the format it looks like', () => {
+  const outcome = parseSource(openapi3, 'default', 'native');
+  assert.match(outcome.error, /Not a Workbench export/);
+  assert.match(outcome.error, /Format is set to Native, but this source looks like OpenAPI/);
+  // An override that agrees with the source is read normally, with no added hint.
+  assert.equal(parseSource(openapi3, 'default', 'openapi').error, undefined);
+});
+
 test('M9 every advertised format has an adapter', () => {
   assert.deepEqual(FORMATS.map(format => format.id).sort(), ['curl', 'fetch', 'har', 'native', 'openapi', 'postman', 'recorder', 'swagger']);
 });

@@ -90,8 +90,8 @@ const panelArt = () => `
     <rect x="18" y="52" width="260" height="4" rx="2" fill="#27272a"/>
     <rect x="18" y="52" width="170" height="4" rx="2" fill="#52525b"/>
   </g>
-  <g transform="translate(312,220)">
-    <rect width="292" height="66" rx="9" fill="#111113" stroke="#27272a"/>
+  <g transform="translate(312,217)">
+    <rect width="292" height="76" rx="9" fill="#111113" stroke="#27272a"/>
     <circle cx="18" cy="20" r="4" fill="#fbbf24"/>
     <text x="32" y="24" fill="#fafafa" font-family="system-ui,sans-serif" font-size="11" font-weight="600">Breakpoint</text>
     <text x="18" y="44" fill="#a1a1aa" font-family="ui-monospace,Menlo,monospace" font-size="9">POST /api/orders — paused before dispatch</text>
@@ -100,7 +100,7 @@ const panelArt = () => `
     <rect x="84" y="50" width="48" height="16" rx="5" fill="none" stroke="#3f3f46"/>
     <text x="108" y="62" text-anchor="middle" fill="#a1a1aa" font-family="system-ui,sans-serif" font-size="9">Abort</text>
   </g>
-  <g transform="translate(312,298)">
+  <g transform="translate(312,302)">
     <rect width="292" height="66" rx="9" fill="#111113" stroke="#27272a"/>
     <text x="18" y="22" fill="#a1a1aa" font-family="system-ui,sans-serif" font-size="9.5">Recent traffic</text>
     ${[['GET', '/api/orders', '200', '#22c55e'], ['POST', '/api/orders', 'mocked 201', '#a1a1aa'], ['GET', '/api/me', '500 chaos', '#f87171']].map(([method, path, note, tone], index) => `

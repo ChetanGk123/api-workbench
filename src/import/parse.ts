@@ -40,7 +40,24 @@ const failure = (detection: Detection, error: string): ParseOutcome => ({
   error,
 })
 
+/**
+ * A forced Format reads the source with that adapter and nothing else. When the adapter then
+ * rejects it, say which format the source actually looks like: the adapter's own message describes
+ * the document it was told to expect, which reads as "your file is broken" rather than "the Format
+ * control is wrong".
+ */
 export function parseSource(text: string, profileId: string, override?: FormatId): ParseOutcome {
+  const outcome = readSource(text, profileId, override)
+  if (!outcome.error || !override) return outcome
+  const detected = detect(text).format
+  if (!detected || detected === override) return outcome
+  return {
+    ...outcome,
+    error: `${outcome.error} Format is set to ${formatInfo(override).label}, but this source looks like ${formatInfo(detected).label}. Choose Detect automatically or ${formatInfo(detected).label}.`,
+  }
+}
+
+function readSource(text: string, profileId: string, override?: FormatId): ParseOutcome {
   const detection = override ? { ...detect(text), format: override } : detect(text)
   if (text.length > MAX_SOURCE_BYTES) return failure(detection, `Source is larger than ${MAX_SOURCE_BYTES / (1024 * 1024)} MiB.`)
   const format = detection.format

@@ -3,10 +3,19 @@ import { readFile } from 'node:fs/promises';
 const bookmark = await readFile('dist/bookmarklet.txt', 'utf8');
 const source = decodeURIComponent(bookmark.slice(11));
 const launch = page => page.evaluate(source); // Transport tests only; NOT saved-bookmark proof.
+const panel = page => page.locator('#api-workbench .aw-root:not(.aw-min)');
+/** The transport checks need one mock in front of /api/mock-target; they author it through the
+ * shipping Mock module rather than a test-only matcher. */
+const mockBody = '{"source":"workbench","message":"Mock response — café ✓"}';
 const mock = async (page, delay = 0) => {
-  await page.getByRole('checkbox').check();
-  await page.getByLabel('Mock delay').fill(String(delay));
-  await page.getByLabel('Mock delay').dispatchEvent('change');
+  await panel(page).getByRole('button', { name: 'Mock', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Add ad-hoc rule', exact: true }).click();
+  await panel(page).getByRole('textbox', { name: 'URL', exact: true }).fill('/api/mock-target');
+  await panel(page).getByRole('textbox', { name: 'Body 1', exact: true }).fill(mockBody);
+  await panel(page).getByRole('spinbutton', { name: 'Delay (ms) 1', exact: true }).fill(String(delay));
+  await panel(page).getByRole('checkbox', { name: 'Rule enabled', exact: true }).check();
+  await panel(page).locator('.aw-foot').getByRole('button', { name: 'Save', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Activate', exact: true }).click();
 };
 const stats = async request => (await request.get('/api/stats')).json();
 const hit = (values, path = '/api/mock-target') => values[path] || 0;
@@ -36,7 +45,7 @@ test('build installer, encoded payload and no runtime downloads', async ({ page,
   await info.attach('browser-version', { body: browser.version() });
   const requests = []; page.on('request', r => requests.push(r.url()));
   expect(await launch(page)).toBeUndefined();
-  await expect(page.getByRole('checkbox')).not.toBeChecked();
+  await expect(panel(page)).toBeVisible();
   await page.waitForTimeout(100);
   expect(requests).toEqual([]);
   await page.screenshot({ path: 'test-results/m0-panel.png' });
@@ -47,14 +56,14 @@ test('duplicate launch, minimize, close and exact hook restoration', async ({ pa
   await page.evaluate(() => { window.original = { fetch, xhr: XMLHttpRequest }; });
   await launch(page);
   await page.evaluate(() => { window.hooks = { fetch, xhr: XMLHttpRequest }; });
-  await page.getByRole('button', { name: 'Minimize', exact: true }).click();
+  await panel(page).locator('.aw-tb').getByRole('button', { name: 'Minimize', exact: true }).click();
   await launch(page);
-  await expect(page.getByRole('checkbox')).toBeVisible();
+  await expect(panel(page)).toBeVisible();
   expect(await page.locator('#api-workbench').count()).toBe(1);
   expect(await page.evaluate(() => fetch === hooks.fetch && XMLHttpRequest === hooks.xhr)).toBe(true);
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await panel(page).locator('.aw-tb').getByRole('button', { name: 'Close', exact: true }).click();
   expect(await page.evaluate(() => fetch === original.fetch && XMLHttpRequest === original.xhr)).toBe(true);
-  await launch(page); await expect(page.getByRole('checkbox')).not.toBeChecked();
+  await launch(page); await expect(panel(page)).toBeVisible();
 });
 test('session and fetch pass-through preserve options, HTTP errors and bodies', async ({ page, request }) => {
   await launch(page); await page.evaluate(() => fetch('/login'));
@@ -70,7 +79,7 @@ test('session and fetch pass-through preserve options, HTTP errors and bodies', 
     return (await fetch(req, { body: 'override', headers: { 'X-Fixture': 'kept' } })).json();
   })).toEqual({ method: 'POST', body: 'override', header: 'kept' });
 });
-test('fetch mock is a Response, Unicode survives, zero upstream requests, exact matcher', async ({ page, request }) => {
+test('fetch mock is a Response, Unicode survives, zero upstream requests, unmatched URL passes through', async ({ page, request }) => {
   await launch(page); await mock(page);
   const before = await stats(request);
   const result = await page.evaluate(async () => {
@@ -79,7 +88,7 @@ test('fetch mock is a Response, Unicode survives, zero upstream requests, exact 
   });
   expect(result).toEqual({ isResponse: true, status: 200, body: { source: 'workbench', message: 'Mock response — café ✓' } });
   expect(hit(await stats(request))).toBe(hit(before));
-  expect(await page.evaluate(async () => (await (await fetch('/api/mock-target?unmatched=1')).json()).source)).toBe('network');
+  expect(await page.evaluate(async () => (await (await fetch('/api/not-mocked')).json()).source)).toBe('network');
 });
 test('XHR network/mock states, native objects, properties, responseType and session', async ({ page, request }) => {
   await launch(page); await page.evaluate(() => fetch('/login'));
@@ -148,7 +157,7 @@ test('wrappers installed before Workbench remain captured and restored', async (
   });
   await launch(page); await mock(page);
   expect(JSON.parse((await xhrCall(page)).body).source).toBe('workbench');
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await panel(page).locator('.aw-tb').getByRole('button', { name: 'Close', exact: true }).click();
   expect(await page.evaluate(() => fetch === before.fetch && XMLHttpRequest === before.xhr)).toBe(true);
 });
 test('close settles owned delays and leaves page requests and later wrappers intact', async ({ page, request }) => {
@@ -162,7 +171,7 @@ test('close settles owned delays and leaves page requests and later wrappers int
       const x = new XMLHttpRequest(); x.onload = () => resolve(JSON.parse(x.responseText)); x.open('GET', '/api/mock-target'); x.send();
     }), fetch('/api/slow').then(r => r.json())]);
   });
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await panel(page).locator('.aw-tb').getByRole('button', { name: 'Close', exact: true }).click();
   const result = await page.evaluate(() => pending);
   expect(result.map(r => r.source)).toEqual(['workbench', 'workbench', 'network']);
   expect(hit(await stats(request))).toBe(hit(before));

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { createPipeline, createRequestContext } from '../src/network/pipeline.ts';
 import { createRecorder } from '../src/recorder/recorder.ts';
+import { defaultMockRule } from '../src/core/model.ts';
 
 test('M2 request context is immutable and keeps the original request shape', () => {
   const context = createRequestContext({
@@ -25,13 +26,12 @@ test('M2 request context is immutable and keeps the original request shape', () 
 
 test('M2 request lifecycle records abort and completion events', () => {
   const pipeline = createPipeline(() => {});
-  pipeline.addRule({
+  pipeline.setRules([{
+    ...defaultMockRule('p', 1),
     id: 'mock-rule',
-    enabled: true,
-    priority: 50,
-    method: 'GET',
-    url: '/api/mock-target',
-  });
+    matcher: { method: 'GET', url: '/api/mock-target', query: '', headers: '', bodyContains: '' },
+  }]);
+  pipeline.setActive('mock', true);
   const context = createRequestContext({
     kind: 'fetch',
     method: 'GET',
@@ -40,7 +40,7 @@ test('M2 request lifecycle records abort and completion events', () => {
   });
 
   const lifecycle = pipeline.beginRequest(context, 'fetch');
-  assert.equal(lifecycle.decision?.provider, 'mock');
+  assert.equal(lifecycle.plan.provider, 'mock');
   lifecycle.settle('abort', 'user-cancelled');
 
   assert.equal(pipeline.trace.length >= 2, true);
@@ -76,61 +76,6 @@ test('M2 cancellation-aware lifecycle reports a cancelled signal before dispatch
   const lifecycle = pipeline.beginRequest(context, 'fetch');
   assert.equal(lifecycle.cancelled, true);
   assert.equal(lifecycle.trace.some(event => event.kind === 'abort'), true);
-});
-
-test('M2 rules resolve deterministically and honor glob + conditions', () => {
-  const pipeline = createPipeline(() => {});
-
-  pipeline.addRule({
-    id: 'fallback',
-    enabled: true,
-    priority: 1,
-    method: 'GET',
-    url: '/api/**',
-    condition: { query: { action: 'list' } },
-  });
-
-  pipeline.addRule({
-    id: 'exact-match',
-    enabled: true,
-    priority: 10,
-    method: 'GET',
-    url: '/api/mock-target',
-    condition: { headers: { accept: 'application/json' } },
-  });
-
-  const decision = pipeline.decide('GET', 'https://example.test/api/mock-target?foo=bar', 'fetch', {
-    headers: { accept: 'application/json' },
-  });
-
-  assert.ok(decision);
-  assert.equal(decision.ruleId, 'exact-match');
-  assert.equal(decision.provider, 'mock');
-  assert.match(decision.why, /exact-match/);
-});
-
-test('disabled and non-matching rules are skipped', () => {
-  const pipeline = createPipeline(() => {});
-
-  pipeline.addRule({
-    id: 'disabled',
-    enabled: false,
-    priority: 50,
-    method: 'POST',
-    url: '/api/**',
-  });
-
-  pipeline.addRule({
-    id: 'wrong-method',
-    enabled: true,
-    priority: 20,
-    method: 'GET',
-    url: '/api/**',
-    condition: { query: { mode: 'admin' } },
-  });
-
-  const decision = pipeline.decide('POST', 'https://example.test/api/mock-target', 'xhr');
-  assert.equal(decision, null);
 });
 
 test('M4 recorder subscribes to bounded, redacted traffic and disposes cleanly', () => {

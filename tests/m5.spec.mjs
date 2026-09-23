@@ -315,6 +315,26 @@ test('M5 a mock rule created through the UI applies to live traffic and survives
   expect(await hits(request, path)).toBe(before + 1);
 });
 
+test('M5 relinking a rule to another endpoint moves the derived label but keeps a typed one', async ({ page }) => {
+  await install(page, []);
+  await goHome(page);
+  await panel(page).getByRole('button', { name: 'Mock', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Add rule from endpoint', exact: true }).click();
+  const label = () => panel(page).getByRole('textbox', { name: 'Label', exact: true });
+  const picker = () => panel(page).getByRole('combobox', { name: 'Endpoint', exact: true });
+  await expect(label()).toHaveValue('Imported fixture health');
+
+  const ids = await picker().locator('option').evaluateAll(options => options.map(option => option.value));
+  await picker().selectOption(ids[2]);
+  await expect(label()).toHaveValue('Imported echo payload');
+
+  // A label the user wrote is theirs; relinking syncs the matcher and leaves the name alone.
+  await label().fill('My own name');
+  await picker().selectOption(ids[1]);
+  await expect(label()).toHaveValue('My own name');
+  await expect(panel(page).getByRole('textbox', { name: 'URL', exact: true })).toHaveValue('/api/fixture');
+});
+
 test('M5 the chaos editor switches mode and fault type, and refuses a synthetic replay', async ({ page }) => {
   await goHome(page);
   await panel(page).getByRole('button', { name: 'Chaos', exact: true }).click();

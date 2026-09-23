@@ -7,8 +7,6 @@ import { SCREENS, TABS, renderScreen, type Ctx, type ScreenId, type UIState } fr
 export type ShellOptions = {
   version: string
   store: Store<UIState>
-  setMock: (enabled: boolean) => void
-  setDelay: (ms: number) => void
   onClose: () => void
   addEndpoint: Ctx["addEndpoint"]
   updateEndpoint: Ctx["updateEndpoint"]
@@ -207,8 +205,6 @@ export function createShell(options: ShellOptions) {
       }
       footer.replaceChildren(...(actions ?? [status]))
     },
-    setMock: options.setMock,
-    setDelay: options.setDelay,
     get signal() {
       return screenListeners.signal
     },
@@ -344,7 +340,6 @@ export function createShell(options: ShellOptions) {
       state.moduleActive.intercept && "Intercept",
       state.moduleActive.route && "Route",
       state.moduleActive.chaos && "Chaos",
-      state.mockEnabled && "Fixture mock",
     ].filter(Boolean)
     // A paused request is the launcher's headline: the page is waiting on the user, not on a rule.
     launcherLabel.textContent = paused

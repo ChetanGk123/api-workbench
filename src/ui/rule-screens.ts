@@ -143,6 +143,19 @@ function conditionFields(matcher: RuleMatcher, ctx: Ctx): HTMLElement {
   return section
 }
 
+/**
+ * A label the user never wrote follows the link. A chaos rule created from a preset carries
+ * "<preset> · <endpoint>", so only that suffix moves; anything typed by hand is left alone.
+ */
+function relabel(label: string, previous: Endpoint | undefined, endpoint: Endpoint): string {
+  const derived = labelFromEndpoint(endpoint)
+  if (!label.trim() || /^New .+ rule$/.test(label)) return derived
+  if (!previous) return label
+  const was = labelFromEndpoint(previous)
+  if (label === was) return derived
+  return label.endsWith(` · ${was}`) ? `${label.slice(0, -was.length)}${derived}` : label
+}
+
 function endpointPicker(
   draft: Rule,
   endpoints: Endpoint[],
@@ -157,9 +170,13 @@ function endpointPicker(
     choices,
     draft.endpointId ?? "",
     (value) => {
+      const previous = endpoints.find((item) => item.id === draft.endpointId)
       const endpoint = endpoints.find((item) => item.id === value)
       draft.endpointId = endpoint?.id
-      if (endpoint) draft.matcher = { ...draft.matcher, ...matcherFromEndpoint(endpoint) }
+      if (endpoint) {
+        draft.matcher = { ...draft.matcher, ...matcherFromEndpoint(endpoint) }
+        draft.label = relabel(draft.label, previous, endpoint)
+      }
       onPick()
       note.textContent = endpoint
         ? `Method and URL synced from ${endpoint.name}. Editing either detaches the rule on save.`

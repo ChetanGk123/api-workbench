@@ -42,7 +42,7 @@ test('tabs and links navigate inside the panel without touching the host page', 
     await expect(page.locator(`${panel} .aw-sub`)).toBeHidden();
   }
   await page.getByRole('button', { name: 'Home', exact: true }).click();
-  await expect(page.getByRole('checkbox')).toBeVisible();
+  await expect(page.locator(`${panel} .aw-code`)).toBeVisible();
 
   // Header icon buttons and Home quick actions both reach the non-tab screens.
   for (const control of ['Settings', 'Import']) {
@@ -83,11 +83,11 @@ test('minimize shows the launcher, restore and relaunch bring the same screen ba
   await expect(page.locator(panel)).toBeVisible();
   await expect(page.locator(launcher)).toBeHidden();
 
-  // The launcher reports activity that survives minimizing.
-  await page.getByRole('button', { name: 'Home', exact: true }).click();
-  await page.getByRole('checkbox').check();
+  // The launcher reports an active module, and that survives minimizing.
+  await page.getByRole('button', { name: 'Mock', exact: true }).click();
+  await page.getByRole('button', { name: 'Activate', exact: true }).click();
   await page.getByRole('button', { name: 'Minimize', exact: true }).click();
-  await expect(page.locator(`${launcher} .aw-bd`)).toHaveText('Fixture mock active');
+  await expect(page.locator(`${launcher} .aw-bd`)).toHaveText('Mock active');
 });
 
 test('dragging the header moves the panel and clamps it inside the viewport', async ({ page }) => {

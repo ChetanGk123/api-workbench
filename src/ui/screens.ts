@@ -28,8 +28,6 @@ export type UIState = {
   minimized: boolean
   observed: number
   activity: string
-  mockEnabled: boolean
-  mockDelay: number
   config: WorkbenchConfig
   storageReady: boolean
   testerResult?: OnceResult
@@ -59,8 +57,6 @@ export type Ctx = {
   watch: (listener: (state: Readonly<UIState>) => void) => void
   /** Retitles the sub-header, redirects Back and fills the footer action bar for this screen. */
   chrome: (options: { title?: string; onBack?: () => void; actions?: Node[] }) => void
-  setMock: (enabled: boolean) => void
-  setDelay: (ms: number) => void
   signal: AbortSignal
   addEndpoint: () => void
   updateEndpoint: (endpoint: Endpoint) => void
@@ -311,61 +307,6 @@ function headerFields(ctx: Ctx, values: HeaderValue[], save: (headers: HeaderVal
   return section
 }
 
-/** The M0 feasibility control: one exact GET matcher against the local fixture. The real mock
- * engine lives in the Mock module; this stays as the transport smoke test. */
-function feasibility(ctx: Ctx): HTMLElement {
-  const section = card()
-  const head = el("div", "aw-row")
-  const badge = el("span", "aw-bd")
-  const dot = el("span", "aw-dot")
-  badge.append(dot, document.createTextNode("Inactive"))
-  head.append(el("span", "aw-cap aw-grow", "Feasibility experiment · M0"), badge)
-  const target = el("code", "aw-mono aw-xs", "GET /api/mock-target")
-
-  const toggle = el("label", "aw-chk")
-  const checkbox = el("input")
-  checkbox.type = "checkbox"
-  checkbox.checked = ctx.state().mockEnabled
-  checkbox.addEventListener("change", () => ctx.setMock(checkbox.checked), { signal: ctx.signal })
-  toggle.append(checkbox, document.createTextNode("Enable mock · sends no network request"))
-
-  const field = el("label", "aw-fld")
-  field.append(el("span", "aw-lbl", "Mock delay (0–10,000 ms)"))
-  const delay = el("input", "aw-in")
-  delay.type = "number"
-  delay.min = "0"
-  delay.max = "10000"
-  delay.step = "1"
-  delay.value = String(ctx.state().mockDelay)
-  delay.addEventListener(
-    "change",
-    () => {
-      ctx.setDelay(Number(delay.value))
-      delay.value = String(ctx.state().mockDelay)
-    },
-    { signal: ctx.signal },
-  )
-  field.append(delay)
-
-  const status = el("p", "aw-hint")
-  status.setAttribute("role", "status")
-  const activity = el("pre", "aw-code aw-wrap", "No requests observed.")
-
-  ctx.watch((state) => {
-    badge.lastChild!.textContent = state.mockEnabled ? "Mock active" : "Inactive"
-    dot.className = state.mockEnabled ? "aw-dot aw-g" : "aw-dot"
-    status.textContent = state.mockEnabled
-      ? "Mock active · GET /api/mock-target"
-      : "Mock inactive · current-frame fetch / XHR"
-    activity.textContent = state.observed
-      ? `${state.observed} observed\n${state.activity}`
-      : "No requests observed."
-    if (checkbox.checked !== state.mockEnabled) checkbox.checked = state.mockEnabled
-  })
-  section.append(head, target, toggle, field, status, activity)
-  return section
-}
-
 function moduleCard(ctx: Ctx, module: (typeof MODULES)[number]): HTMLElement {
   const section = card()
   const tile = el("div", "aw-tile")
@@ -559,15 +500,27 @@ function runHistory(ctx: Ctx): HTMLElement {
   return history
 }
 
+/** The last thing the interception layer reported, including the failures a rule cannot fix
+ * (an opaque cross-origin response, a refused route) that the user would otherwise never see. */
+function activityLog(ctx: Ctx): HTMLElement {
+  const section = card()
+  const activity = el("pre", "aw-code aw-wrap", "No requests observed.")
+  ctx.watch(state => {
+    activity.textContent = state.observed
+      ? `${state.observed} observed\n${state.activity}`
+      : "No requests observed."
+  })
+  section.append(el("span", "aw-cap", "Activity"), activity)
+  return section
+}
+
 function home(ctx: Ctx): HTMLElement {
   const screen = el("div", "aw-col aw-gap12")
   const modules = el("div", "aw-col aw-gap12")
   for (const module of MODULES) modules.append(moduleCard(ctx, module))
   const quick = el("div", "aw-g3")
   for (const id of ["endpoints", "record", "import", "settings"] as const) quick.append(quickAction(ctx, id))
-  const experiment = disclosure("Fixture mock · developer controls", feasibility(ctx))
-  experiment.open = true
-  screen.append(modules, caption("Quick actions"), quick, caption("Run history"), runHistory(ctx), experiment)
+  screen.append(modules, caption("Quick actions"), quick, caption("Run history"), runHistory(ctx), activityLog(ctx))
   return screen
 }
 

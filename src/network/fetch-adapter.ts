@@ -46,7 +46,6 @@ export function fetchAdapter(captured: typeof fetch, pipeline: Pipeline): typeof
     })
     const lifecycle = pipeline.beginRequest(requestContext, "fetch")
     const plan = lifecycle.plan
-    const decision = lifecycle.decision
     const ruleIds = [plan.chaosRuleId, plan.mockRuleId, plan.intercept?.ruleId, plan.route?.ruleId].filter(
       (id): id is string => !!id,
     )
@@ -438,7 +437,7 @@ export function fetchAdapter(captured: typeof fetch, pipeline: Pipeline): typeof
           },
           durationMs: Math.round(performance.now() - started),
           source: plan.provider === "synthetic-chaos" ? "synthetic-chaos" : "mock",
-          ruleIds: decision ? [decision.ruleId] : ruleIds,
+          ruleIds,
         })
         resolve(response)
       }

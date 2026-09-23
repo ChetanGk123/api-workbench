@@ -2,7 +2,8 @@
 
 ## Current state
 
-M0–M9 are implemented and verified in Chrome by automated checks (180 checks). The app version
+M0–M9 are implemented and verified in Chrome by automated checks (182 checks). The M0 feasibility
+mock is no longer part of the app; its transport evidence runs on ordinary Mock rules. The app version
 is `1.0.0`, written only in `package.json` and injected into the bundle by the build. Saved-bookmark
 installation and all Edge checks remain outstanding for every milestone. `npm run build` also writes
 the public landing page `dist/index.html`.
@@ -28,6 +29,83 @@ when a later milestone lands.
 | M8 — Flow/Independent runs | CODE COMPLETE · all M8 acceptance gates PASS in Chrome (36 checks) · saved-bookmark and Edge checks NOT RUN |
 | M9 — Complete import support | CODE COMPLETE · all M9 acceptance gates PASS in Chrome (38 checks) · saved-bookmark and Edge checks NOT RUN |
 | M10 — Integrated release | NOT STARTED |
+
+## 2026-09-23 — Rule editors: the label follows the linked endpoint
+
+**Reported.** In the mock rule editor, changing **Endpoint** re-synced Method and URL but left the
+Label showing the previous endpoint's name.
+
+**Cause.** `endpointPicker` — shared by the mock, chaos and intercept editors — copied the matcher
+on pick and nothing else. The label was only ever derived at creation, in each screen's `create()`.
+
+**Change.** The picker now also re-derives the label, in one place for all three editors. A label
+the user typed is never overwritten: it moves only when it is empty, still the untouched default
+(`New … rule`), equal to the previous endpoint's derived label, or a chaos preset's
+`<preset> · <endpoint>` suffix, in which case only the suffix moves.
+
+**Commands run.** `npx tsc --noEmit` (clean), `npm run build`, `npx playwright test` — 182 checks
+PASS in Chrome 153.0.8010.53 (one new check in `tests/m5.spec.mjs` covering both the derived and the
+hand-written label).
+
+## 2026-09-23 — Import: a contradictory Format override says so
+
+**Reported.** A real OpenAPI 3.1 document (70 paths) was rejected on the Import screen with what
+read as "invalid Workbench JSON".
+
+**Cause, reproduced.** Auto-detection reads that document correctly — `Detected: OpenAPI 3.0`,
+88 candidates, 0 skipped. The rejection only appears when the **Format** control is set to
+`Native schema 1`: the override forces the native reader, which answers "Not a Workbench export: it
+needs a profile object and an endpoints array." The message describes the document the reader was
+told to expect, so it reads as a broken file rather than a wrong setting.
+
+**Change.** `parseSource` now wraps the read: when an override is in force and the read fails, it
+re-detects and, if the source looks like a different format, appends "Format is set to X, but this
+source looks like Y. Choose Detect automatically or Y." to the adapter's own message. This covers
+every override/format pair, not the one that was reported. The adapters are untouched — an override
+still reads with exactly the adapter it names.
+
+**Commands run.** `npx tsc --noEmit` (clean), `npm run build`, `npx playwright test` — 181 checks
+PASS in Chrome 153.0.8010.53 (one new check in `tests/m9-core.spec.mjs`).
+
+**Not changed.** OpenAPI 3.1 is still read by the 3.0 reader and reported as such; nothing in the
+detection or adapter contract moved.
+
+## 2026-09-23 — Home: the M0 feasibility mock is removed; its evidence now runs on real mock rules
+
+**Decision.** The "Fixture mock · developer controls" card on Home was the M0 transport smoke test,
+not a product feature: one hardcoded exact matcher for `GET /api/mock-target` with an empty query,
+wired straight to session state instead of a profile rule. The Mock module superseded it in M5, so
+the card, its state and the whole legacy rule layer behind it are gone. The activity readout that
+shared that card is product surface — it is the only place an opaque cross-origin failure is
+explained — so it survives as its own "Activity" card on Home.
+
+**Removed.**
+- `src/ui/screens.ts` — `feasibility()`, the `mockEnabled`/`mockDelay` UI state and the `setMock`/
+  `setDelay` context members; added `activityLog()` in their place.
+- `src/ui/shell.ts` — the `Fixture mock` launcher label and the two forwarded callbacks.
+- `src/entry.ts` — the mock toggle/delay handlers and their initial state.
+- `src/network/pipeline.ts` — `settings`, the `PipelineRule` list, `addRule`, `clearRules`,
+  `decide`, `resolveRule`, `matchLegacyCondition`, `legacyPlan`, `mockBody`, the `PipelineDecision`
+  type and the `decision` field threaded through `TraceEvent`, `beginRequest` and the fetch adapter.
+  Every request now takes the one plan the rule engine produces.
+
+**Evidence kept, not weakened.** `tests/m0.spec.mjs` still proves the same transport properties, but
+its `mock()` helper now authors a real mock rule through the Mock screen and activates the module,
+so M0's fetch/XHR/abort/timeout/close evidence runs against shipping code instead of a test-only
+matcher. Two assertions changed with the matcher: the panel-visible checks no longer look for the
+feasibility checkbox, and the pass-through case uses `/api/not-mocked` because a real rule matches on
+pathname and would also serve `/api/mock-target?unmatched=1`. `tests/m2-core.spec.mjs` lost its two
+legacy-resolver tests; the engine equivalents (glob, query, headers, method, disabled, priority) are
+already covered in `tests/m5-core.spec.mjs`. `tests/m1.spec.mjs` asserts the launcher reports
+`Mock active` instead of `Fixture mock active`.
+
+**Commands run.** `npx tsc --noEmit` (clean), `npm run build`, `npx playwright test`.
+
+**Result.** 180 checks PASS in Chrome 153.0.8010.53. Encoded bookmarklet URL 328,418 characters.
+
+**Not run.** Saved-bookmark installation and Edge, unchanged from every earlier milestone.
+
+**Next task.** M10 — integrated release.
 
 ## 2026-09-23 — App version: plain semver 1.0.0, single-sourced from package.json
 

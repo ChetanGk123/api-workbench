@@ -49,8 +49,6 @@ if (existing) {
     minimized: false,
     observed: 0,
     activity: "",
-    mockEnabled: false,
-    mockDelay: 0,
     config: initialConfig,
     storageReady: false,
     testerHistory: [],
@@ -159,15 +157,6 @@ if (existing) {
   const shell = createShell({
     version,
     store,
-    // Transport settings are written synchronously; only the display update is batched.
-    setMock: (enabled) => {
-      pipeline.settings.enabled = enabled
-      store.set({ mockEnabled: enabled })
-    },
-    setDelay: (ms) => {
-      pipeline.settings.delay = Math.min(10000, Math.max(0, Math.round(Number(ms) || 0)))
-      store.set({ mockDelay: pipeline.settings.delay })
-    },
     onClose: () => close(),
     addEndpoint: () => {
       const endpoint = defaultEndpoint(store.state.config.profile.id)
