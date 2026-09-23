@@ -54,6 +54,11 @@ test('M3 endpoint CRUD, profile export and same-origin relaunch persistence', as
 });
 
 test('M3 direct Once uses the page session and reports checks', async ({ page }) => {
+  // The playground keeps its compatibility tools in a <details>. A closed one holds its content
+  // out of the accessibility tree, so it is opened by its own summary before the button inside it
+  // is addressed, and left alone when the page already ships it open.
+  const tools = page.locator('details:has(#login)');
+  if (!(await tools.evaluate(node => node.open))) await tools.locator('> summary').click();
   await page.getByRole('button', { name: 'Log in to local fixture', exact: true }).click();
   await launch(page);
   await page.getByRole('button', { name: /^Endpoints/ }).click();

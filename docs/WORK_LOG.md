@@ -130,20 +130,24 @@ validate.
 - `npx tsc --noEmit` → exit 0.
 - `npm run build` → exit 0.
 - `npx playwright test tests/m6.spec.mjs tests/m7.spec.mjs` → 24 passed.
-- `npx playwright test` → 188 passed, 1 failed in 1.9 m, Chrome (channel `chrome`), macOS darwin
-  25.6.0. The failure is `tests/m3.spec.mjs:56`, in another change in flight, not in this one: see
-  below.
+- `npx playwright test` → 189 passed in 1.6 m, Chrome (channel `chrome`), macOS darwin 25.6.0,
+  after the unrelated fixture fallout described below was fixed. Before that: 188 passed, 1 failed.
 - Rendered the editor at 512 px against the supplied reference image.
 
 **Not run.** Edge — not installed on this machine. Saved-bookmark installation, as before.
 
-**Open, not this change.** `tests/m3.spec.mjs:56` fails because the playground fixture is being
-rebuilt in parallel (`984b173` plus uncommitted edits to `tests/fixtures/page.html`, `page.js` and
-`server.mjs`). The redesign moved "Log in to local fixture" inside a closed `<details>`, and a
-closed `<details>` keeps its content out of the accessibility tree, so `getByRole` never resolves
-it. Verified by stashing the fixture work: out, the test passes; in, it fails, with the panel
-source identical either way. The fix belongs with that change — open the tools section, or address
-the button through its summary — and nothing here touches those files.
+**Fallout from another change in flight, fixed here on request.** `tests/m3.spec.mjs:56` was
+failing because the playground fixture is being rebuilt in parallel (`984b173` plus uncommitted
+edits to `tests/fixtures/page.html`, `page.js` and `server.mjs`). The redesign moved "Log in to
+local fixture" inside a closed `<details>`, and a closed `<details>` keeps its content out of the
+accessibility tree, so `getByRole` never resolved it. Diagnosed by stashing the fixture work: out,
+the test passed; in, it failed, with the panel source identical either way.
+
+The test now opens the tools section by its own summary first, selecting it as
+`details:has(#login)` rather than by class, and skips the click when the section is already open.
+That survives both the current page and a page that later ships the section open, and it leaves
+the fixture files — which are mid-edit and belong to that change — untouched.
+`npx playwright test` → **189 passed**, no failures.
 
 ## 2026-09-24 — Notify on complete raises a dialog
 
