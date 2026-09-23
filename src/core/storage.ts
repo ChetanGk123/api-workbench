@@ -57,9 +57,14 @@ export async function loadConfig(): Promise<WorkbenchConfig> {
   return structuredClone(config);
 }
 
-export async function saveConfig(config: WorkbenchConfig): Promise<void> {
+/**
+ * `durable` is for commits that must not report success on a failed write: the error propagates and
+ * the in-memory configuration is left untouched, so the caller can keep its draft and retry.
+ */
+export async function saveConfig(config: WorkbenchConfig, durable = false): Promise<void> {
   if (!validateConfig(config)) throw new Error('Invalid Workbench configuration');
   const copy = normalizeConfig(structuredClone(config));
+  if (durable) { await writeToIndexedDb(copy); memory.set(originKey(), copy); return; }
   memory.set(originKey(), copy);
   try { await writeToIndexedDb(copy); } catch { /* Export remains available when durable storage fails. */ }
 }
@@ -73,10 +78,4 @@ export async function replaceProfile(config: WorkbenchConfig, profile: Profile, 
 export function exportConfig(config: WorkbenchConfig): string {
   const { profile, endpoints, rules, plan } = config;
   return JSON.stringify({ schemaVersion: 1, profile, endpoints, rules, plan }, null, 2);
-}
-
-export function importConfig(serialized: string): WorkbenchConfig {
-  const parsed: unknown = JSON.parse(serialized);
-  if (!validateConfig(parsed)) throw new Error('Unsupported or invalid Workbench JSON');
-  return structuredClone(parsed);
 }

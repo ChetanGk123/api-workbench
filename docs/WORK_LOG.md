@@ -2,11 +2,11 @@
 
 ## Current state
 
-M0–M8 are implemented and verified in Chrome by automated checks (139 checks). Saved-bookmark
+M0–M9 are implemented and verified in Chrome by automated checks (177 checks). Saved-bookmark
 installation and all Edge checks remain outstanding for every milestone.
 
-Current assigned work: M8 (Flow/Independent repeat runner) complete and verified in Chrome. M9
-(complete import support) is next.
+Current assigned work: M9 (complete import support) complete and verified in Chrome. M10
+(integrated release) is next.
 
 ### Milestone status
 
@@ -24,8 +24,98 @@ when a later milestone lands.
 | M6 — Intercept and routing | CODE COMPLETE · all M6 acceptance gates PASS in Chrome (70 checks) · saved-bookmark and Edge checks NOT RUN |
 | M7 — Breakpoints | CODE COMPLETE · all M7 acceptance gates PASS in Chrome (88 checks) · saved-bookmark and Edge checks NOT RUN |
 | M8 — Flow/Independent runs | CODE COMPLETE · all M8 acceptance gates PASS in Chrome (36 checks) · saved-bookmark and Edge checks NOT RUN |
-| M9 — Complete import support | NOT STARTED |
+| M9 — Complete import support | CODE COMPLETE · all M9 acceptance gates PASS in Chrome (38 checks) · saved-bookmark and Edge checks NOT RUN |
 | M10 — Integrated release | NOT STARTED |
+
+## 2026-09-23 — M9: complete import support
+
+**Scope.** M9 only: every format listed in `Import.html` with a working adapter, content detection,
+the shared normalize → review → commit pipeline, conflict handling and a transactional commit.
+
+**Changed files.**
+
+- `src/import/candidate.ts` — the normalized candidate model every adapter produces: method and URL
+  validation, host key and base URL extraction without `new URL()` (so an unresolved `{{var}}`
+  survives), alias generation with collision resolution, unresolved-template collection, sensitive
+  field marking, and removal of browser-controlled headers into diagnostics.
+- `src/import/detect.ts` — content detection and the one list of supported formats and exact
+  versions the UI renders. A JSON document with no discriminator is reported, not guessed.
+- `src/import/openapi.ts` — Swagger 2.0 and OpenAPI 3.0: servers/schemes/basePath, path, query,
+  header, body and formData parameters, request-body examples per media type, 2xx response
+  examples, local `$ref` with depth and cycle limits, security requirements as hints.
+- `src/import/har.ts` — HAR 1.2: headers, query, postData (text and params), base64 and absent
+  response content, timings as metadata. Distinct bodies stay distinct candidates.
+- `src/import/postman.ts` — Postman v2.1: nested folders, disabled entries, collection variables,
+  raw/urlencoded/formdata/graphql bodies, bearer/basic/API-key auth inheritance, script reporting.
+- `src/import/curl.ts` — a shell-free tokenizer (bash and cmd quoting, `\` and `^` continuations,
+  `'\''` escapes) and the DevTools flag set; unsupported flags, `@file` references and shell
+  substitutions are reported with their character position.
+- `src/import/fetch-snippet.ts` — a string-literal scanner plus `JSON.parse` over the balanced
+  options object. Code-dependent snippets are refused with a position; nothing is evaluated.
+- `src/import/native.ts` — schema validation, migration, rejection of a newer schema, and
+  `remap()` for import-as-copy (endpoint ids, rule `endpointId`, plan phases and exclusions).
+- `src/import/commit.ts` — conflict matching on request identity, linked rules/plan reporting,
+  `applyCandidates` and `applyNative` (new stored profile / merge / replace) as pure functions.
+- `src/import/parse.ts` — the one pipeline entry point plus the recorder source, and the 10 MiB
+  source limit.
+- `src/ui/import-screen.ts` — the rewritten screen: draft that survives Back/Minimize, detection
+  line and format override, Choose file with replace-draft confirmation and size guard, Apply with
+  a yield and Cancel, the review (counts, destination profile, diagnostics, per-candidate selection,
+  editable name, media-type choice, conflict resolution, unresolved and sensitive badges), the
+  inline recorder with elapsed time, Clear draft, Export draft and the supported-format list.
+- `src/ui/screens.ts` — `importScreen` moved out; `Ctx.importConfig` replaced by
+  `Ctx.commitImport`; the Endpoints screen shows the post-commit summary once.
+- `src/ui/shell.ts`, `src/entry.ts` — `commitImport` wiring: one durable write, rollback on
+  failure, rule engine reset only when the import replaced the live profile.
+- `src/core/storage.ts` — `saveConfig(config, durable)`; the dead `importConfig` helper removed.
+- `tests/m9-core.spec.mjs` (25 checks), `tests/m9.spec.mjs` (13 checks); `tests/m3|m5|m6|m7|m8|ui`
+  install helpers updated to the Apply → review → Import flow.
+- `docs/M9_IMPORT.md` — supported formats, accepted cURL/fetch dialects, bounds, conflict rules and
+  what is reported rather than translated.
+- `package.json`, `src/entry.ts` — version `0.1.0-m9`.
+
+**Commands and outcomes.**
+
+- `npm run build` → exit 0. raw 405,707 B, minified 231,046 B, encoded bookmark URL 332,512
+  characters (the 1 MiB size probe still builds).
+- `npx playwright test` → **177 passed** in 1.3 min, Chrome 153.0.8010.53, macOS darwin 25.6.0,
+  Node v24.21.0. 38 of those are M9 (25 core + 13 browser).
+
+**Verification (measured).** Detection per format and refusal of an undiscriminated JSON document;
+OpenAPI/Swagger parameters, `$ref`, examples, operation-id collisions and unresolved path
+parameters; HAR distinct bodies, base64 samples, omitted bodies, restricted headers and skipped
+entries; Postman folders, inheritance, disabled entries, variables and script reporting;
+cURL quoting/escapes/Unicode/continuations, flag positions, `@file` and `$(…)` left literal;
+fetch() escapes and refusal of code-dependent snippets with `window.__m9` never set; file and paste
+equivalence; oversized and cancelled files leaving the draft intact; replace-draft confirmation;
+Keep both / Replace / Skip with the replaced endpoint keeping its id; native new-profile import that
+does not activate, merge that skips duplicates, replace, and refusal of schema 99; draft survival
+across Back and Minimize; a profile switch blocking the commit until Apply rebuilds the preview;
+recorder start/stop promoting only the selected calls; a failed durable write reporting failure,
+saving nothing and keeping the review (IndexedDB `put` patched to throw); server hit counters
+unchanged across every import, so no imported request is sent while importing.
+
+**Not run.** Saved-bookmark installation and restart persistence; all Edge checks (Edge is not
+installed on this machine); YAML OpenAPI, remote `$ref` and Postman environment files (out of scope
+by the plan, reported by the adapters as unsupported).
+
+**Limitations.** Multipart bodies are imported as distinguishable text fields, never rebuilt as
+multipart; files referenced by cURL, Postman or HAR are never read. The endpoint editor still has no
+credentials control, so an imported `credentials: include` is shown in the review and persisted but
+can only be changed by re-importing. Background parsing yields once before the parse rather than
+chunking inside it; sources are bounded to 10 MiB and the per-format item limits in
+`docs/M9_IMPORT.md`.
+
+**Decisions.** Recorded in `docs/M9_IMPORT.md`: one detection/normalize/commit pipeline for every
+format including the recorder; candidate identity per adapter (operation path+method, HAR
+method+URL+body, Postman folder path) with alias collisions resolved in the preview; conflicts
+matched on request identity, never on a display name; Replace preserves the existing endpoint id so
+rules and plan references survive; a native new-profile import is stored without being activated
+(§8.11) while Replace is the only mode that discards records; commits use a durable write so a
+failure can roll back and keep the draft.
+
+**Next task.** M10 — integrated release: cross-module behaviour, the release build and the
+outstanding saved-bookmark and Edge verification listed above.
 
 ## 2026-09-23 — Mock rule defaults: enabled, indented sample body, short label, label-only hover
 

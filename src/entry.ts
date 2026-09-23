@@ -18,7 +18,7 @@ import {
   type TestPlan,
   type WorkbenchConfig,
 } from "./core/model"
-import { importConfig as parseConfig, loadConfig, saveConfig, exportConfig } from "./core/storage"
+import { loadConfig, saveConfig, exportConfig } from "./core/storage"
 import { executeOnce } from "./tester/once"
 import { startRun, type RunState } from "./tester/run"
 import { runToCsv, runToJson } from "./tester/results"
@@ -27,7 +27,7 @@ import { downloadFile } from "./ui/dom"
 import { createRecorder } from "./recorder/recorder"
 import { createBreakpoints } from "./breakpoints/registry"
 
-const version = "0.1.0-m8"
+const version = "0.1.0-m9"
 const key = "__api_workbench_7f49a1_v1__"
 type Instance = { version: string; restore: () => void }
 const registry = window as unknown as Record<string, Instance | undefined>
@@ -249,17 +249,25 @@ if (existing) {
         next?.plan,
       )
     },
-    importConfig: (serialized) => {
+    commitImport: async (next, activate) => {
       try {
-        const imported = parseConfig(serialized)
-        pipeline.setRules(imported.rules ?? [])
-        pipeline.engine.resetAll()
-        persist({ ...imported, savedProfiles: imported.savedProfiles ?? store.state.config.savedProfiles })
-        syncRuleStats()
-        return undefined
+        // A durable write: a failed commit reports the failure and saves nothing, so the review
+        // and the draft stay intact for a retry.
+        await saveConfig(next, store.state.storageReady)
       } catch (error) {
-        return error instanceof Error ? error.message : "Invalid Workbench JSON"
+        return error instanceof Error ? error.message : "Could not save the imported configuration"
       }
+      // Importing a profile as a copy never activates it, so only a replace resets live work.
+      if (activate) {
+        stopRun()
+        pipeline.engine.resetAll()
+        store.set({ run: undefined, openRun: undefined, matched: [] })
+      }
+      pipeline.setRules(next.rules ?? [])
+      configDirty = true
+      store.set({ config: next })
+      syncRuleStats()
+      return undefined
     },
     reorderEndpoint: (id, direction) => {
       const endpoints = [...store.state.config.endpoints]

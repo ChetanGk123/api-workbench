@@ -10,8 +10,11 @@ const headerButton = (page, name) => panel(page).locator('.aw-tb').getByRole('bu
 
 async function importSample(page, config = sample) {
   await headerButton(page, 'Import').click();
-  await panel(page).getByRole('textbox', { name: 'Import JSON', exact: true }).fill(JSON.stringify(config));
-  await panel(page).getByRole('button', { name: 'Import JSON', exact: true }).click();
+  await panel(page).getByRole('textbox', { name: 'Import source', exact: true }).fill(JSON.stringify(config));
+  await panel(page).getByRole('button', { name: 'Apply', exact: true }).click();
+  await panel(page).getByRole('combobox', { name: 'Import mode', exact: true }).selectOption('replace');
+  await panel(page).getByRole('button', { name: 'Import profile', exact: true }).click();
+  await expect(panel(page).locator('.aw-sub .aw-subtitle')).toHaveText('Endpoints');
 }
 
 // Non-tab screens hide the tab strip, so reach Home through the Back sub-header when it is shown.
@@ -223,7 +226,7 @@ test('UI compact panel keeps navigation and close reachable while content scroll
   await headerButton(page, 'Settings').click();
   await expect(panel(page).getByRole('button', { name: 'Save profile', exact: true })).toBeEnabled();
   await headerButton(page, 'Import').click();
-  await expect(panel(page).getByRole('textbox', { name: 'Import JSON', exact: true })).toBeVisible();
+  await expect(panel(page).getByRole('textbox', { name: 'Import source', exact: true })).toBeVisible();
   await headerButton(page, 'Close').click();
   await expect(page.locator('#api-workbench')).toHaveCount(0);
 });
@@ -269,6 +272,7 @@ test('UI title-bar profile menu switches profiles instead of opening Settings', 
   await importSample(page);
 
   // Snapshot the imported profile, then diverge the active one from that snapshot.
+  await headerButton(page, 'Settings').click();
   await panel(page).getByPlaceholder('New profile name').fill('Copy');
   await panel(page).getByRole('button', { name: 'Save as profile', exact: true }).click();
   await openEndpoints(page);
@@ -312,6 +316,7 @@ test('UI title-bar profile menu switches profiles instead of opening Settings', 
 
 test('UI export carries only the active profile and its endpoints, and import keeps the other saved profiles', async ({ page }) => {
   await importSample(page);
+  await headerButton(page, 'Settings').click();
   await panel(page).getByPlaceholder('New profile name').fill('Copy');
   await panel(page).getByRole('button', { name: 'Save as profile', exact: true }).click();
 

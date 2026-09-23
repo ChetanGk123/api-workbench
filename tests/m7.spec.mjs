@@ -28,9 +28,11 @@ const mockRule = (label, url, body) => ({
 
 async function install(page, rules) {
   await headerButton(page, 'Import').click();
-  await panel(page).getByRole('textbox', { name: 'Import JSON', exact: true }).fill(JSON.stringify({ ...sample, rules }));
-  await panel(page).getByRole('button', { name: 'Import JSON', exact: true }).click();
-  await expect(panel(page).locator('.aw-sub .aw-subtitle')).toHaveText('Settings');
+  await panel(page).getByRole('textbox', { name: 'Import source', exact: true }).fill(JSON.stringify({ ...sample, rules }));
+  await panel(page).getByRole('button', { name: 'Apply', exact: true }).click();
+  await panel(page).getByRole('combobox', { name: 'Import mode', exact: true }).selectOption('replace');
+  await panel(page).getByRole('button', { name: 'Import profile', exact: true }).click();
+  await expect(panel(page).locator('.aw-sub .aw-subtitle')).toHaveText('Endpoints');
 }
 
 async function goHome(page) {

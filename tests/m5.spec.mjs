@@ -25,10 +25,12 @@ const chaosRule = (label, url, { matcher: match, ...rest } = {}) => ({
 
 async function install(page, rules) {
   await headerButton(page, 'Import').click();
-  await panel(page).getByRole('textbox', { name: 'Import JSON', exact: true }).fill(JSON.stringify({ ...sample, rules }));
-  await panel(page).getByRole('button', { name: 'Import JSON', exact: true }).click();
-  // A successful import lands on Settings; its status line is replaced with the screen.
-  await expect(panel(page).locator('.aw-sub .aw-subtitle')).toHaveText('Settings');
+  await panel(page).getByRole('textbox', { name: 'Import source', exact: true }).fill(JSON.stringify({ ...sample, rules }));
+  await panel(page).getByRole('button', { name: 'Apply', exact: true }).click();
+  await panel(page).getByRole('combobox', { name: 'Import mode', exact: true }).selectOption('replace');
+  await panel(page).getByRole('button', { name: 'Import profile', exact: true }).click();
+  // A committed import lands on the endpoint list with its summary.
+  await expect(panel(page).locator('.aw-sub .aw-subtitle')).toHaveText('Endpoints');
 }
 
 async function goHome(page) {

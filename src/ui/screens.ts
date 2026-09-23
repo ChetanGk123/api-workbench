@@ -8,6 +8,7 @@ import type { RunState } from "../tester/run"
 import { resultsScreen, testScreen } from "./test-screens"
 import type { Recording } from "../recorder/recorder"
 import { candidatesFrom, type Candidate } from "../recorder/promote"
+import { importScreen, takeImportSummary } from "./import-screen"
 
 export type ScreenId =
   | "home"
@@ -70,7 +71,11 @@ export type Ctx = {
   saveProfileAs: (name: string) => void
   selectProfile: (id: string) => void
   deleteProfile: (id: string) => void
-  importConfig: (serialized: string) => string | undefined
+  /**
+   * Persists a reviewed import in one transaction. Resolves with an error message when the write
+   * failed and nothing was saved, so the review can be retried.
+   */
+  commitImport: (config: WorkbenchConfig, activate: boolean) => Promise<string | undefined>
   reorderEndpoint: (id: string, direction: "up" | "down") => void
   startRecording: () => void
   stopRecording: () => void
@@ -705,10 +710,15 @@ function endpoints(ctx: Ctx): HTMLElement {
     list.append(row)
   }
   if (!config.endpoints.length) list.append(el("div", "aw-empty", "No endpoints yet. Add one or import a profile to get started."))
+  // A committed import lands here and states what it saved, once.
+  const imported = takeImportSummary()
+  const summary = el("p", "aw-hint", imported)
+  summary.setAttribute("role", "status")
+  summary.hidden = !imported
   const environments = disclosure("Base URLs", environmentFields(ctx, "endpoints"))
   environments.classList.add("aw-card", "aw-cp")
   environments.open = true
-  screen.append(headers, title, list, environments)
+  screen.append(headers, title, summary, list, environments)
   return screen
 }
 
@@ -846,56 +856,6 @@ function settings(ctx: Ctx): HTMLElement {
   core.append(group("aw-row", icon("gear"), el("span", "aw-lbl", "Core")), labeled("Body-check size limit (KB)", limit))
   screen.append(profile, environments, core,
     el("p", "aw-hint", "Profiles are saved to this page origin. Switching environments changes host mappings, not endpoint paths."))
-  return screen
-}
-
-function importScreen(ctx: Ctx): HTMLElement {
-  const screen = el("div", "aw-col aw-gap12")
-  const source = el("textarea", "aw-ta aw-mono")
-  source.setAttribute("aria-label", "Import JSON")
-  source.placeholder = "Paste a native API Workbench JSON export"
-  source.style.height = "150px"
-  // A bare file input keeps its user-agent look inside the shadow root; the label carries the
-  // button styling and the input stays the real, accessible control.
-  const file = el("input")
-  file.type = "file"
-  file.accept = ".json,application/json"
-  file.setAttribute("aria-label", "Import JSON file")
-  const chooseFile = el("label", "aw-btn aw-out")
-  chooseFile.append(icon("download", "aw-i14"), document.createTextNode("Choose file"), file)
-  const status = el("p", "aw-hint", "Native JSON is available. Other formats are listed below with their current status.")
-  status.setAttribute("role", "status")
-  file.addEventListener("change", () => {
-    const selected = file.files?.[0]
-    if (!selected) return
-    const reader = new FileReader()
-    reader.addEventListener("load", () => { source.value = String(reader.result ?? ""); status.textContent = `Loaded ${selected.name}. Review the JSON before importing.` }, { signal: ctx.signal })
-    reader.addEventListener("error", () => { status.textContent = "Could not read the file. Choose it again or paste the JSON." }, { signal: ctx.signal })
-    ctx.signal.addEventListener("abort", () => reader.abort(), { once: true })
-    reader.readAsText(selected)
-  }, { signal: ctx.signal })
-  const commit = button("aw-btn aw-pri", "Import JSON", () => {
-    const error = ctx.importConfig(source.value)
-    status.textContent = error ?? "Imported configuration."
-    if (!error) ctx.go("settings")
-  }, ctx.signal)
-  const input = card()
-  input.append(labeledAction("Paste or load native JSON", source, formatJsonButton(source, ctx.signal)), group("aw-row aw-actions", commit, chooseFile), status)
-  const formats = card()
-  formats.append(el("div", "aw-lbl", "Supported formats"))
-  // Colours follow the reference legend; only the green formats are wired up in this build.
-  for (const [format, note, tone] of [
-    ["Native", "Profile + endpoints JSON", "aw-gr"], ["Swagger / OpenAPI", "2.0 / 3.0 · coming later", "aw-bl"],
-    ["HAR", "1.2 · coming later", "aw-am"], ["Postman", "2.1 · coming later", "aw-vi"],
-    ["Recorder", "Current-frame fetch / XHR", "aw-gr"], ["cURL", "DevTools copy · coming later", ""],
-    ["fetch()", "DevTools copy · coming later", ""],
-  ] as const) formats.append(group("aw-row aw-xs aw-format", el("span", `aw-bd ${tone}`, format), el("span", "aw-mu aw-grow", note)))
-  const recorder = card()
-  const openRecorder = button("aw-btn aw-out", "Open recorder", () => ctx.go("record"), ctx.signal)
-  openRecorder.prepend(icon("record", "aw-i14"))
-  recorder.append(group("aw-row aw-actions", el("span", "aw-lbl aw-grow", "Record this page"), openRecorder),
-    el("p", "aw-hint", "Capture this frame's fetch and XHR traffic, then create a profile from the calls you select."))
-  screen.append(recorder, input, formats)
   return screen
 }
 

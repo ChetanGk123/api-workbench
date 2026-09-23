@@ -85,7 +85,9 @@ test('M3 profiles, environment mapping and native JSON import are usable', async
   await page.getByRole('button', { name: 'Add host', exact: true }).click();
   const exported = (await exportDownload(page)).json;
   await page.getByRole('button', { name: 'Import', exact: true }).click();
-  await page.getByRole('textbox', { name: 'Import JSON', exact: true }).fill(exported);
-  await page.getByRole('button', { name: 'Import JSON', exact: true }).click();
-  await expect(page.locator(`${panel} .aw-sub .aw-subtitle`)).toHaveText('Settings');
+  await page.getByRole('textbox', { name: 'Import source', exact: true }).fill(exported);
+  await page.getByRole('button', { name: 'Apply', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Import mode', exact: true }).selectOption('replace');
+  await page.getByRole('button', { name: 'Import profile', exact: true }).click();
+  await expect(page.locator(`${panel} .aw-sub .aw-subtitle`)).toHaveText('Endpoints');
 });

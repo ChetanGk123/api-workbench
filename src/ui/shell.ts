@@ -19,7 +19,7 @@ export type ShellOptions = {
   saveProfileAs: Ctx["saveProfileAs"]
   selectProfile: Ctx["selectProfile"]
   deleteProfile: Ctx["deleteProfile"]
-  importConfig: Ctx["importConfig"]
+  commitImport: Ctx["commitImport"]
   reorderEndpoint: Ctx["reorderEndpoint"]
   startRecording: Ctx["startRecording"]
   stopRecording: Ctx["stopRecording"]
@@ -221,7 +221,7 @@ export function createShell(options: ShellOptions) {
     saveProfileAs: options.saveProfileAs,
     selectProfile: options.selectProfile,
     deleteProfile: options.deleteProfile,
-    importConfig: options.importConfig,
+    commitImport: options.commitImport,
     reorderEndpoint: options.reorderEndpoint,
     startRecording: options.startRecording,
     stopRecording: options.stopRecording,
