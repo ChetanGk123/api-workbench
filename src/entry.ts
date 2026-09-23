@@ -7,8 +7,9 @@ import { xhrAdapter } from './network/xhr-adapter';
 import { createId, defaultEndpoint, defaultProfile, type Endpoint, type Profile, type WorkbenchConfig } from './core/model';
 import { importConfig as parseConfig, loadConfig, saveConfig, exportConfig } from './core/storage';
 import { executeOnce } from './tester/once';
+import { createRecorder, type Recording } from './recorder/recorder';
 
-const version = '0.1.0-m3';
+const version = '0.1.0-m4';
 const key = '__api_workbench_7f49a1_v1__';
 type Instance = { version: string; restore: () => void };
 const registry = window as unknown as Record<string, Instance | undefined>;
@@ -18,11 +19,13 @@ if (existing) {
   if (existing.version !== version) alert('Another API Workbench version is running. Close it or reload before launching this version.');
 } else {
   const initialConfig: WorkbenchConfig = { profile: defaultProfile(), endpoints: [], savedProfiles: [] };
-  const store = createStore<UIState>({ screen: 'home', minimized: false, observed: 0, activity: '', mockEnabled: false, mockDelay: 0, config: initialConfig, storageReady: false, testerHistory: [] });
+  const store = createStore<UIState>({ screen: 'home', minimized: false, observed: 0, activity: '', mockEnabled: false, mockDelay: 0, config: initialConfig, storageReady: false, testerHistory: [], recording: false, recordings: [] });
   let configDirty = false;
   let directFetch: typeof window.fetch = window.fetch;
   const persist = (config: WorkbenchConfig) => { configDirty = true; store.set({ config }); void saveConfig(config); };
   const pipeline = createPipeline(message => store.set({ observed: store.state.observed + 1, activity: message }));
+  const recorder = createRecorder(pipeline, recordings => store.set({ recordings: [...recordings] }));
+  store.set({ recordings: recorder.records });
 
   const shell = createShell({
     version, store,
@@ -55,6 +58,20 @@ if (existing) {
     importConfig: serialized => {
       try { persist(parseConfig(serialized)); return undefined; }
       catch (error) { return error instanceof Error ? error.message : 'Invalid Workbench JSON'; }
+    },
+    startRecording: () => { if (recorder.start()) store.set({ recording: true }); },
+    stopRecording: () => { recorder.stop(); store.set({ recording: false, recordings: recorder.records }); },
+    resetRecorder: () => { recorder.reset(); store.set({ recordings: [] }); },
+    promoteRecording: (recording: Recording) => {
+      const url = new URL(recording.url);
+      const endpoint: Endpoint = {
+        ...defaultEndpoint(store.state.config.profile.id),
+        name: `${recording.method} ${url.pathname}`,
+        alias: `recorded_${url.pathname.split('/').filter(Boolean).join('_') || 'root'}`,
+        request: { ...defaultEndpoint(store.state.config.profile.id).request, method: (recording.method === 'CONNECT' ? 'GET' : recording.method) as Endpoint['request']['method'], path: `${url.pathname}${url.search}`, headers: Object.entries(recording.headers).filter(([, value]) => value !== '[REDACTED]').map(([name, value]) => ({ name, value })), bodyKind: recording.body ? 'text' : 'none', body: recording.body ?? '' },
+        sampleResponse: recording.response?.body ? { status: recording.response.status, headers: Object.entries(recording.response.headers).map(([name, value]) => ({ name, value })), body: recording.response.body } : undefined,
+      };
+      persist({ ...store.state.config, endpoints: [...store.state.config.endpoints, endpoint] });
     },
   });
 

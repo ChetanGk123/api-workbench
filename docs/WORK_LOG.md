@@ -5,7 +5,34 @@
 M0 and M1 are implemented and verified in Chrome by automated browser checks. Saved-bookmark
 installation and all Edge checks remain outstanding for both milestones.
 
-Current assigned work: M4 recorder.
+Current assigned work: M4 recorder complete; M5 is next.
+
+## 2026-09-23 — M4 recorder (complete)
+
+**Scope.** Added shared-pipeline traffic observation, bounded recorder capture, sensitive-header redaction, reviewable draft records, real fetch response previews, and promotion of selected recordings into existing endpoints.
+
+**Changed files.**
+
+- `src/network/pipeline.ts`, `src/network/fetch-adapter.ts`, `src/network/xhr-adapter.ts` — typed traffic observer contract; real and synthetic fetch/XHR completions publish bounded capture inputs without consuming the caller response.
+- `src/recorder/recorder.ts` — session recorder with start/stop/reset/dispose, 100-record ring buffer, 1 MiB recovery envelope, 16 KiB body previews, sensitive-header redaction, and session recovery hydration.
+- `src/entry.ts`, `src/ui/shell.ts`, `src/ui/screens.ts` — recorder lifecycle state, Home controls/review rows, and promotion through the existing endpoint model.
+- `tests/m2-core.spec.mjs`, `tests/m4.spec.mjs` — recorder unit coverage and Chrome fixture coverage for fetch/XHR capture, review, promotion, authorization redaction and recovery.
+- `package.json` — version and description updated to M4.
+
+**Commands and outcomes.**
+
+- `node --test tests/m2-core.spec.mjs` -> 7 passed, 0 failed.
+- `npm run build` -> exit 0. Final bundle: raw 94,958 B, minified 60,499 B, encoded bookmark URL 84,449 characters.
+- `npx playwright test tests/m4.spec.mjs` -> 3 passed, 0 failed in Chrome 153.0.8010.53.
+- `npm test` -> 24 browser tests passed and 9 native unit tests passed; Chrome 153.0.8010.53, macOS darwin 25.6.0, Node v24.21.0, Playwright 1.63.0.
+
+**Verification.** Starting a recorder captures subsequent fetch and XHR calls, stopping leaves a reviewable draft, promotion creates a saved endpoint with the recorded method/path/sample response, sensitive authorization values do not appear in review, and the draft returns after relaunch. Fetch callers still receive their original response while the observer reads a clone; XHR response fields and headers remain native and readable by the page.
+
+**Not run.** Saved-bookmark installation, Edge, configured JSON-path redaction, and manual cross-origin recovery/quota failure checks.
+
+**Limitations.** Configured JSON-path redaction, deduplication suggestions, and the explicit include-tester toggle are still follow-up recorder polish. Tester exclusion uses the reserved `workbench://tester` source marker; the current direct tester remains separate from the page pipeline. Recovery is best-effort session storage and does not claim durable cross-origin storage.
+
+**Next task.** M5 mock and chaos engines: replace the M0 feasibility matcher with profile-backed mock/chaos rules while preserving the shared pipeline and recorder trace contract.
 
 ## 2026-09-23 — M3 endpoints, profiles and direct tester (complete)
 
@@ -75,7 +102,7 @@ Current assigned work: M4 recorder.
 | M1 — Foundation and panel | CODE COMPLETE · automated gates PASS in Chrome · saved-bookmark and Edge checks NOT RUN |
 | M2 — Transport/rule core | CODE COMPLETE · automated gates PASS in Chrome · browser fixture and build checks verified |
 | M3 — Endpoints, profiles and tester | CODE COMPLETE · automated gates PASS in Chrome · saved-bookmark and Edge checks NOT RUN |
-| M4 — Recorder | NOT STARTED |
+| M4 — Recorder | CODE COMPLETE · focused unit and Chrome browser gates PASS · saved-bookmark, Edge, XHR and durable recovery checks NOT RUN |
 | M5 — Mock and chaos | NOT STARTED |
 | M6 — Intercept and routing | NOT STARTED |
 | M7 — Breakpoints | NOT STARTED |

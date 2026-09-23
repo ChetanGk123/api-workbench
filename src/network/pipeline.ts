@@ -52,6 +52,15 @@ export type TraceEvent = {
   detail?: string;
 };
 
+export type TrafficEvent = Readonly<{
+  request: RequestContext;
+  response?: { status: number; headers: Readonly<Record<string, string>>; body?: string; bodyStatus: 'captured' | 'omitted' | 'truncated' | 'unreadable' };
+  durationMs: number;
+  source: 'network' | 'mock' | 'synthetic-chaos';
+  error?: string;
+  ruleIds: readonly string[];
+}>;
+
 function escapeRegex(value: string): string { return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
 function globToRegExp(pattern: string): RegExp {
@@ -170,6 +179,7 @@ export function createPipeline(report: (message: string) => void) {
   const pending = new Set<() => void>();
   const rules: PipelineRule[] = [];
   const trace: TraceEvent[] = [];
+  const trafficListeners = new Set<(event: TrafficEvent) => void>();
   let nextId = 1;
   let traceIndex = 0;
 
@@ -274,6 +284,15 @@ export function createPipeline(report: (message: string) => void) {
         entry,
       };
     },
+    observe(listener: (event: TrafficEvent) => void) {
+      trafficListeners.add(listener);
+      return () => trafficListeners.delete(listener);
+    },
+    publishTraffic(event: TrafficEvent) {
+      const frozen = Object.freeze({ ...event, ruleIds: Object.freeze([...event.ruleIds]) });
+      for (const listener of trafficListeners) listener(frozen);
+    },
+    get observing() { return trafficListeners.size > 0; },
     get active() { return active; },
     decide(method: string | RequestContext, url?: string, transport?: string, requestHeaders?: HeaderBag) {
       if (!active) return null;
@@ -300,6 +319,7 @@ export function createPipeline(report: (message: string) => void) {
       settings.enabled = false;
       for (const finish of [...pending]) finish();
       pending.clear();
+      trafficListeners.clear();
     },
   };
 }

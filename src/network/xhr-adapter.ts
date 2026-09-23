@@ -14,6 +14,7 @@ export function xhrAdapter(Captured: typeof XMLHttpRequest, pipeline: Pipeline):
       const getHeaders = xhr.getAllResponseHeaders.bind(xhr);
       const setHeader = xhr.setRequestHeader.bind(xhr);
       let method = '', url = '', async = true, sent = false, generation = 0;
+      const requestHeaders: Record<string, string> = {};
       let synthetic: { state: number; failed: boolean; response: unknown } | undefined;
       let cancel: (() => void) | undefined;
       let rescheduleTimeout = () => {};
@@ -52,6 +53,7 @@ export function xhrAdapter(Captured: typeof XMLHttpRequest, pipeline: Pipeline):
         // Native backing state stays OPENED when a mock never calls native send.
         const notifyOpened = !!synthetic && nativeGet('readyState') === 1;
         cancel?.(); generation++; sent = false; synthetic = undefined;
+        for (const key of Object.keys(requestHeaders)) delete requestHeaders[key];
         // Delegate validation and OPENED event to the native implementation.
         method = verb; url = new URL(target, document.baseURI).href; async = asynchronous;
         open(verb, target, asynchronous, username, password);
@@ -59,6 +61,8 @@ export function xhrAdapter(Captured: typeof XMLHttpRequest, pipeline: Pipeline):
       };
       xhr.setRequestHeader = function (name, value) {
         if (synthetic && sent) throw invalid();
+        const key = name.toLowerCase();
+        requestHeaders[key] = requestHeaders[key] ? `${requestHeaders[key]}, ${value}` : value;
         setHeader(name, value);
       };
       xhr.getResponseHeader = name => !synthetic ? getHeader(name) :
@@ -73,10 +77,34 @@ export function xhrAdapter(Captured: typeof XMLHttpRequest, pipeline: Pipeline):
       let fail = (_kind: 'abort' | 'timeout') => {};
       xhr.send = body => {
         if (xhr.readyState !== 1 || sent) throw invalid();
-        const requestContext = createRequestContext({ kind: 'xhr', method, url, headers: {}, body: typeof body === 'string' ? body : undefined });
+        const requestContext = createRequestContext({ kind: 'xhr', method, url, headers: requestHeaders, body: typeof body === 'string' ? body : undefined });
         lifecycle = pipeline.beginRequest(requestContext, 'XHR');
         const decision = async ? lifecycle.decision : null;
-        if (!decision) { send(body); return; }
+        if (!decision) {
+          const started = performance.now();
+          let published = false;
+          const publish = (error?: string) => {
+            if (published || !pipeline.observing) return;
+            published = true;
+            const responseType = xhr.responseType;
+            const bodyStatus = error ? 'unreadable' : responseType && responseType !== 'text' ? 'omitted' : xhr.status === 204 ? 'omitted' : xhr.responseText.length > 16384 ? 'truncated' : 'captured';
+            const headers: Record<string, string> = {};
+            for (const line of xhr.getAllResponseHeaders().trim().split(/[\r\n]+/)) {
+              const separator = line.indexOf(':');
+              if (separator > 0) headers[line.slice(0, separator).trim().toLowerCase()] = line.slice(separator + 1).trim();
+            }
+            pipeline.publishTraffic({
+              request: requestContext,
+              response: error ? undefined : { status: xhr.status, headers, body: bodyStatus === 'omitted' || bodyStatus === 'unreadable' ? undefined : xhr.responseText.slice(0, 16384), bodyStatus },
+              durationMs: Math.round(performance.now() - started), source: 'network', error, ruleIds: [],
+            });
+          };
+          xhr.addEventListener('load', () => publish(), { once: true });
+          xhr.addEventListener('error', () => publish('network error'), { once: true });
+          xhr.addEventListener('abort', () => publish('aborted'), { once: true });
+          send(body);
+          return;
+        }
         sent = true;
         synthetic = { state: 1, failed: false, response: null };
         const current = ++generation;

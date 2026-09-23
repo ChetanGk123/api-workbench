@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createPipeline, createRequestContext } from '../src/network/pipeline.ts';
+import { createRecorder } from '../src/recorder/recorder.ts';
 
 test('M2 request context is immutable and keeps the original request shape', () => {
   const context = createRequestContext({
@@ -130,4 +131,30 @@ test('disabled and non-matching rules are skipped', () => {
 
   const decision = pipeline.decide('POST', 'https://example.test/api/mock-target', 'xhr');
   assert.equal(decision, null);
+});
+
+test('M4 recorder subscribes to bounded, redacted traffic and disposes cleanly', () => {
+  const pipeline = createPipeline(() => {});
+  const recorder = createRecorder(pipeline);
+  assert.equal(recorder.start(), true);
+  const context = createRequestContext({
+    kind: 'fetch', method: 'POST', url: 'https://example.test/api/login',
+    headers: { Authorization: 'Bearer secret', 'Content-Type': 'application/json' },
+    body: 'x'.repeat(20000),
+  });
+  pipeline.publishTraffic({
+    request: context,
+    response: { status: 201, headers: { 'Set-Cookie': 'session=secret', 'Content-Type': 'application/json' }, body: '{"ok":true}', bodyStatus: 'captured' },
+    durationMs: 12, source: 'network', ruleIds: [],
+  });
+  assert.equal(recorder.records.length, 1);
+  assert.equal(recorder.records[0].headers.authorization, '[REDACTED]');
+  assert.equal(recorder.records[0].bodyStatus, 'truncated');
+  assert.equal(recorder.records[0].body.length, 16384);
+  assert.equal(recorder.records[0].response.headers['Set-Cookie'], '[REDACTED]');
+  pipeline.publishTraffic({ request: context, response: { status: 200, headers: {}, body: 'short', bodyStatus: 'truncated' }, durationMs: 1, source: 'network', ruleIds: [] });
+  assert.equal(recorder.records[1].response.bodyStatus, 'truncated');
+  recorder.stop();
+  pipeline.publishTraffic({ request: context, durationMs: 1, source: 'network', ruleIds: [] });
+  assert.equal(recorder.records.length, 2);
 });

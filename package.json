@@ -1,7 +1,7 @@
 {
   "name": "api-workbench",
-  "version": "0.1.0-m3",
-  "description": "Self-contained API Workbench bookmarklet — M3 endpoints and profiles",
+  "version": "0.1.0-m4",
+  "description": "Self-contained API Workbench bookmarklet — M4 recorder",
   "scripts": {
     "build": "tsc && node scripts/build.mjs",
     "fixture": "node tests/fixtures/server.mjs",

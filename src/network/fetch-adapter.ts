@@ -22,7 +22,29 @@ export function fetchAdapter(captured: typeof fetch, pipeline: Pipeline): typeof
     });
     const lifecycle = pipeline.beginRequest(requestContext, 'fetch');
     const decision = lifecycle.decision;
-    if (!decision) return captured.call(window, input, init);
+    const started = performance.now();
+    const publishReal = (response: Response) => {
+      if (!pipeline.observing) return response;
+      const clone = response.clone();
+      void clone.text().then(body => pipeline.publishTraffic({
+        request: requestContext,
+        response: { status: response.status, headers: Object.fromEntries(response.headers.entries()), body, bodyStatus: body.length > 16384 ? 'truncated' : 'captured' },
+        durationMs: Math.round(performance.now() - started), source: 'network', ruleIds: decision ? [decision.ruleId] : [],
+      })).catch(() => pipeline.publishTraffic({
+        request: requestContext,
+        response: { status: response.status, headers: Object.fromEntries(response.headers.entries()), bodyStatus: 'unreadable' },
+        durationMs: Math.round(performance.now() - started), source: 'network', ruleIds: decision ? [decision.ruleId] : [],
+      }));
+      return response;
+    };
+    if (!decision) {
+      return captured.call(window, input, init).then(response => {
+        return publishReal(response);
+      }).catch(error => {
+        pipeline.publishTraffic({ request: requestContext, durationMs: Math.round(performance.now() - started), source: 'network', error: error instanceof Error ? error.message : String(error), ruleIds: [] });
+        throw error;
+      });
+    }
     if (signal?.aborted) {
       lifecycle.settle('abort', String(signal.reason ?? 'cancelled'));
       return Promise.reject(signal.reason ?? new DOMException('The operation was aborted.', 'AbortError'));
@@ -46,7 +68,9 @@ export function fetchAdapter(captured: typeof fetch, pipeline: Pipeline): typeof
           reject(requestSignal.reason);
         } else {
           lifecycle.settle('response', 'synthetic mock response');
-          resolve(new Response(mockBody, { status: 200, headers: { 'Content-Type': 'application/json' } }));
+          const response = new Response(mockBody, { status: 200, headers: { 'Content-Type': 'application/json' } });
+          pipeline.publishTraffic({ request: requestContext, response: { status: 200, headers: { 'content-type': 'application/json' }, body: mockBody, bodyStatus: 'captured' }, durationMs: Math.round(performance.now() - started), source: 'mock', ruleIds: [decision.ruleId] });
+          resolve(response);
         }
       };
       release = pipeline.own(finish);

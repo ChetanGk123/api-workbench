@@ -1,6 +1,7 @@
 import { el, icon, button, type IconName } from './dom';
 import { type Endpoint, type Profile, type WorkbenchConfig } from '../core/model';
 import type { OnceResult } from '../tester/once';
+import type { Recording } from '../recorder/recorder';
 
 export type ScreenId = 'home' | 'test' | 'mock' | 'intercept' | 'route' | 'chaos' | 'endpoints' | 'import' | 'settings';
 
@@ -15,6 +16,8 @@ export type UIState = {
   storageReady: boolean;
   testerResult?: OnceResult;
   testerHistory: OnceResult[];
+  recording: boolean;
+  recordings: Recording[];
 };
 
 export type Ctx = {
@@ -35,6 +38,10 @@ export type Ctx = {
   saveProfileAs: (name: string) => void;
   selectProfile: (id: string) => void;
   importConfig: (serialized: string) => string | undefined;
+  startRecording: () => void;
+  stopRecording: () => void;
+  resetRecorder: () => void;
+  promoteRecording: (recording: Recording) => void;
 };
 
 type Screen = {
@@ -166,7 +173,23 @@ function home(ctx: Ctx): HTMLElement {
   const quick = el('div', 'aw-g3');
   for (const id of ['endpoints', 'import', 'settings'] as const) quick.append(quickAction(ctx, id));
   const runs = el('div', 'aw-empty', 'No runs yet. The tester arrives in M3.');
-  screen.append(feasibility(ctx), caption('Modules'), modules, caption('Quick actions'), quick, caption('Run history'), runs);
+  const recorder = card();
+  const recorderStatus = el('span', 'aw-bd aw-s');
+  const recorderRows = el('div', 'aw-col aw-gap6');
+  const refreshRecorder = (state: Readonly<UIState>) => {
+    recorderStatus.textContent = state.recording ? `Recording · ${state.recordings.length} captured` : `${state.recordings.length} captured · reviewable draft`;
+    recorderRows.replaceChildren();
+    for (const item of state.recordings.slice(-10).reverse()) {
+      const row = el('div', 'aw-row aw-gap8');
+      row.append(el('span', `aw-bd aw-m aw-${item.method}`, item.method), el('span', 'aw-grow aw-tr', new URL(item.url).pathname), el('span', 'aw-xs aw-mu', item.response ? String(item.response.status) : item.error ?? 'pending'));
+      row.append(button('aw-btn aw-pri aw-sm', 'Promote', () => { ctx.promoteRecording(item); ctx.go('endpoints'); }, ctx.signal));
+      recorderRows.append(row);
+    }
+  };
+  const controls = group('aw-row aw-gap8', button('aw-btn aw-pri aw-sm', 'Start recording', ctx.startRecording, ctx.signal), button('aw-btn aw-out aw-sm', 'Stop recording', ctx.stopRecording, ctx.signal), button('aw-btn aw-gh aw-sm', 'Reset', ctx.resetRecorder, ctx.signal));
+  ctx.watch(refreshRecorder);
+  recorder.append(group('aw-row', el('span', 'aw-h', 'Recorder'), recorderStatus), el('p', 'aw-hint', 'Captures future fetch/XHR traffic in this frame. Sensitive headers are redacted.'), controls, recorderRows);
+  screen.append(feasibility(ctx), recorder, caption('Modules'), modules, caption('Quick actions'), quick, caption('Run history'), runs);
   return screen;
 }
 

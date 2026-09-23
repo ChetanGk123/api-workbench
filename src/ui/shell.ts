@@ -19,6 +19,10 @@ export type ShellOptions = {
   saveProfileAs: Ctx['saveProfileAs'];
   selectProfile: Ctx['selectProfile'];
   importConfig: Ctx['importConfig'];
+  startRecording: Ctx['startRecording'];
+  stopRecording: Ctx['stopRecording'];
+  resetRecorder: Ctx['resetRecorder'];
+  promoteRecording: Ctx['promoteRecording'];
 };
 
 export function createShell(options: ShellOptions) {
@@ -114,6 +118,10 @@ export function createShell(options: ShellOptions) {
     saveProfileAs: options.saveProfileAs,
     selectProfile: options.selectProfile,
     importConfig: options.importConfig,
+    startRecording: options.startRecording,
+    stopRecording: options.stopRecording,
+    resetRecorder: options.resetRecorder,
+    promoteRecording: options.promoteRecording,
   };
 
   function go(id: ScreenId) {
