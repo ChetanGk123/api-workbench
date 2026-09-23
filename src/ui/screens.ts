@@ -89,9 +89,13 @@ export type Ctx = {
   /** Next creation sequence for a new rule; ties on priority resolve by it. */
   nextRuleSeq: () => number
   continueAllPaused: () => void
-  /** The active profile's single v1 test plan. */
+  /** The live test plan of the active profile. */
   plan: () => TestPlan
   updatePlan: (plan: TestPlan) => void
+  /** Stores a copy of the live plan under `name`, uniquified against the stored names. */
+  savePlanAs: (name: string) => void
+  /** Makes a stored plan live; the plan being left is stored as it stands. */
+  selectPlan: (id: string) => void
   startRun: () => void
   stopRun: () => void
   openRun: (id: string) => void

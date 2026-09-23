@@ -37,7 +37,7 @@ test('tabs and links navigate inside the panel without touching the host page', 
   for (const label of TABS.slice(1)) {
     await page.getByRole('button', { name: label, exact: true }).click();
     await expect(page.getByRole('button', { name: label, exact: true })).toHaveAttribute('aria-current', 'page');
-    if (label === 'Test') await expect(page.locator(panel).getByRole('textbox', { name: 'Plan name', exact: true })).toBeVisible();
+    if (label === 'Test') await expect(page.locator(panel).getByRole('combobox', { name: 'Test plan', exact: true })).toBeVisible();
     else await expect(page.locator(`${panel} .aw-body .aw-h`).first()).toHaveText(MODULE_TITLE[label]);
     // The tab strip is the way back; a duplicate in-body control would only add chrome.
     await expect(page.locator(`${panel} .aw-tabs`)).toBeVisible();

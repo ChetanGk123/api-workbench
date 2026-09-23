@@ -449,18 +449,53 @@ export function testScreen(ctx: Ctx): HTMLElement {
   const planName = el("input", "aw-in aw-grow")
   planName.value = ctx.plan().name
   planName.setAttribute("aria-label", "Plan name")
+  planName.hidden = true
   planName.addEventListener("change", () => {
     const current = ctx.plan()
     const next = planName.value.trim()
     if (!next) planName.value = current.name
     else if (next !== current.name) ctx.updatePlan({ ...current, name: next })
+    planName.hidden = true
   }, { signal: ctx.signal })
+
+  // Test.html's plan row: pick a stored plan, rename the live one, store a copy of it. Stored
+  // plans reference this profile's endpoints, so only its own are offered.
+  const planPicker = el("select", "aw-sel aw-grow")
+  planPicker.setAttribute("aria-label", "Test plan")
+  const storedPlans = () => {
+    const config = ctx.state().config
+    return (config.savedPlans ?? []).filter((plan) => plan.profileId === config.profile.id)
+  }
+  const refreshPlans = () => {
+    const live = ctx.plan()
+    planPicker.replaceChildren()
+    for (const plan of [live, ...storedPlans().filter((plan) => plan.id !== live.id)]) {
+      const option = el("option", "", plan.name)
+      option.value = plan.id
+      planPicker.append(option)
+    }
+    planPicker.value = live.id
+    planName.value = live.name
+  }
+  refreshPlans()
+  planPicker.addEventListener("change", () => ctx.selectPlan(planPicker.value), { signal: ctx.signal })
+  const rename = iconButton("aw-btn aw-out aw-ic", "edit", "Rename plan", () => {
+    planName.hidden = false
+    planName.focus()
+    planName.select()
+  }, ctx.signal)
+  const savePlan = iconButton("aw-btn aw-out aw-ic", "save", "Save plan", () => ctx.savePlanAs(ctx.plan().name), ctx.signal)
 
   // An edit anywhere in the plan changes the preflight, the footer and which steps are listed.
   let lastPlan: unknown
   let lastRun: unknown
   let lastEndpoints: unknown
+  let lastSavedPlans: unknown
   ctx.watch((state) => {
+    if (state.config.plan !== lastPlan || state.config.savedPlans !== lastSavedPlans) {
+      lastSavedPlans = state.config.savedPlans
+      refreshPlans()
+    }
     if (state.config.plan === lastPlan && state.run === lastRun && state.config.endpoints === lastEndpoints) return
     lastPlan = state.config.plan
     lastRun = state.run
@@ -473,7 +508,8 @@ export function testScreen(ctx: Ctx): HTMLElement {
   segment.setAttribute("role", "group")
   segment.setAttribute("aria-label", "Run mode")
   screen.append(
-    group("aw-row", el("span", "aw-dot aw-g"), planName),
+    group("aw-row", el("span", "aw-dot aw-g"), planPicker, rename, savePlan),
+    planName,
     segment,
     direct.panel,
     loadPanel,

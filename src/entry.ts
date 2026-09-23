@@ -93,7 +93,15 @@ if (existing) {
     stopRun()
     pipeline.setRules(rules)
     pipeline.engine.resetAll()
-    persist({ profile, endpoints, rules, plan: plan ?? defaultTestPlan(profile.id), savedProfiles })
+    // Stored plans stay with their own profile, so switching away and back is not a loss.
+    persist({
+      profile,
+      endpoints,
+      rules,
+      plan: plan ?? defaultTestPlan(profile.id),
+      savedPlans: store.state.config.savedPlans,
+      savedProfiles,
+    })
     store.set({ run: undefined, openRun: undefined })
     store.set({ matched: [] })
     syncRuleStats()
@@ -306,6 +314,33 @@ if (existing) {
     continueAllPaused: () => breakpoints.continueAll(),
     plan: () => planOf(store.state.config),
     updatePlan: (plan: TestPlan) => persist({ ...store.state.config, plan }),
+    savePlanAs: (name) => {
+      const config = store.state.config
+      const live = planOf(config)
+      const saved = config.savedPlans ?? []
+      const plan = {
+        ...live,
+        id: createId("plan"),
+        name: suggestProfileName(name || live.name, [live.name, ...saved.map((item) => item.name)]),
+      }
+      persist({ ...config, savedPlans: [...saved, plan] })
+    },
+    selectPlan: (id) => {
+      const config = store.state.config
+      const live = planOf(config)
+      const saved = config.savedPlans ?? []
+      const next = saved.find((item) => item.id === id)
+      if (!next || next.id === live.id) return
+      // The plan being left is stored as it stands — updated, or added when it was never saved —
+      // so switching plans never silently discards its edits.
+      persist({
+        ...config,
+        plan: { ...next, profileId: config.profile.id },
+        savedPlans: saved.some((item) => item.id === live.id)
+          ? saved.map((item) => (item.id === live.id ? live : item))
+          : [...saved, live],
+      })
+    },
     startRun: () => beginRun(),
     stopRun: () => stopRun(),
     openRun: (id: string) => {

@@ -170,7 +170,7 @@ export function applyNative(config: WorkbenchConfig, native: NativeImport, mode:
   summary.replaced = config.endpoints.length
   const snapshot: ProfileSnapshot = { profile: native.profile, endpoints: native.endpoints, rules: native.rules ?? [], plan: native.plan }
   return {
-    config: { profile: native.profile, endpoints: native.endpoints, rules: native.rules ?? [], plan: native.plan, savedProfiles: config.savedProfiles ?? [] },
+    config: { profile: native.profile, endpoints: native.endpoints, rules: native.rules ?? [], plan: native.plan, savedPlans: config.savedPlans, savedProfiles: config.savedProfiles ?? [] },
     summary,
     activated: snapshot,
   }

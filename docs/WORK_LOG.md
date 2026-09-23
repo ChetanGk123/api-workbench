@@ -2,7 +2,7 @@
 
 ## Current state
 
-M0–M9 are implemented and verified in Chrome by automated checks (182 checks). The M0 feasibility
+M0–M9 are implemented and verified in Chrome by automated checks (184 checks). The M0 feasibility
 mock is no longer part of the app; its transport evidence runs on ordinary Mock rules. The app version
 is `1.0.0`, written only in `package.json` and injected into the bundle by the build. Saved-bookmark
 installation and all Edge checks remain outstanding for every milestone. `npm run build` also writes
@@ -29,6 +29,44 @@ when a later milestone lands.
 | M8 — Flow/Independent runs | CODE COMPLETE · all M8 acceptance gates PASS in Chrome (36 checks) · saved-bookmark and Edge checks NOT RUN |
 | M9 — Complete import support | CODE COMPLETE · all M9 acceptance gates PASS in Chrome (38 checks) · saved-bookmark and Edge checks NOT RUN |
 | M10 — Integrated release | NOT STARTED |
+
+## 2026-09-23 — Saved test plans (post-M9 change)
+
+**Scope.** `Test.html`'s plan row promised what profiles already have: a plan picker, a rename
+control and a save control. Only the rename existed. This adds stored plans.
+
+**Changed files.** `src/core/model.ts` (`WorkbenchConfig.savedPlans`), `src/entry.ts`
+(`savePlanAs`, `selectPlan`, and `activate` now carries `savedPlans`), `src/import/commit.ts`
+(a native replace carries `savedPlans`), `src/ui/screens.ts` and `src/ui/shell.ts` (plumbing),
+`src/ui/test-screens.ts` (picker + rename + save row), `src/ui/dom.ts` (`save` icon geometry from
+the reference markup), `tests/plans.spec.mjs` (new), `tests/m1.spec.mjs` (the Test tab now shows
+the picker, not a visible name field).
+
+**Behavior.** `config.plan` stays the live plan; `config.savedPlans` holds stored plans, each
+carrying the `profileId` that owns it, so the picker lists only the active profile's. Save stores a
+copy of the live plan under a name uniquified by `suggestProfileName`, like Save-as for profiles.
+Selecting a stored plan makes it live and stores the plan being left as it stands — updated in
+place, or appended when it had never been saved — so switching is never a silent loss of edits.
+Stored plans survive a profile switch and a native import replace; `exportConfig` still exports the
+live plan only.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0.
+- `npm run build` → exit 0.
+- `npx playwright test tests/plans.spec.mjs` → 2 passed in 2.4 s.
+- `npx playwright test` → 184 passed in 1.4 min, Chromium via Playwright 1.63.0, macOS darwin
+  25.6.0.
+
+**Not run.** Saved-bookmark installation and all Edge checks, as before. No manual browser pass on
+this change beyond the automated specs.
+
+**Limitations.** No delete-plan control: the reference plan row has none, so the picker only grows;
+a stored plan is removable only by deleting its profile. Stored plans are not exported or imported.
+Plans stored against a profile that is later replaced by a native import stay in storage, unlisted.
+
+**Next task.** The outstanding manual gates (saved bookmark in Chrome and Edge), unchanged by this
+work.
 
 ## 2026-09-23 — Results screen laid out as `Results.html`
 

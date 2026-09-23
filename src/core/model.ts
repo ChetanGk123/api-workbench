@@ -45,7 +45,8 @@ export type Profile = {
 };
 
 export type ProfileSnapshot = { profile: Profile; endpoints: Endpoint[]; rules?: Rule[]; plan?: TestPlan };
-export type WorkbenchConfig = { profile: Profile; endpoints: Endpoint[]; rules?: Rule[]; plan?: TestPlan; savedProfiles?: ProfileSnapshot[] };
+/** `plan` is the live plan; `savedPlans` are stored copies, each owned by the profile it names. */
+export type WorkbenchConfig = { profile: Profile; endpoints: Endpoint[]; rules?: Rule[]; plan?: TestPlan; savedPlans?: TestPlan[]; savedProfiles?: ProfileSnapshot[] };
 
 export function createId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
