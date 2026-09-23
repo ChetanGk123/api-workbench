@@ -266,11 +266,41 @@ test('M8 notify on complete raises a dialog that leads to the run, and stays qui
   await expect(dialog).toBeVisible({ timeout: 15000 });
   await expect(dialog).toContainText('Fixture Plan: 1 of 1 request passed.');
 
-  // View results leads to the run; Results is the only screen that renders one.
+  // Running from the Load view lands on Results, so the run is already on screen: the dialog
+  // reports it with one button rather than offering a trip to where the reader already is.
+  await expect(panel(page).locator('.aw-sub .aw-subtitle')).toHaveText('Results');
+  await expect(dialog.getByRole('button')).toHaveText(['Close']);
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(panel(page).locator('.aw-big').first()).toHaveText('1');
+});
+
+test('M8 a notified run that finishes off the Results screen offers the way to it', async ({ page }) => {
+  // Spaced iterations, so the reader can leave Results before the run finishes.
+  await install(page, [endpoint('seed', 'GET', '/api/m8-notify-away')], { notifyOnComplete: true, iterations: 3, delayMs: 300 });
+  await openLoad(page);
+  await panel(page).getByRole('button', { name: 'Run Load' }).click();
+  await panel(page).locator('.aw-sub').getByRole('button', { name: 'Back to Home' }).click();
+  await panel(page).getByRole('button', { name: 'Home', exact: true }).click();
+
+  // Off Results the two buttons differ: Dismiss stays put, so the reader is still on Home.
+  const dialog = panel(page).getByRole('dialog', { name: 'Run completed' });
+  await expect(dialog).toBeVisible({ timeout: 15000 });
+  await expect(dialog.getByRole('button')).toHaveText(['Dismiss', 'View results']);
+  await dialog.getByRole('button', { name: 'Dismiss', exact: true }).click();
+  await expect(panel(page).locator('.aw-cap', { hasText: 'Quick actions' })).toBeVisible();
+
+  // The same run, announced again, taken up this time: View results goes where Dismiss did not.
+  await panel(page).getByRole('button', { name: 'Test', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Load', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Run Load' }).click();
+  await panel(page).locator('.aw-sub').getByRole('button', { name: 'Back to Home' }).click();
+  await panel(page).getByRole('button', { name: 'Home', exact: true }).click();
+  await expect(dialog).toBeVisible({ timeout: 15000 });
   await dialog.getByRole('button', { name: 'View results', exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await expect(panel(page).locator('.aw-sub .aw-subtitle')).toHaveText('Results');
-  await expect(panel(page).locator('.aw-big').first()).toHaveText('1');
+  await expect(panel(page).locator('.aw-big').first()).toHaveText('3');
 });
 
 test('M8 a notified run restores a minimized panel to show the dialog', async ({ page }) => {
@@ -285,7 +315,8 @@ test('M8 a notified run restores a minimized panel to show the dialog', async ({
   const dialog = panel(page).getByRole('dialog', { name: 'Run completed' });
   await expect(dialog).toBeVisible({ timeout: 15000 });
   await expect(page.locator('#api-workbench .aw-min')).toBeHidden();
-  await dialog.getByRole('button', { name: 'Dismiss', exact: true }).click();
+  // Restoring lands back on Results, where the run is already rendered, so the dialog only reports.
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await expect(panel(page)).toBeVisible();
 });

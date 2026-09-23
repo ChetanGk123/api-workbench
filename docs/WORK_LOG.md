@@ -47,19 +47,28 @@ the setting is for: someone who has looked away from the panel. It now interrupt
 - `src/entry.ts` — the completion handler still writes the activity line (the record) and now also
   calls `announceRun` when `plan.notifyOnComplete` is set. The message names the plan, how many of
   how many requests passed, how many did not (`failedCount`), and the number of run errors.
-- `tests/m8.spec.mjs` — two checks: the dialog does not appear when the box is unchecked, appears
-  with the pass line when it is, and "View results" lands on Results showing the run; and a run
-  that finishes while the panel is minimized restores the panel and shows the dialog there.
+- `tests/m8.spec.mjs` — three checks: the dialog does not appear when the box is unchecked and
+  appears with the pass line and a lone "Close" when it does, because running from Load lands on
+  Results; a run that finishes after the reader has left Results offers both buttons, with Dismiss
+  staying put and View results going to the run; and a run that finishes while the panel is
+  minimized restores the panel and shows the dialog there.
 
-**Decision.** The dialog is unconditional when the box is checked, including when the reader is
-already watching Results. A setting that sometimes notifies would be worse than one that always
-does, and the box is per plan, so it is easy to turn off.
+**Decision.** The dialog is unconditional when the box is checked, but its buttons are not. Running
+from the Load view already lands on Results, so the first version's "View results" and "Dismiss"
+did the same thing there — reported, and corrected the same day. Where the run is already on
+screen the dialog reports with a single "Close"; everywhere else it offers "View results" beside
+"Dismiss". `confirmDialog` takes `cancelLabel: null` for the one-button form rather than growing a
+second dialog helper.
+
+The first test of this did not catch the dead button: it asserted that "View results" ends on
+Results, which was already true before the click. The replacement leaves Results during the run
+and checks that Dismiss stays where it is while View results moves.
 
 **Commands and outcomes.**
 
 - `npx tsc --noEmit` → exit 0.
 - `npm run build` → exit 0.
-- `npx playwright test` → 187 passed, 1 failed in 1.6 m, Chrome (channel `chrome`), macOS darwin
+- `npx playwright test` → 188 passed, 1 failed in 1.6 m, Chrome (channel `chrome`), macOS darwin
   25.6.0. The failure is `tests/plans.spec.mjs:23`, unrelated and pre-existing (see below).
 - Rendered the dialog on a real run and checked it against the panel's surface and buttons.
 

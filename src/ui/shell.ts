@@ -478,11 +478,19 @@ export function createShell(options: ShellOptions) {
      */
     async announceRun(title: string, message: string) {
       if (store.state.minimized) restore()
-      const read = await confirmDialog(body, title, message, "View results", signal, {
-        cancelLabel: "Dismiss",
-        tone: "notice",
-      })
-      if (read) go("results")
+      // Running from the Load view already lands on Results, so offering to go there would be a
+      // second button that does what Dismiss does. Where the run is on screen, the dialog only
+      // reports; everywhere else it offers the way to it.
+      const showing = store.state.screen === "results"
+      const read = await confirmDialog(
+        body,
+        title,
+        message,
+        showing ? "Close" : "View results",
+        signal,
+        { cancelLabel: showing ? null : "Dismiss", tone: "notice" },
+      )
+      if (read && !showing) go("results")
     },
     mount() {
       syncProfiles()

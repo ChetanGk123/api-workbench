@@ -407,10 +407,14 @@ export function confirmDialog(
   message: string,
   confirmLabel: string,
   signal: AbortSignal,
-  /** A notice is not a warning: it names its own dismissal and leads with its action. */
-  options: { cancelLabel?: string; tone?: "danger" | "notice" } = {},
+  /**
+   * A notice is not a warning: it names its own dismissal and leads with its action. A `null`
+   * cancelLabel drops the second button, for a notice whose only honest outcome is "seen".
+   */
+  options: { cancelLabel?: string | null; tone?: "danger" | "notice" } = {},
 ): Promise<boolean> {
   const notice = options.tone === "notice"
+  const choice = options.cancelLabel !== null
   const dialog = el("dialog", "aw-dlg")
   dialog.setAttribute("aria-label", title)
   const form = el("form", "aw-col aw-gap10")
@@ -421,7 +425,7 @@ export function confirmDialog(
   form.append(
     el("span", "aw-lbl", title),
     el("p", "aw-hint", message),
-    group("aw-row aw-actions", cancel, confirm),
+    choice ? group("aw-row aw-actions", cancel, confirm) : group("aw-row aw-actions", confirm),
   )
   dialog.append(form)
   const root = host.closest(".aw-root")
@@ -449,7 +453,7 @@ export function confirmDialog(
       dialog.style.top = place(box.y, box.height, size.height, window.innerHeight)
     }
     // The destructive action is never the focused default; a notice leads with its action.
-    ;(notice ? confirm : cancel).focus()
+    ;(notice || !choice ? confirm : cancel).focus()
   })
 }
 
