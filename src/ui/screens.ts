@@ -1,4 +1,4 @@
-import { el, icon, button, iconButton, card, caption, group, labeled, labeledAction, formatJsonButton, disclosure, downloadJson, type IconName } from "./dom"
+import { el, icon, button, confirmDialog, iconButton, card, caption, group, labeled, labeledAction, formatJsonButton, disclosure, downloadJson, type IconName } from "./dom"
 import { nameFromHost, pageProfileName, type Endpoint, type HeaderValue, type Profile, type Rule, type RuleKind, type WorkbenchConfig } from "../core/model"
 import type { RuleActivity } from "../network/rules"
 import type { PausedEntry } from "../breakpoints/registry"
@@ -819,9 +819,13 @@ function settings(ctx: Ctx): HTMLElement {
     const current = ctx.state().config
     const last = !(current.savedProfiles ?? []).some(item => item.profile.id !== current.profile.id)
     // A profile takes its endpoints and rules with it and there is no undo, so this one asks first.
-    if (!confirm(`Delete profile "${current.profile.name}"?${last ? " It is the last one, so an empty profile takes its place." : ""}`)) return
-    ctx.deleteProfile(current.profile.id)
-    ctx.go("settings")
+    void confirmDialog(remove, "Delete profile",
+      `"${current.profile.name}" and its endpoints and rules are removed.${last ? " It is the last profile, so an empty one takes its place." : ""}`,
+      "Delete", ctx.signal).then(confirmed => {
+        if (!confirmed) return
+        ctx.deleteProfile(ctx.state().config.profile.id)
+        ctx.go("settings")
+      })
   }, ctx.signal)
   remove.prepend(icon("trash", "aw-i14"))
   saved.addEventListener("change", () => { ctx.selectProfile(saved.value); ctx.go("settings") }, { signal: ctx.signal })

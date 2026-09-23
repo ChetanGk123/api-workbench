@@ -28,6 +28,50 @@ when a later milestone lands.
 | M9 — Complete import support | NOT STARTED |
 | M10 — Integrated release | NOT STARTED |
 
+## 2026-09-23 — The delete confirmation is the panel's own dialog
+
+**Scope.** Follow-up on the user's report: the delete confirmation was the host page's native
+`confirm()`, which announces the page origin, cannot be themed and sits outside the panel.
+
+**Changed files.**
+
+- `src/ui/dom.ts` — `confirmDialog(host, title, message, confirmLabel, signal)` builds a native
+  `<dialog>` inside `.aw-root` and returns a promise. `showModal()` puts it in the top layer, so
+  the panel's `overflow: hidden` cannot clip it, and Escape, focus trapping and the backdrop come
+  from the element rather than from new code. The form's `method="dialog"` carries the answer in
+  `returnValue`, so Cancel, Escape and a torn-down screen all resolve `false`. It is built with
+  `createElement`/`textContent` like the rest of the runtime DOM: no HTML parsing. The top layer
+  positions against the viewport, so the dialog is centred on the panel after `showModal()` and
+  clamped to the viewport, since the panel can be dragged anywhere.
+- `src/ui/theme.css` — `.aw-dlg` and `.aw-dlg::backdrop` reuse the `.aw-menu` surface, border,
+  radius and shadow.
+- `src/ui/screens.ts` — the delete handler awaits the dialog instead of `confirm()`, and re-reads
+  the profile id after the answer rather than trusting the id captured before it.
+- `tests/ui.spec.mjs` — the delete test drives the panel's dialog: Cancel and Escape delete
+  nothing, and the Delete button in the dialog is what commits. It no longer listens for a page
+  `dialog` event, which is now evidence that no native dialog is used.
+
+**Commands and outcomes.**
+
+- `npm run build` → exit 0. raw 266,752 B, minified 154,856 B, encoded bookmark URL 220,022
+  characters.
+- `npx playwright test` → 100 passed in 1.1 min, Chrome, macOS darwin 25.6.0, Node v24.21.0.
+- Screenshots taken from the live fixture panel confirmed the button and the dialog render as
+  intended; the throwaway spec used for them was deleted.
+
+**Not run.** No Edge check: `<dialog>` and `showModal()` inside a shadow root are Chromium
+features shared with Edge, but that is reasoning, not measurement. No check on a host page that
+defines its own `dialog` styles — the panel's shadow root should isolate it, untested.
+
+**Limitations.** The dialog is modal to the whole page, not only the panel, which is what
+`showModal()` provides. Nothing else in the panel uses it yet; the rule and endpoint deletes are
+still immediate.
+
+**Decisions.** A native `<dialog>` rather than a hand-built overlay, so no focus trap, Escape
+handler or z-index management is written or maintained.
+
+**Next task.** M8 — Flow/Independent repeat runner, unchanged by this entry.
+
 ## 2026-09-23 — Delete a profile
 
 **Scope.** Follow-up on the user's report: profiles could be created, copied, renamed and switched,

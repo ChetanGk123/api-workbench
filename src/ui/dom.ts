@@ -385,6 +385,60 @@ export function disclosure(title: string, ...children: Node[]): HTMLDetailsEleme
 }
 
 // A detached anchor keeps the download out of the host page's DOM.
+/**
+ * A modal confirmation inside the panel. A native <dialog> renders in the top layer, so
+ * `.aw-root`'s overflow cannot clip it, and Esc, focus trapping and the backdrop need no code.
+ * Resolves false on Cancel, Esc, or the screen being torn down while it is open.
+ */
+export function confirmDialog(
+  host: Element,
+  title: string,
+  message: string,
+  confirmLabel: string,
+  signal: AbortSignal,
+): Promise<boolean> {
+  const dialog = el("dialog", "aw-dlg")
+  dialog.setAttribute("aria-label", title)
+  const form = el("form", "aw-col aw-gap10")
+  form.method = "dialog"
+  const cancel = el("button", "aw-btn aw-out aw-sm aw-grow", "Cancel")
+  const confirm = el("button", "aw-btn aw-dst aw-sm aw-grow", confirmLabel)
+  confirm.value = "confirm"
+  form.append(
+    el("span", "aw-lbl", title),
+    el("p", "aw-hint", message),
+    group("aw-row aw-actions", cancel, confirm),
+  )
+  dialog.append(form)
+  const root = host.closest(".aw-root")
+  root?.append(dialog)
+  return new Promise((resolve) => {
+    dialog.addEventListener(
+      "close",
+      () => {
+        dialog.remove()
+        resolve(dialog.returnValue === "confirm")
+      },
+      { once: true },
+    )
+    // A screen torn down under an open dialog must not strand it in the top layer.
+    signal.addEventListener("abort", () => dialog.close(), { once: true })
+    dialog.showModal()
+    // The top layer is positioned against the viewport, so the dialog is centred on the panel
+    // after it is measurable, and clamped to stay on screen wherever the panel has been dragged.
+    const box = root?.getBoundingClientRect()
+    if (box) {
+      const size = dialog.getBoundingClientRect()
+      const place = (start: number, span: number, self: number, limit: number) =>
+        `${Math.max(8, Math.min(limit - self - 8, start + (span - self) / 2))}px`
+      dialog.style.left = place(box.x, box.width, size.width, window.innerWidth)
+      dialog.style.top = place(box.y, box.height, size.height, window.innerHeight)
+    }
+    // The destructive action is never the focused default.
+    cancel.focus()
+  })
+}
+
 export function downloadJson(json: string, name: string): string {
   const file = `${name.trim().replace(/[^\w.-]+/g, "-").replace(/^-|-$/g, "") || "profile"}.json`
   const url = URL.createObjectURL(new Blob([json], { type: "application/json" }))

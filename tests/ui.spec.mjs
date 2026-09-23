@@ -336,15 +336,23 @@ test('UI deleting a profile activates the next one, and deleting the last leaves
   const remove = panel(page).locator('.aw-body').getByRole('button', { name: 'Delete profile', exact: true });
   await expect(options).toHaveCount(2);
 
-  // A dismissed confirmation deletes nothing.
-  page.once('dialog', dialog => dialog.dismiss());
+  // The confirmation is the panel's own dialog, not the page's native confirm(); cancelling,
+  // and Escape, delete nothing.
+  const confirmation = panel(page).locator('dialog.aw-dlg');
+  const accept = () => confirmation.getByRole('button', { name: 'Delete', exact: true }).click();
   await remove.click();
+  await expect(confirmation).toBeVisible();
+  await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(confirmation).toHaveCount(0);
+  await remove.click();
+  await page.keyboard.press('Escape');
+  await expect(confirmation).toHaveCount(0);
   await expect(switcher).toHaveText('Import Demo');
   await expect(options).toHaveCount(2);
 
   // Deleting the live profile hands the stored copy, and its endpoints, to the panel.
-  page.once('dialog', dialog => dialog.accept());
   await remove.click();
+  await accept();
   await expect(switcher).toHaveText('Copy');
   await expect(options).toHaveCount(1);
   await openEndpoints(page);
@@ -352,8 +360,8 @@ test('UI deleting a profile activates the next one, and deleting the last leaves
 
   // The last delete cannot leave the panel without a profile, so an empty one takes over.
   await headerButton(page, 'Settings').click();
-  page.once('dialog', dialog => dialog.accept());
   await remove.click();
+  await accept();
   await expect(switcher).toHaveText('127.0.0.1');
   await openEndpoints(page);
   await expect(panel(page).locator('.aw-endpoint-row')).toHaveCount(0);

@@ -465,3 +465,22 @@ p {
   justify-content: center;
   flex-shrink: 0;
 }
+
+/* Confirmations are a native <dialog> inside .aw-root: the top layer escapes the panel's
+ * overflow, and the element supplies Esc, focus trapping and the backdrop. */
+.aw-dlg {
+  position: fixed;
+  margin: 0;
+  padding: 14px;
+  width: min(320px, calc(100vw - 32px));
+  background: var(--aw-zinc-925);
+  border: 1px solid var(--aw-zinc-800);
+  border-radius: 10px;
+  color: var(--aw-zinc-50);
+  box-shadow:
+    0 10px 28px rgba(0, 0, 0, 0.6),
+    0 2px 8px rgba(0, 0, 0, 0.45);
+}
+.aw-dlg::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+}
