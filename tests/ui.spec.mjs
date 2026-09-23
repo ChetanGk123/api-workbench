@@ -325,3 +325,36 @@ test('UI export carries only the active profile and its endpoints, and import ke
   await panel(page).locator('.aw-tb').getByRole('button', { name: 'Active profile' }).click();
   await expect(page.locator('#api-workbench .aw-menu:not([hidden])').getByRole('menuitemradio')).toHaveText(['Import Demo', 'Copy']);
 });
+
+test('UI deleting a profile activates the next one, and deleting the last leaves an empty profile', async ({ page }) => {
+  await importSample(page);
+  await headerButton(page, 'Settings').click();
+  await panel(page).getByPlaceholder('New profile name').fill('Copy');
+  await panel(page).getByRole('button', { name: 'Save as profile', exact: true }).click();
+  const switcher = panel(page).locator('.aw-tb').getByRole('button', { name: 'Active profile' });
+  const options = panel(page).locator('.aw-body').getByRole('combobox', { name: 'Active profile' }).locator('option');
+  const remove = panel(page).locator('.aw-body').getByRole('button', { name: 'Delete profile', exact: true });
+  await expect(options).toHaveCount(2);
+
+  // A dismissed confirmation deletes nothing.
+  page.once('dialog', dialog => dialog.dismiss());
+  await remove.click();
+  await expect(switcher).toHaveText('Import Demo');
+  await expect(options).toHaveCount(2);
+
+  // Deleting the live profile hands the stored copy, and its endpoints, to the panel.
+  page.once('dialog', dialog => dialog.accept());
+  await remove.click();
+  await expect(switcher).toHaveText('Copy');
+  await expect(options).toHaveCount(1);
+  await openEndpoints(page);
+  await expect(panel(page).locator('.aw-endpoint-row')).toHaveCount(2);
+
+  // The last delete cannot leave the panel without a profile, so an empty one takes over.
+  await headerButton(page, 'Settings').click();
+  page.once('dialog', dialog => dialog.accept());
+  await remove.click();
+  await expect(switcher).toHaveText('127.0.0.1');
+  await openEndpoints(page);
+  await expect(panel(page).locator('.aw-endpoint-row')).toHaveCount(0);
+});

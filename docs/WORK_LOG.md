@@ -2,7 +2,7 @@
 
 ## Current state
 
-M0–M7 are implemented and verified in Chrome by automated checks (99 checks). Saved-bookmark
+M0–M7 are implemented and verified in Chrome by automated checks (100 checks). Saved-bookmark
 installation and all Edge checks remain outstanding for every milestone.
 
 Current assigned work: M7 breakpoints complete and verified in Chrome, plus the M4 recorder review
@@ -27,6 +27,50 @@ when a later milestone lands.
 | M8 — Flow/Independent runs | NOT STARTED |
 | M9 — Complete import support | NOT STARTED |
 | M10 — Integrated release | NOT STARTED |
+
+## 2026-09-23 — Delete a profile
+
+**Scope.** Follow-up on the user's report: profiles could be created, copied, renamed and switched,
+but never removed, so a junk or recorded profile stayed in the switcher forever. Endpoints and
+rules already had a trash control; profiles had none.
+
+**Changed files.**
+
+- `src/entry.ts` — `deleteProfile(id)` drops the snapshot. Deleting a stored profile leaves the
+  live one untouched; deleting the live one activates the next stored profile, or an empty profile
+  when it was the last, because the panel cannot sit without one. The five steps every profile
+  swap performs (set rules, reset the engine, persist, clear matches, resync stats) are now one
+  `activate` helper shared by `selectProfile`, `deleteProfile` and `createProfileFromRecordings`,
+  replacing three copies of the same body.
+- `src/ui/screens.ts`, `src/ui/shell.ts` — a trash control beside the Settings profile selector,
+  matching the endpoint and rule idiom. It is the one destructive action here that carries a
+  profile's endpoints and rules with it and has no undo, so it asks for confirmation first and
+  says when the deletion will leave an empty profile behind. The selector moved from `labeled` to
+  `labeledAction` and now carries its own `aria-label`, since the control sits outside the label.
+- `tests/ui.spec.mjs` — dismissing the confirmation deletes nothing; accepting hands the stored
+  copy and its endpoints to the panel; the last delete leaves a profile named for the page with no
+  endpoints.
+
+**Commands and outcomes.**
+
+- `npm run build` → exit 0. raw 264,354 B, minified 153,408 B, encoded bookmark URL 217,924
+  characters.
+- `npx playwright test` → 100 passed in 1.0 min, Chrome, macOS darwin 25.6.0, Node v24.21.0. A
+  stale fixture server again held port 4173 and was killed before the run.
+
+**Not run.** No Edge or saved-bookmark check, as for every milestone. The confirmation is the host
+page's native `confirm()`, following the existing `alert()` on version conflict; it has not been
+checked against a page that overrides `window.confirm`.
+
+**Limitations.** Deletion is immediate and unrecoverable — there is no undo and no trash. Only the
+active profile can be deleted, since the Settings selector switches profiles on change and so
+always names the live one.
+
+**Decisions.** Confirmation by native dialog rather than an in-panel two-step, so no new UI state
+exists to keep in sync. Deleting the last profile resets to an empty one instead of being blocked,
+which keeps "start over" reachable without a separate control.
+
+**Next task.** M8 — Flow/Independent repeat runner, unchanged by this entry.
 
 ## 2026-09-23 — Profile names derived from the host, and unique by construction
 

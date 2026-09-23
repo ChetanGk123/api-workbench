@@ -60,6 +60,7 @@ export type Ctx = {
   runOnce: (endpointId: string) => void
   saveProfileAs: (name: string) => void
   selectProfile: (id: string) => void
+  deleteProfile: (id: string) => void
   importConfig: (serialized: string) => string | undefined
   reorderEndpoint: (id: string, direction: "up" | "down") => void
   startRecording: () => void
@@ -798,8 +799,8 @@ function settings(ctx: Ctx): HTMLElement {
     refreshProfiles()
   }, ctx.signal)
   const saved = el("select", "aw-sel aw-grow")
-  // labeled() wraps it in a <label>, so the visible text is the accessible name; an aria-label
-  // reading "Saved profile" would contradict the "Active profile" the user sees.
+  // labeledAction() puts the delete control outside a <label>, so the select carries its own
+  // accessible name; it repeats the visible text rather than contradicting it.
   const refreshProfiles = () => {
     const current = ctx.state().config
     saved.replaceChildren()
@@ -810,7 +811,16 @@ function settings(ctx: Ctx): HTMLElement {
     }
     saved.value = current.profile.id
   }
+  saved.setAttribute("aria-label", "Active profile")
   refreshProfiles()
+  const remove = iconButton("aw-btn aw-gh aw-ic aw-xs2", "trash", "Delete profile", () => {
+    const current = ctx.state().config
+    const last = !(current.savedProfiles ?? []).some(item => item.profile.id !== current.profile.id)
+    // A profile takes its endpoints and rules with it and there is no undo, so this one asks first.
+    if (!confirm(`Delete profile "${current.profile.name}"?${last ? " It is the last one, so an empty profile takes its place." : ""}`)) return
+    ctx.deleteProfile(current.profile.id)
+    ctx.go("settings")
+  }, ctx.signal)
   saved.addEventListener("change", () => { ctx.selectProfile(saved.value); ctx.go("settings") }, { signal: ctx.signal })
   const saveAsName = el("input", "aw-in aw-grow")
   saveAsName.placeholder = "New profile name"
@@ -827,7 +837,7 @@ function settings(ctx: Ctx): HTMLElement {
   const saveAsBlock = el("div", "aw-inset aw-col aw-gap10")
   saveAsBlock.append(el("span", "aw-lbl", "Save current config as a new profile"), group("aw-row", saveAsName, saveAs))
   profile.append(group("aw-row", icon("book"), el("span", "aw-lbl", "Profiles")),
-    labeled("Active profile", saved),
+    labeledAction("Active profile", saved, remove),
     group("aw-col aw-gap6", el("span", "aw-lbl", "Profile name"), group("aw-row", profileName, save)),
     saveAsBlock, status,
     el("div", "aw-xs aw-mu", `Origin-scoped storage · ${ctx.state().storageReady ? "IndexedDB available" : "session fallback"}`),

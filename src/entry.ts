@@ -11,6 +11,7 @@ import {
   suggestProfileName,
   type Endpoint,
   type Profile,
+  type ProfileSnapshot,
   type Rule,
   type WorkbenchConfig,
 } from "./core/model"
@@ -74,6 +75,19 @@ if (existing) {
   store.set({ recordings: recorder.records })
 
   const rulesOf = (config: WorkbenchConfig) => config.rules ?? []
+  // Making a profile live swaps the rule set and drops every cursor, budget and sample stream.
+  const activate = (
+    profile: Profile,
+    endpoints: Endpoint[],
+    rules: Rule[],
+    savedProfiles: ProfileSnapshot[],
+  ) => {
+    pipeline.setRules(rules)
+    pipeline.engine.resetAll()
+    persist({ profile, endpoints, rules, savedProfiles })
+    store.set({ matched: [] })
+    syncRuleStats()
+  }
   // Every stored name, so a new profile never collides with one already in the list.
   const profileNames = (config: WorkbenchConfig) =>
     [config.profile, ...(config.savedProfiles ?? []).map((item) => item.profile)].map(
@@ -163,20 +177,24 @@ if (existing) {
       })
     },
     selectProfile: (id) => {
-      const snapshot = store.state.config.savedProfiles?.find((item) => item.profile.id === id)
+      const config = store.state.config
+      const snapshot = config.savedProfiles?.find((item) => item.profile.id === id)
       if (!snapshot) return
-      // Switching profile swaps the rule set and drops every cursor, budget and sample stream.
-      const rules = snapshot.rules ?? []
-      pipeline.setRules(rules)
-      pipeline.engine.resetAll()
-      persist({
-        ...store.state.config,
-        profile: snapshot.profile,
-        endpoints: snapshot.endpoints,
-        rules,
-      })
-      store.set({ matched: [] })
-      syncRuleStats()
+      activate(snapshot.profile, snapshot.endpoints, snapshot.rules ?? [], config.savedProfiles ?? [])
+    },
+    deleteProfile: (id) => {
+      const config = store.state.config
+      const savedProfiles = (config.savedProfiles ?? []).filter((item) => item.profile.id !== id)
+      // Deleting a stored profile leaves the live one alone; deleting the live one has to leave
+      // something active, so the next stored profile takes over, or an empty one when it was last.
+      if (config.profile.id !== id) return persist({ ...config, savedProfiles })
+      const next = savedProfiles[0]
+      activate(
+        next?.profile ?? defaultProfile(),
+        next?.endpoints ?? [],
+        next?.rules ?? [],
+        savedProfiles,
+      )
     },
     importConfig: (serialized) => {
       try {
@@ -260,11 +278,7 @@ if (existing) {
           rules: rulesOf(config),
         })
       savedProfiles.push({ profile, endpoints: owned, rules: [] })
-      pipeline.setRules([])
-      pipeline.engine.resetAll()
-      persist({ profile, endpoints: owned, rules: [], savedProfiles })
-      store.set({ matched: [] })
-      syncRuleStats()
+      activate(profile, owned, [], savedProfiles)
     },
   })
 
