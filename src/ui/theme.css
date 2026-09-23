@@ -345,6 +345,25 @@
   gap: 7px;
 }
 
+/* A module that is touching traffic is outlined on Home, so the live card reads at a glance. */
+.aw-card.aw-live {
+  border-color: rgba(34, 197, 94, 0.45);
+  box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.12);
+}
+
+/* Title-bar module indicators. The dot sits on the icon's corner, as in the launcher. */
+.aw-tb .aw-tbm .aw-ind > .aw-dot {
+  top: -2px;
+  right: -3px;
+}
+.aw-tb .aw-tbm .aw-ind {
+  display: inline-flex;
+}
+/* The brand yields before the indicators do: which modules are live outranks the product name. */
+.aw-tb .aw-tbm {
+  flex-shrink: 0;
+}
+
 /* home.html shrinks the Endpoints tile's count badge so the tile keeps its 84px height. */
 .aw-qa .aw-bd {
   height: 18px;

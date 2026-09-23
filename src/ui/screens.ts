@@ -311,39 +311,84 @@ function headerFields(ctx: Ctx, values: HeaderValue[], save: (headers: HeaderVal
   return section
 }
 
+/**
+ * What each module reports on its Home card, in the wording of `home.html`: the rule ratio and
+ * the module's own name for a hit. Shared with the title bar and the tab strip via `moduleState`.
+ */
+const MODULE_STATS: Record<RuleKind, { rules: string; hits: string }> = {
+  mock: { rules: "rules active", hits: "requests matched" },
+  intercept: { rules: "rules active", hits: "responses modified" },
+  route: { rules: "rules enabled", hits: "routed" },
+  chaos: { rules: "rules", hits: "chaos hits" },
+}
+
+/** One rule module's live state. Home's card, the title-bar indicators and the tab dots all read
+ * it, so the three can never disagree about whether a module is running. */
+export function moduleState(state: Readonly<UIState>, kind: RuleKind) {
+  const rules = (state.config.rules ?? []).filter(rule => rule.kind === kind)
+  const enabled = rules.filter(rule => rule.enabled).length
+  const hits = rules.reduce((total, rule) => total + (state.ruleHits[rule.id] ?? 0), 0)
+  const running = state.moduleActive[kind]
+  // Paused says the rules are configured but nothing is touching traffic; Inactive says there is
+  // nothing to run in the first place.
+  const label = running ? "Running" : rules.length ? "Paused" : "Inactive"
+  return { rules: rules.length, enabled, hits, running, label }
+}
+
+export const RULE_MODULES = ["mock", "intercept", "route", "chaos"] as const
+
 function moduleCard(ctx: Ctx, module: (typeof MODULES)[number]): HTMLElement {
   const section = card()
   const tile = el("div", "aw-tile")
   tile.append(icon(SCREENS[module.id].icon))
   const ready = module.id === "test"
-  // Reference card: title + state badge, a stat line, and the module's own actions below.
+  // Reference card: title + state badge, a stat line, and the module's own action below.
   const badge = el("span", "aw-bd")
   const dot = el("span", "aw-dot")
-  const badgeLabel = document.createTextNode(ready ? "Ready" : "Inactive")
+  const badgeLabel = document.createTextNode("Inactive")
   badge.append(dot, badgeLabel)
+  // The reference titles the Tester card with its plan line alone: it has no on/off state to show.
+  badge.hidden = ready
   const summary = el("div", "aw-xs aw-mu")
   const open = button("aw-btn aw-gh aw-sm", "Open", () => ctx.go(module.id), ctx.signal)
   open.setAttribute("aria-label", `Open ${module.title}`)
   open.append(icon("right"))
   const actions = el("div", "aw-row aw-actions")
   if (ready) {
-    actions.append(button("aw-btn aw-pri aw-sm", "Run", () => ctx.go("test"), ctx.signal),
-      button("aw-btn aw-out aw-sm", "History", () => ctx.go("test"), ctx.signal))
+    const run = button("aw-btn aw-pri aw-sm", "Run", () => ctx.go("test"), ctx.signal)
+    run.prepend(icon("play", "aw-i12"))
+    // History opens the newest run; Results is the screen that renders one.
+    const history = button("aw-btn aw-out aw-sm", "History", () => {
+      const latest = ctx.state().runs[0]
+      if (latest) ctx.openRun(latest.id)
+      ctx.go("results")
+    }, ctx.signal)
+    history.prepend(icon("history", "aw-i14"))
+    actions.append(run, history)
     ctx.watch(state => {
-      const runs = state.testerHistory.length
-      summary.textContent = `${state.config.endpoints.length} endpoint${state.config.endpoints.length === 1 ? "" : "s"} · ${runs ? `${runs} run${runs === 1 ? "" : "s"}` : "no runs yet"}`
+      const plan = ctx.plan()
+      const total = state.config.endpoints.length
+      const included = state.config.endpoints.filter(item => !plan.excluded.includes(item.id)).length
+      const last = state.runs[0]?.endedAt ?? state.runs[0]?.startedAt
+      summary.textContent = `${plan.name} · ${included}/${total} in plan · ${last ? `Last run ${new Date(last).toLocaleTimeString()}` : "No runs yet"}`
     })
   } else {
     const kind = module.id as RuleKind
-    actions.append(button("aw-btn aw-out aw-sm", kind === "chaos" ? "Configure" : "Manage rules", () => ctx.go(module.id), ctx.signal))
+    const words = MODULE_STATS[kind]
+    // One button, as on the reference card: the module's own on/off switch. Its rules are edited
+    // on the module screen, which Open reaches.
+    const toggle = button("aw-btn aw-out aw-sm", "", () => ctx.setModuleActive(kind, !ctx.state().moduleActive[kind]), ctx.signal)
+    actions.append(toggle)
     ctx.watch(state => {
-      const rules = (state.config.rules ?? []).filter(rule => rule.kind === kind)
-      const enabled = rules.filter(rule => rule.enabled).length
-      const on = state.moduleActive[kind]
-      badgeLabel.textContent = on ? "Active" : "Inactive"
-      dot.className = on ? "aw-dot aw-a" : "aw-dot"
-      const hits = rules.reduce((total, rule) => total + (state.ruleHits[rule.id] ?? 0), 0)
-      summary.textContent = `${rules.length} rule${rules.length === 1 ? "" : "s"} · ${enabled} enabled · ${hits} hit${hits === 1 ? "" : "s"}`
+      const module = moduleState(state, kind)
+      badgeLabel.textContent = module.label
+      badge.className = module.running ? "aw-bd aw-gr" : module.rules ? "aw-bd aw-am" : "aw-bd"
+      dot.className = module.running ? "aw-dot aw-g" : module.rules ? "aw-dot aw-a" : "aw-dot"
+      section.classList.toggle("aw-live", module.running)
+      summary.textContent = `${module.enabled}/${module.rules} ${words.rules} · ${module.hits} ${words.hits}`
+      toggle.className = module.running ? "aw-btn aw-dst aw-sm" : "aw-btn aw-out aw-sm"
+      toggle.replaceChildren(icon(module.running ? "stop" : "play", "aw-i12"),
+        document.createTextNode(module.running ? "Stop" : "Activate"))
     })
   }
   section.append(group("aw-row aw-gap10", tile,

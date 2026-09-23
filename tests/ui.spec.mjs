@@ -371,3 +371,47 @@ test('UI deleting a profile activates the next one, and deleting the last leaves
   await openEndpoints(page);
   await expect(panel(page).locator('.aw-endpoint-row')).toHaveCount(0);
 });
+
+test('UI Home reports each module the way the reference card does, and switches it on from there', async ({ page }) => {
+  await launch(page);
+  // One intercept rule, so the card can show a configured module that is not running.
+  await importSample(page, { ...sample, rules: [{
+    id: 'rule-1', kind: 'intercept', name: 'demo', enabled: true, priority: 0, seq: 0,
+    match: { method: 'GET', url: '/api/echo', conditions: [] },
+    response: { status: 200, body: '', headers: [] },
+  }] });
+  await goHome(page);
+  const card = name => panel(page).locator('.aw-card', { hasText: name }).first();
+  const indicators = panel(page).locator('.aw-tb .aw-tbm .aw-ind:visible');
+  const interceptTab = panel(page).locator('.aw-tabs').getByRole('button', { name: 'Intercept', exact: true });
+
+  // The Tester card states the live plan, not an on/off state.
+  await expect(card('API Tester')).toContainText('Working Plan · 2/2 in plan · No runs yet');
+  await expect(card('API Tester').locator('.aw-bd')).toBeHidden();
+
+  // Reference stat lines: each module counts its rules and names its own kind of hit.
+  await expect(card('Mock Server')).toContainText('0/0 rules active · 0 requests matched');
+  await expect(card('API Interceptor')).toContainText('1/1 rules active · 0 responses modified');
+  await expect(card('Page Routing')).toContainText('0/0 rules enabled · 0 routed');
+  await expect(card('Chaos Engineering')).toContainText('0/0 rules · 0 chaos hits');
+
+  // A module with no rules is Inactive and stays out of the title bar; a configured one is Paused.
+  await expect(card('Mock Server').locator('.aw-bd')).toHaveText('Inactive');
+  await expect(card('API Interceptor').locator('.aw-bd')).toHaveText('Paused');
+  await expect(indicators).toHaveCount(1);
+  await expect(interceptTab.locator('.aw-d')).toBeHidden();
+
+  // Activate switches the module on from Home: badge, card outline and tab dot follow one state.
+  const intercept = card('API Interceptor');
+  await intercept.getByRole('button', { name: 'Activate', exact: true }).click();
+  await expect(intercept.locator('.aw-bd')).toHaveText('Running');
+  await expect(intercept).toHaveClass(/aw-live/);
+  await expect(interceptTab.locator('.aw-d')).toBeVisible();
+  await expect(indicators).toHaveCount(1);
+
+  // Stop returns it to Paused: the rule is still configured, it is just not touching traffic.
+  await intercept.getByRole('button', { name: 'Stop', exact: true }).click();
+  await expect(intercept.locator('.aw-bd')).toHaveText('Paused');
+  await expect(intercept).not.toHaveClass(/aw-live/);
+  await expect(interceptTab.locator('.aw-d')).toBeHidden();
+});

@@ -1282,6 +1282,58 @@ Playwright; blob downloads under a host-page CSP `sandbox` directive are unteste
 
 **Next task.** M8 — Flow/Independent repeat runner.
 
+## 2026-09-23 — Home screen matched to the reference card layout
+
+**Scope.** Home only, against `design/reference/screens/home.html` and a mockup the user supplied.
+No transport, storage or rule-evaluation change.
+
+**Changed files.**
+
+- `src/ui/screens.ts` — `moduleCard` rewritten. Each rule module states its rule ratio and its own
+  name for a hit, in the reference's wording (`MODULE_STATS`): `rules active · requests matched`
+  for Mock, `· responses modified` for Intercept, `rules enabled · routed` for Route, `rules ·
+  chaos hits` for Chaos. The card's single action is now the module's own switch, Activate or Stop
+  (`aw-dst`), replacing "Manage rules"/"Configure"; rules are still edited through Open. The Tester
+  card carries `<plan> · <included>/<total> in plan · Last run <time>` and no badge, as the
+  reference does, and its History button opens the newest run on Results. New exported
+  `moduleState` is the one definition of a module's live state.
+- `src/ui/shell.ts` — title-bar module indicators (`aw-tbm`/`aw-ind`), one per rule module, dotted
+  green while running and amber while paused, hidden entirely for a module with no rules so a fresh
+  launch keeps its brand width. Tab dots (`.aw-tt .aw-d`) mark a running module. Both read
+  `moduleState`, so the three places cannot disagree.
+- `src/ui/dom.ts` — `stop` icon for the Stop button.
+- `src/ui/theme.css` — `.aw-card.aw-live` green outline for a running module, and the title-bar
+  indicator geometry.
+- `tests/ui.spec.mjs` — new check covering the stat lines, Inactive/Paused/Running, the live
+  outline, the tab dot, the indicator cluster and Activate/Stop from Home.
+
+**Decisions.**
+
+- The Record quick action stays, making four tiles rather than the reference's three: the Record
+  screen has no other entry point, and the user chose to keep it when asked.
+- Route does **not** get the reference's amber "Extension required" badge. In this build Route
+  rewrites fetch and XHR requests in this frame and works without an extension, so the badge would
+  misstate what the module does. It reports Inactive/Paused/Running like the others.
+- Run history and Activity stay below Quick actions. They sit below the fold in the mockup, and the
+  run history was fixed earlier the same day.
+- The Tester card's Run button still navigates to Test rather than dispatching. Starting a plan from
+  Home would skip the preflight that the Load view shows before it sends real requests.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0.
+- `npm run build` → exit 0. minified 237,853 B, encoded bookmark URL 342,577 characters.
+- `npx playwright test` → see the run below; the pre-existing specs needed no selector changes.
+- Rendered Home at 480 px and compared against the supplied mockup by screenshot.
+
+**Not run.** Edge — not installed on this machine. Saved-bookmark installation, as before.
+
+**Limitations.** At 480 px with a long profile name the brand still elides ("API Workben…"); the
+indicators hold their width because which modules are live outranks the product name. The mockup's
+"Last run 10:02:02 AM" uses the browser's locale time, so its format follows the host machine.
+
+**Next task.** M10 (integrated release), unchanged.
+
 ## 2026-09-23 — Home run history lists plan runs, not only Once results
 
 **Reported.** Home kept saying "No runs yet. Run an endpoint from Test." after a plan run finished,

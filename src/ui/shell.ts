@@ -2,7 +2,7 @@ import theme from "../../design/reference/aw-theme.css"
 import additions from "./theme.css"
 import { el, icon, button, iconButton, dropdown } from "./dom"
 import type { Store } from "../core/store"
-import { SCREENS, TABS, renderScreen, type Ctx, type ScreenId, type UIState } from "./screens"
+import { RULE_MODULES, SCREENS, TABS, moduleState, renderScreen, type Ctx, type ScreenId, type UIState } from "./screens"
 
 export type ShellOptions = {
   version: string
@@ -119,11 +119,24 @@ export function createShell(options: ShellOptions) {
       )
   }
 
+  // Title-bar module indicators: home.html carries one per rule module, dotted when it is live, so
+  // the panel says what is touching traffic from every screen and not only from Home.
+  const indicators = el("div", "aw-tbm")
+  const moduleIndicators = new Map<(typeof RULE_MODULES)[number], { indicator: HTMLElement; dot: HTMLElement }>()
+  for (const kind of RULE_MODULES) {
+    const indicator = el("span", "aw-ind")
+    const dot = el("span", "aw-dot")
+    indicator.append(icon(SCREENS[kind].icon, "aw-i14"), dot)
+    moduleIndicators.set(kind, { indicator, dot })
+    indicators.append(indicator)
+  }
+
   // Header
   const header = el("header", "aw-tb")
   header.append(
     logo(),
     el("span", "aw-brand", "API Workbench"),
+    indicators,
     el("div", "aw-grow"),
     profile(),
     iconButton("aw-btn aw-gh aw-ic aw-sm", "gear", "Settings", () => go("settings"), signal),
@@ -410,7 +423,29 @@ export function createShell(options: ShellOptions) {
     place(position.x, position.y)
   }
 
+  const tabDots = new Map<(typeof RULE_MODULES)[number], HTMLElement>()
+  for (const kind of RULE_MODULES) {
+    const dot = el("span", "aw-d")
+    dot.hidden = true
+    tabs.get(kind)?.append(dot)
+    tabDots.set(kind, dot)
+  }
+
   const unsubscribe = store.subscribe((state) => {
+    const states = RULE_MODULES.map((kind) => [kind, moduleState(state, kind)] as const)
+    for (const [kind, module] of states) {
+      const entry = moduleIndicators.get(kind)
+      if (entry) {
+        // Green while it is touching traffic, amber while its rules sit idle. A module holding no
+        // rules drops out of the cluster entirely, so the title bar only grows as one is set up
+        // and the brand keeps its width on a fresh launch.
+        entry.dot.className = module.running ? "aw-dot aw-g" : "aw-dot aw-a"
+        entry.indicator.hidden = !module.running && !module.rules
+      }
+      const tabDot = tabDots.get(kind)
+      if (tabDot) tabDot.hidden = !module.running
+    }
+    indicators.title = states.map(([kind, module]) => `${SCREENS[kind].label}: ${module.label}`).join(" · ")
     const paused = state.paused.length
     counter.textContent =
       `${state.observed} request${state.observed === 1 ? "" : "s"} observed · ${location.origin}` +
