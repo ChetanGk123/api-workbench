@@ -2,13 +2,15 @@
  * Content detection. A format is identified by its own discriminator — never by a file extension
  * and never by the mere presence of a field named `request`.
  */
+import { SCHEMA_VERSION } from "./native"
+
 export type FormatId = "native" | "swagger" | "openapi" | "har" | "postman" | "curl" | "fetch" | "recorder"
 
 export type FormatInfo = { id: FormatId; label: string; version: string; note: string }
 
 /** Every implemented adapter and the exact version it supports. Nothing else is listed as supported. */
 export const FORMATS: readonly FormatInfo[] = [
-  { id: "native", label: "Native", version: "schema 1", note: "API Workbench profile + endpoints JSON" },
+  { id: "native", label: "Native", version: `schema ${SCHEMA_VERSION}`, note: "API Workbench profile + endpoints JSON" },
   { id: "swagger", label: "Swagger", version: "2.0", note: "JSON only · local $ref" },
   { id: "openapi", label: "OpenAPI", version: "3.0", note: "JSON only · local $ref" },
   { id: "har", label: "HAR", version: "1.2", note: "Entries with request and available response samples" },
@@ -40,16 +42,41 @@ export function detect(text: string): Detection {
     return { version: "", reason: error instanceof Error ? `Invalid JSON: ${error.message}` : "Invalid JSON." }
   }
   const document = record(parsed)
-  if (document.profile && Array.isArray(document.endpoints))
-    return { format: "native", version: `schema ${String(document.schemaVersion ?? 1)}`, reason: "Native profile + endpoints export." }
+  // Reported versions name the reader this build has, never the version the document declares: a
+  // newer document is read by the reader named here, or rejected by the adapter.
+  if (document.profile && Array.isArray(document.endpoints)) {
+    const declared = String(document.schemaVersion ?? SCHEMA_VERSION)
+    return {
+      format: "native",
+      version: `schema ${SCHEMA_VERSION}`,
+      reason: declared === String(SCHEMA_VERSION)
+        ? "Native profile + endpoints export."
+        : `Native profile + endpoints export declaring schema ${declared}, read with the schema ${SCHEMA_VERSION} reader.`,
+    }
+  }
   if (typeof document.openapi === "string" && document.openapi.startsWith("3."))
-    return { format: "openapi", version: document.openapi, reason: `OpenAPI ${document.openapi}.` }
+    return {
+      format: "openapi",
+      version: "3.0",
+      reason: document.openapi.startsWith("3.0")
+        ? `OpenAPI ${document.openapi}.`
+        : `OpenAPI ${document.openapi}, read with the 3.0 reader.`,
+    }
   if (document.swagger === "2.0") return { format: "swagger", version: "2.0", reason: "Swagger 2.0." }
   const log = record(document.log)
-  if (Array.isArray(log.entries)) return { format: "har", version: String(log.version ?? "1.2"), reason: `HAR ${String(log.version ?? "1.2")}.` }
+  if (Array.isArray(log.entries)) {
+    const declared = String(log.version ?? "1.2")
+    return { format: "har", version: "1.2", reason: declared === "1.2" ? "HAR 1.2." : `HAR ${declared}, read with the 1.2 reader.` }
+  }
   const info = record(document.info)
   const schema = String(info.schema ?? "")
   if (Array.isArray(document.item) && (schema.includes("v2.1.0") || info._postman_id))
-    return { format: "postman", version: schema.includes("v2.0.0") ? "2.0" : "2.1", reason: "Postman collection." }
+    return {
+      format: "postman",
+      version: "Collection v2.1",
+      reason: !schema || schema.includes("v2.1.0")
+        ? "Postman collection v2.1."
+        : `Postman collection declaring ${schema}, read with the v2.1 reader.`,
+    }
   return { version: "", reason: "JSON with no recognised format discriminator. Choose a format to override detection." }
 }

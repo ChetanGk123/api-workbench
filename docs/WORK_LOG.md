@@ -2,7 +2,8 @@
 
 ## Current state
 
-M0–M9 are implemented and verified in Chrome by automated checks (179 checks). Saved-bookmark
+M0–M9 are implemented and verified in Chrome by automated checks (180 checks). The app version
+is `1.0.0`, written only in `package.json` and injected into the bundle by the build. Saved-bookmark
 installation and all Edge checks remain outstanding for every milestone. `npm run build` also writes
 the public landing page `dist/index.html`.
 
@@ -27,6 +28,93 @@ when a later milestone lands.
 | M8 — Flow/Independent runs | CODE COMPLETE · all M8 acceptance gates PASS in Chrome (36 checks) · saved-bookmark and Edge checks NOT RUN |
 | M9 — Complete import support | CODE COMPLETE · all M9 acceptance gates PASS in Chrome (38 checks) · saved-bookmark and Edge checks NOT RUN |
 | M10 — Integrated release | NOT STARTED |
+
+## 2026-09-23 — App version: plain semver 1.0.0, single-sourced from package.json
+
+**Scope.** The app version was `0.1.0-m9`, a milestone tag, and it was written twice. It is now
+`1.0.0` and lives in one place.
+
+**Changed files.**
+
+- `package.json` — `0.1.0-m9` → `1.0.0`, set by the user.
+- `src/entry.ts` — the hardcoded literal is replaced by `__AW_VERSION__`, the value the build
+  injects. Its only runtime use is the double-launch check, which is unchanged.
+- `src/assets.d.ts` — declares `__AW_VERSION__` so `tsc` typechecks the entry point.
+- `scripts/build.mjs` — reads `package.json` once, asserts the version is a plain semver
+  (`/^\d+\.\d+\.\d+$/`, so a `-m*` tag fails the build), and passes it to esbuild as a `define`
+  as well as to the landing page. The duplicate read further down is gone.
+- `scripts/showcase.mjs`, `tests/showcase.spec.mjs` — the landing page's format-table column is
+  now "Spec version read", and the note says those are the Swagger/OpenAPI/HAR/Postman spec
+  versions, not API Workbench's version. A reader had compared the app's `0.9.0` against the
+  table's `2.0`/`3.0` as if they were the same scale.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → clean.
+- `npm run build` → PASS (minified 231412 bytes, encoded URL 333040); `dist/api-workbench.min.js`
+  and `dist/index.html` both carry `1.0.0`.
+- `npx playwright test` → 180 passed (1.4m); `npx playwright test tests/showcase.spec.mjs` → 2
+  passed after the column rename.
+
+**Not run.** Edge and saved-bookmark checks, as in every prior entry.
+
+**Limitations.** `1.0.0` was chosen by the user. It is a version string, not evidence of a release:
+M10 (integrated release) is still outstanding, and saved-bookmark installation and every Edge check
+remain unrun, so the landing page's "Pre-release" note still stands. The double-launch alert
+compares versions between two bundles, so an old saved bookmark still reports `0.1.0-m9` against
+this one — which is what that check is for.
+
+**Next task.** M10 — integrated release.
+
+## 2026-09-23 — Import screen: reported versions name the reader, not the document
+
+**Scope.** Text only. The import screen must never display a version the build does not actually
+read. Detection previously echoed the version the document declared, so a HAR 1.3 log, an
+OpenAPI 3.1 document or a native export declaring schema 2 was announced as
+"Detected: HAR 1.3" / "OpenAPI 3.1.0" — a support claim for a version no adapter implements.
+
+**Changed files.**
+
+- `src/import/detect.ts` — `detect()` now reports the reader's version (`3.0`, `1.2`, `schema 1`,
+  `Collection v2.1`) in `Detection.version`, and names the declared version in `reason` only, as
+  "read with the … reader". The native row of `FORMATS` derives its version from
+  `SCHEMA_VERSION` instead of a hardcoded `schema 1`.
+- `tests/m9-core.spec.mjs` — new assertion that a 3.1 document, a HAR 1.3 log and a schema 2
+  native export each report the reader version with the declared version in the reason.
+- `tests/m9.spec.mjs` — the status-line assertion for an `openapi: 3.0.0` document now expects
+  `OpenAPI 3.0 read` (the reader), not `OpenAPI 3.0.0 read` (the document).
+- `scripts/showcase.mjs` — the landing page's format table header reads "Version read", and a note
+  under it states that a document declaring a newer version is read with the reader listed there or
+  refused, and that YAML, remote `$ref` and schema execution are not supported at all. The table
+  rows themselves were already generated from `FORMATS`, so the native row follows
+  `SCHEMA_VERSION` with no separate edit.
+- `tests/showcase.spec.mjs` — asserts the "Version read" header and the newer-version note, so the
+  landing page cannot drift back into advertising a version no adapter implements.
+
+`Detection.version` is display-only; no adapter selection, parsing or rejection behavior changed.
+`parseNative` still refuses a newer schema, and `parseHar` still records its own
+"read with the 1.2 reader" diagnostic.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → clean.
+- `npm run build` → PASS (minified 231415 bytes, encoded URL 333043).
+- `npx playwright test tests/m9-core.spec.mjs tests/m9.spec.mjs` → 39 passed.
+- `npx playwright test tests/showcase.spec.mjs` → 2 passed.
+- `npx playwright test` → 180 passed (1.4m), Chromium via Playwright 1.63.0. Re-run after the
+  landing-page change → 180 passed (1.4m).
+
+A leftover `node tests/fixtures/server.mjs` from an earlier run held 4173/4174 and made Playwright's
+own `webServer` fail to start; the config has no `reuseExistingServer`, so the stale process was
+stopped rather than the config changed.
+
+**Not run.** Edge (not installed) and saved-bookmark checks, as in every prior entry.
+
+**Limitations.** Nothing new is supported: an OpenAPI 3.1 document is still read by the 3.0 reader,
+so 3.1-only constructs (type arrays for nullability, `webhooks`, `$ref` siblings) are ignored
+rather than reported per-field. Adding a real 3.1 reader or YAML input remains unimplemented.
+
+**Next task.** M10 — integrated release.
 
 ## 2026-09-23 — Public showcase page in the build
 

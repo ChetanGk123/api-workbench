@@ -134,6 +134,20 @@ test('M9 each format is detected from its own content, not its extension', () =>
   assert.equal(detect(JSON.stringify({ schemaVersion: 1, profile: { id: 'p' }, endpoints: [] })).format, 'native');
 });
 
+test('M9 detection reports the reader this build has, never the version the document declares', () => {
+  const newer = detect(JSON.stringify({ openapi: '3.1.0', paths: {} }));
+  assert.equal(newer.version, '3.0');
+  assert.match(newer.reason, /OpenAPI 3\.1\.0, read with the 3\.0 reader/);
+  const newerHar = detect(JSON.stringify({ log: { version: '1.3', entries: [] } }));
+  assert.equal(newerHar.version, '1.2');
+  assert.match(newerHar.reason, /HAR 1\.3, read with the 1\.2 reader/);
+  const newerNative = detect(JSON.stringify({ schemaVersion: 2, profile: { id: 'p' }, endpoints: [] }));
+  assert.equal(newerNative.version, 'schema 1');
+  assert.match(newerNative.reason, /declaring schema 2, read with the schema 1 reader/);
+  assert.equal(detect(har).version, '1.2');
+  assert.equal(detect(postman).version, 'Collection v2.1');
+});
+
 test('M9 a JSON document that merely contains a request field is not identified', () => {
   const detection = detect(JSON.stringify({ request: { method: 'GET' }, items: [] }));
   assert.equal(detection.format, undefined);

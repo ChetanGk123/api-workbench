@@ -95,7 +95,7 @@ test('M9 a Swagger document and an OpenAPI document each produce endpoints with 
     openapi: '3.0.0', servers: [{ url: 'http://127.0.0.1:4173/api' }],
     paths: { '/echo': { post: { operationId: 'echo', requestBody: { content: { 'application/json': { examples: { full: { value: { a: 1 } }, empty: { value: {} } } } } }, responses: { 200: {} } } } },
   }));
-  await expect(statusLine(page)).toContainText('OpenAPI 3.0.0 read');
+  await expect(statusLine(page)).toContainText('OpenAPI 3.0 read');
   await expect(panel(page).getByRole('combobox', { name: 'Body example for POST /echo' })).toBeVisible();
 });
 

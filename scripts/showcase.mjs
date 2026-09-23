@@ -257,11 +257,12 @@ export function showcasePage({ bookmark, sizes, formats, version }) {
     <h2>Import what you already have</h2>
     <p>Paste it, load the file, or record the page — every source goes through the same review before anything is saved, and importing never sends a request or runs pasted code.</p>
     <table>
-      <thead><tr><th>Format</th><th>Version</th><th>Notes</th></tr></thead>
+      <thead><tr><th>Format</th><th>Spec version read</th><th>Notes</th></tr></thead>
       <tbody>
         ${formats.map(format => `<tr><td>${escapeHTML(format.label)}</td><td><span>${escapeHTML(format.version)}</span></td><td><span>${escapeHTML(format.note)}</span></td></tr>`).join('')}
       </tbody>
     </table>
+    <p class="note">These are each format's own spec version — the Swagger, OpenAPI, HAR and Postman specs — not API Workbench's version, which is shown at the top of this page. They name the readers the build has. A document declaring a newer version — OpenAPI 3.1, HAR 1.3, a newer Workbench export — is read with the reader listed here and told so, or refused; the newer version itself is not supported. YAML, remote <code>$ref</code> and schema execution are not supported at all.</p>
   </div>
 </section>
 

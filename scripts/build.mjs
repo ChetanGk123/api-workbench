@@ -4,7 +4,11 @@ import assert from 'node:assert/strict';
 import { showcasePage } from './showcase.mjs';
 
 await mkdir('dist', { recursive: true });
-const options = { entryPoints: ['src/entry.ts'], bundle: true, format: 'iife', target: 'es2022', loader: { '.css': 'text' }, metafile: true, write: false };
+// package.json is the only place the app version is written; the bundle and the landing page both
+// read it from here, so a release cannot ship a stale version baked into the source.
+const { version } = JSON.parse(await readFile('package.json', 'utf8'));
+assert.match(version, /^\d+\.\d+\.\d+$/, 'package.json version must be a plain semver');
+const options = { entryPoints: ['src/entry.ts'], bundle: true, format: 'iife', target: 'es2022', loader: { '.css': 'text' }, define: { __AW_VERSION__: JSON.stringify(version) }, metafile: true, write: false };
 const raw = await build(options);
 const min = await build({ ...options, minify: true });
 const code = min.outputFiles[0].text;
@@ -39,7 +43,6 @@ await writeFile('dist/install.html', `<!doctype html><html lang="en"><meta chars
 // registry rather than retyped here, so an unimplemented format can never be advertised.
 const registry = await build({ entryPoints: ['src/import/detect.ts'], bundle: true, format: 'esm', write: false });
 const { FORMATS } = await import(`data:text/javascript,${encodeURIComponent(registry.outputFiles[0].text)}`);
-const { version } = JSON.parse(await readFile('package.json', 'utf8'));
 const page = showcasePage({
   bookmark,
   version,

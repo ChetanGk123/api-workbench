@@ -18,6 +18,9 @@ test('Showcase the landing page installs the real bookmarklet and fetches nothin
   expect(await install.getAttribute('draggable')).not.toBe('false');
   // Every advertised format has an adapter: the table is generated from the adapter registry.
   await expect(page.locator('table tbody tr')).toHaveCount(7);
+  // The version column is the format spec the build reads, so the page never advertises a newer one.
+  await expect(page.locator('table thead')).toContainText('Spec version read');
+  await expect(page.locator('body')).toContainText('read with the reader listed here');
   await expect(page.locator('body')).toContainText('Drag the button to your bookmarks bar');
 });
 

@@ -27,7 +27,7 @@ import { downloadFile } from "./ui/dom"
 import { createRecorder } from "./recorder/recorder"
 import { createBreakpoints } from "./breakpoints/registry"
 
-const version = "0.1.0-m9"
+const version = __AW_VERSION__
 const key = "__api_workbench_7f49a1_v1__"
 type Instance = { version: string; restore: () => void }
 const registry = window as unknown as Record<string, Instance | undefined>
