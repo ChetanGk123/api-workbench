@@ -2,8 +2,9 @@
 
 ## Current state
 
-M0–M9 are implemented and verified in Chrome by automated checks (177 checks). Saved-bookmark
-installation and all Edge checks remain outstanding for every milestone.
+M0–M9 are implemented and verified in Chrome by automated checks (179 checks). Saved-bookmark
+installation and all Edge checks remain outstanding for every milestone. `npm run build` also writes
+the public landing page `dist/index.html`.
 
 Current assigned work: M9 (complete import support) complete and verified in Chrome. M10
 (integrated release) is next.
@@ -26,6 +27,44 @@ when a later milestone lands.
 | M8 — Flow/Independent runs | CODE COMPLETE · all M8 acceptance gates PASS in Chrome (36 checks) · saved-bookmark and Edge checks NOT RUN |
 | M9 — Complete import support | CODE COMPLETE · all M9 acceptance gates PASS in Chrome (38 checks) · saved-bookmark and Edge checks NOT RUN |
 | M10 — Integrated release | NOT STARTED |
+
+## 2026-09-23 — Public showcase page in the build
+
+**Scope.** `npm run build` now also writes `dist/index.html`: a hostable landing page describing the
+tool with a drag-to-install button carrying the real bookmarklet.
+
+**Changed files.**
+
+- `scripts/showcase.mjs` — the page: hero with the draggable install button and a clipboard
+  fallback, an inline-SVG panel mockup and an inline-SVG bookmarks-bar drag illustration, the six
+  module cards, the three install steps, the import-format table, the "nothing leaves your browser"
+  facts and a pre-release/limitations footer.
+- `scripts/build.mjs` — writes `dist/index.html`, records `landingPageBytes` in `dist/sizes.json`,
+  and asserts the page references no external asset (`<img>`, `<link>`, `<iframe>`, `<script src>`,
+  `@import`, CSS `url(…)`, any `http(s)` target) and still carries the `javascript:` install link.
+  The format table is generated from the `FORMATS` registry in `src/import/detect.ts` — compiled
+  with esbuild and imported — so the page cannot advertise a format that has no adapter.
+- `tests/showcase.spec.mjs` — 2 checks.
+- `docs/API_WORKBENCH_BUILD_PLAN.md` — `index.html` added to the required release artifacts.
+
+**Commands and outcomes.**
+
+- `npm run build` → exit 0. Landing page 354,963 B (the bookmark URL is 332,551 of them).
+- `npx playwright test tests/showcase.spec.mjs` → 2 passed, Chrome 153.0.8010.53.
+
+**Verification (measured).** Loading the page from `file://` issues exactly one request — the
+document itself — so nothing is fetched to render it; the install link's `href` is byte-identical to
+`dist/bookmarklet.txt`; the format table has exactly the seven pasteable adapters; and running the
+link's decoded source on the fixture page opens the panel.
+
+**Not run.** Dragging the button to a real bookmarks bar, and any hosted deployment. The second
+check runs the generated link's source in the page, which is not evidence about saved-bookmark
+installation.
+
+**Decisions.** Illustrations are inline SVG rather than screenshots: a binary asset beside the page
+would break the single-file property the product is distributed with. The page states the
+pre-release status, the Chrome-only verification and the top-frame-only interception scope rather
+than implying a finished release.
 
 ## 2026-09-23 — M9: complete import support
 

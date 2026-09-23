@@ -732,6 +732,7 @@ Required release artifacts:
 - `api-workbench.min.js`: production IIFE with all runtime modules and CSS included.
 - `bookmarklet.txt`: complete encoded `javascript:` bookmark value.
 - `install.html`: standalone local installation page with the actual bookmark link and replacement instructions.
+- `index.html`: the public showcase/landing page carrying the same bookmark link as a drag-to-install button. Self-contained like the product: inline styles, inline SVG illustrations, no fetched asset.
 - Compatibility and release notes including browser versions, byte counts and documented unsupported cases.
 
 Measure source bytes, minified bytes and **encoded bookmark URL length** at every milestone. Gzip size is not a substitute for actual bookmark size. Browser storage, editing, copying and sync paths may have different practical limits; determine the release envelope experimentally rather than assuming a universal maximum.
