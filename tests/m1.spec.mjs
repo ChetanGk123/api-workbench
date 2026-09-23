@@ -53,8 +53,13 @@ test('tabs and links navigate inside the panel without touching the host page', 
     await expect(page.locator(`${panel} .aw-tabs`)).toBeHidden();
     await page.getByRole('button', { name: 'Back to Home' }).click();
   }
+  // home.html puts an endpoint count on the Endpoints tile; a fresh profile has none.
+  const endpointsTile = page.locator(`${panel} .aw-body .aw-qa`).first();
+  await expect(endpointsTile.locator('.aw-bd')).toHaveText('0 endpoints');
+
+  // Endpoints carries a count badge, so its accessible name is a prefix match, not an exact one.
   for (const action of ['Endpoints', 'Import', 'Settings']) {
-    await page.locator(`${panel} .aw-body`).getByRole('button', { name: action, exact: true }).click();
+    await page.locator(`${panel} .aw-body`).getByRole('button', { name: new RegExp(`^${action}`) }).click();
     await expect(subTitle(page)).toHaveText(action);
     await page.getByRole('button', { name: 'Back to Home' }).click();
   }

@@ -1282,6 +1282,42 @@ Playwright; blob downloads under a host-page CSP `sandbox` directive are unteste
 
 **Next task.** M8 — Flow/Independent repeat runner.
 
+## 2026-09-23 — Endpoint count on the Home quick action
+
+**Scope.** The Endpoints quick action only, following `design/reference/screens/home.html`, which
+carries `<span class="aw-bd aw-s">1 endpoint</span>` inside that tile. No other screen changed.
+
+**Changed files.**
+
+- `src/ui/screens.ts` — `quickAction` appends a count badge for `endpoints`, fed by `ctx.watch`, so
+  saving, deleting or importing an endpoint and switching profile all update it without leaving
+  Home. Singular at one.
+- `src/ui/theme.css` — `.aw-qa .aw-bd { height: 18px }`, the rule the reference applies inline, so
+  the tile keeps its 84 px height.
+- `tests/m1.spec.mjs`, `tests/m3.spec.mjs`, `tests/m9.spec.mjs`, `tests/ui.spec.mjs` — the badge is
+  inside the button, so the tile's accessible name is now `Endpoints 3 endpoints`. The five
+  selectors that clicked it by exact name match the label prefix instead. Two new assertions cover
+  the badge: `0 endpoints` on a fresh profile (m1) and `1 endpoint` after the first save (m3).
+
+**Decision.** The count stays inside the button rather than being hidden from assistive technology
+with `aria-hidden`. It is information, not decoration, and a screen reader now announces
+"Endpoints 3 endpoints, button". The cost is that the tile can no longer be located by an exact
+accessible name.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0.
+- `npm run build` → exit 0.
+- `npx playwright test` → 184 passed in 1.4 m, Chrome (channel `chrome`), macOS darwin 25.6.0.
+
+**Not run.** Edge — not installed on this machine. Saved-bookmark installation, as before.
+
+**Limitations.** Pre-existing and unrelated: `tests/plans.spec.mjs:23` fails when that spec is run on
+its own and passes in the full suite. Verified against `b4cd1bb` with these changes stashed, so it is
+an ordering dependency in that spec, not a regression from this work.
+
+**Next task.** M10 (integrated release), unchanged.
+
 ## 2026-09-23 — Resize from every edge and corner
 
 **Scope.** Panel resizing only. No feature, transport or storage change.

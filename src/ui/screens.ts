@@ -354,6 +354,16 @@ function moduleCard(ctx: Ctx, module: (typeof MODULES)[number]): HTMLElement {
 function quickAction(ctx: Ctx, id: ScreenId): HTMLElement {
   const action = button("aw-qa", "", () => ctx.go(id), ctx.signal)
   action.append(icon(SCREENS[id].icon, "aw-i20"), el("span", "", SCREENS[id].label))
+  // home.html gives the Endpoints tile a count badge; it tracks the active profile live, so
+  // switching profile or saving an endpoint updates it without leaving Home.
+  if (id === "endpoints") {
+    const count = el("span", "aw-bd aw-s")
+    ctx.watch(state => {
+      const total = state.config.endpoints.length
+      count.textContent = `${total} endpoint${total === 1 ? "" : "s"}`
+    })
+    action.append(count)
+  }
   return action
 }
 

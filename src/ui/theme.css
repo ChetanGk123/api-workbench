@@ -345,6 +345,11 @@
   gap: 7px;
 }
 
+/* home.html shrinks the Endpoints tile's count badge so the tile keeps its 84px height. */
+.aw-qa .aw-bd {
+  height: 18px;
+}
+
 /* Tabs and quick actions are buttons, not links: no host-page navigation. */
 button.aw-tt,
 button.aw-qa,

@@ -21,7 +21,7 @@ test('M3 endpoint CRUD, profile export and same-origin relaunch persistence', as
   const requests = [];
   page.on('request', request => requests.push(request.url()));
   await launch(page);
-  await page.getByRole('button', { name: 'Endpoints', exact: true }).click();
+  await page.getByRole('button', { name: /^Endpoints/ }).click();
   await expect(page.locator(`${panel} .aw-h`)).toHaveText('Endpoints');
   await page.getByRole('button', { name: 'Add endpoint', exact: true }).click();
   await expect(page.locator(`${panel}`).getByText('New endpoint', { exact: true })).toBeVisible();
@@ -30,6 +30,11 @@ test('M3 endpoint CRUD, profile export and same-origin relaunch persistence', as
   await page.getByLabel('Path').fill('/api/fixture');
   await page.getByRole('button', { name: 'Save endpoint', exact: true }).click();
   await expect(page.getByText('fixture health', { exact: true })).toBeVisible();
+
+  // The Home tile counts the active profile's endpoints, singular at one.
+  await page.getByRole('button', { name: 'Back to Home' }).click();
+  await expect(page.locator(`${panel} .aw-body .aw-qa .aw-bd`).first()).toHaveText('1 endpoint');
+  await page.getByRole('button', { name: /^Endpoints/ }).click();
 
   await page.locator(`${panel} .aw-tb`).getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill('QA profile');
@@ -41,7 +46,7 @@ test('M3 endpoint CRUD, profile export and same-origin relaunch persistence', as
 
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await launch(page);
-  await page.getByRole('button', { name: 'Endpoints', exact: true }).click();
+  await page.getByRole('button', { name: /^Endpoints/ }).click();
   await expect(page.getByText('fixture health', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Delete', exact: true }).click();
   await expect(page.getByText('fixture health', { exact: true })).toHaveCount(0);
@@ -51,7 +56,7 @@ test('M3 endpoint CRUD, profile export and same-origin relaunch persistence', as
 test('M3 direct Once uses the page session and reports checks', async ({ page }) => {
   await page.getByRole('button', { name: 'Log in to local fixture', exact: true }).click();
   await launch(page);
-  await page.getByRole('button', { name: 'Endpoints', exact: true }).click();
+  await page.getByRole('button', { name: /^Endpoints/ }).click();
   await page.getByRole('button', { name: 'Add endpoint', exact: true }).click();
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
   await page.getByLabel('Name').fill('session check');

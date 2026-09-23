@@ -29,7 +29,7 @@ async function openScreen(page, name) {
   if (await back.isVisible()) await back.click();
   const title = headerButton(page, name);
   if (await title.count()) await title.click();
-  else await panel(page).getByRole('button', { name, exact: true }).click();
+  else await panel(page).getByRole('button', { name: new RegExp(`^${name}`) }).click();
 }
 
 async function exportConfig(page) {

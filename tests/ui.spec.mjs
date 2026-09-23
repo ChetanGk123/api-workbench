@@ -26,7 +26,7 @@ async function goHome(page) {
 
 async function openEndpoints(page) {
   await goHome(page);
-  await panel(page).getByRole('button', { name: 'Endpoints', exact: true }).click();
+  await panel(page).getByRole('button', { name: /^Endpoints/ }).click();
 }
 
 async function exportConfig(page) {
