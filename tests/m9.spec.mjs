@@ -138,6 +138,7 @@ test('M9 the same source imported from a file and from a paste yields the same r
   await applyText(page, postman);
   const pasted = await rows(page).allInnerTexts();
   await panel(page).getByRole('button', { name: 'Clear draft', exact: true }).click();
+  await panel(page).locator('dialog.aw-dlg').getByRole('button', { name: 'Clear draft', exact: true }).click();
   await expect(rows(page)).toHaveCount(0);
   await panel(page).locator('input[type=file]').setInputFiles({ name: 'collection.json', mimeType: 'application/json', buffer: Buffer.from(postman) });
   await expect(statusLine(page)).toContainText('Loaded collection.json');
@@ -262,12 +263,15 @@ test('M9 the draft survives Back and Minimize, and a profile change forces a reb
 });
 
 test('M9 the recorder promotes only the selected captured calls through the same review', async ({ page }) => {
-  await openImport(page);
+  // Recording is started where the recorder lives; Import only turns what was captured into a draft.
+  await openScreen(page, 'Record');
   await panel(page).getByRole('button', { name: 'Start recording', exact: true }).click();
   await page.evaluate(() => fetch('/api/fixture').then(response => response.text()));
   await page.evaluate(() => fetch('/api/echo', { method: 'POST', body: 'hello' }));
-  await expect(panel(page).locator('.aw-card', { hasText: 'Session recorder' }).locator('[role=status]')).toContainText('2 captured');
-  await panel(page).getByRole('button', { name: 'Stop recording', exact: true }).click();
+  await openImport(page);
+  const useRecorded = panel(page).getByRole('button', { name: 'Use recorded calls (2)', exact: true });
+  await expect(useRecorded).toBeEnabled();
+  await useRecorded.click();
   await expect(rows(page)).toHaveCount(2);
   await rows(page).nth(1).getByRole('checkbox').uncheck();
   await panel(page).locator('.aw-foot').getByRole('button', { name: /Import selected/ }).click();
@@ -305,4 +309,27 @@ test('M9 every advertised format is listed with its exact version and no unimple
   await expect(formats).toContainText('fetch() DevTools copy');
   await expect(formats).toContainText("Records this frame's fetch/XHR requests after recording starts");
   await expect(formats).not.toContainText('coming later');
+});
+
+test('M9 Import is not a third recorder, and its review is not left below the fold', async ({ page }) => {
+  await openImport(page);
+  // The recorder's own controls live on Home and the Record screen, not here.
+  for (const name of ['Start recording', 'Stop recording', 'Open recorder screen'])
+    await expect(panel(page).getByRole('button', { name, exact: true })).toHaveCount(0);
+  await expect(panel(page).getByRole('button', { name: 'Use recorded calls', exact: true })).toBeDisabled();
+
+  const body = panel(page).locator('.aw-body');
+  const pageScroll = () => page.evaluate(() => document.scrollingElement.scrollTop);
+  const before = await pageScroll();
+  await applyText(page, har([entry('GET', 'http://127.0.0.1:4173/api/fixture')]));
+  const review = panel(page).locator('.aw-card', { hasText: 'Import review' }).first();
+  await expect(review).toBeInViewport();
+  // The panel scrolled to reach it: without this, Apply looks like it did nothing.
+  expect(await body.evaluate(node => node.scrollTop)).toBeGreaterThan(0);
+  const reviewBox = await review.boundingBox();
+  const bodyBox = await body.boundingBox();
+  expect(reviewBox.y).toBeGreaterThanOrEqual(bodyBox.y - 1);
+  expect(reviewBox.y).toBeLessThan(bodyBox.y + bodyBox.height / 2);
+  // Scrolling the panel must never scroll the page underneath it.
+  expect(await pageScroll()).toBe(before);
 });

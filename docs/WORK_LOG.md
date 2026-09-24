@@ -30,6 +30,57 @@ when a later milestone lands.
 | M9 — Complete import support | CODE COMPLETE · all M9 acceptance gates PASS in Chrome (38 checks) · saved-bookmark and Edge checks NOT RUN |
 | M10 — Integrated release | NOT STARTED |
 
+## 2026-09-25 — Import stops being a recorder, and its review is no longer below the fold (UX review 2.1)
+
+**Scope.** `UX_REVIEW.md` 2.1, all three bullets. The import flow itself was called the best part of
+the product and is unchanged; these are the two problems around it plus the missing confirmation.
+
+**The recorder card is gone, the one thing only Import could do is not.** The review's fix was "drop
+the card". Dropping it whole would have deleted a capability, not just a duplicate entry point: the
+Record screen's only commit is `createProfileFromRecordings`, which always creates a **new** profile,
+while the Import card's Stop button ran `parseRecordings` into the draft, which is the only path that
+merges recorded calls into the **active** profile. So the three duplicated controls (Start recording,
+Stop recording, Open recorder screen) are deleted, and the bridge survives as one button in the input
+card's action row beside Choose file: **Use recorded calls (N)**, disabled when nothing is captured.
+Recording is now started only from Home or the Record screen. `src/ui/import-screen.ts`; the per-second
+status interval went with the card.
+
+**Apply now scrolls its review into view.** `showReview()` sets `.aw-body`'s `scrollTop` directly
+rather than calling `scrollIntoView`, which can walk up to the document and scroll the host page —
+something a bookmarklet must never do. Called after a successful Apply and after Use recorded calls.
+
+**Clear draft asks first.** It discarded a pasted spec on one click while loading a file over a draft
+already confirmed. It now uses the same `confirmDialog`, and still clears without a prompt when there
+is no draft to lose.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0, no output. TypeScript 7.0.2.
+- `npm run build` → exit 0. raw 450,889 B, minified 256,297 B, encoded bookmark URL 369,487 characters
+  (smaller than before: the card cost more than the button).
+- `npx playwright test` → **215 passed in 1.7 min**, Chrome, macOS darwin 25.6.0, Node v24.21.0.
+  - New: `M9 Import is not a third recorder, and its review is not left below the fold` — the three
+    recorder buttons are absent, Use recorded calls is disabled with nothing captured, and after Apply
+    the body has scrolled (`scrollTop > 0`) with the review in its top half and the host page's own
+    scroll position untouched.
+  - Changed: `M9 the recorder promotes only the selected captured calls` now starts recording on the
+    Record screen and promotes from Import, which is the preserved path stated above.
+  - Changed: `M9 the same source imported from a file and from a paste` confirms the Clear draft
+    dialog.
+
+**Deviation from the review, stated plainly.** 2.1 says "drop the card; keep Record as a quick action
+and a Home card". Dropped is the card and all three duplicate entry points; kept is one button, because
+the alternative silently removes merging recordings into the current profile. If that capability is not
+wanted, deleting `useRecorded` and the `recorder` entry in `FORMATS` finishes the review's version.
+
+**Not run.** Saved-bookmark installation and all Edge checks. The review's other 2.1 observation — that
+the reference block is long — is addressed by scrolling past it, not by collapsing it into a
+`<details>`; the "Supported formats" card still renders below the review, where it was already.
+
+**Next task.** UX review 2.2 — Endpoints: no search, no grouping, one-step reordering, no bulk actions,
+and a one-click Delete with no confirmation, which the review calls the most likely accidental data
+loss in the product.
+
 ## 2026-09-25 — The panel opens taller and remembers where it was left (UX review 1.4)
 
 **Scope.** `UX_REVIEW.md` 1.4: the panel opened at 480x560 and every launch discarded the size and

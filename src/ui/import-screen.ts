@@ -146,6 +146,24 @@ export function importScreen(ctx: Ctx): HTMLElement {
   const commit = button("aw-btn aw-pri aw-grow", "Import selected", () => void runCommit(), ctx.signal)
   const back = button("aw-btn aw-out aw-grow", "Back", () => ctx.go("home"), ctx.signal)
   const apply = button("aw-btn aw-pri", "Apply", () => void runApply(), ctx.signal)
+  const wipe = () => {
+    clearDraft()
+    source.value = ""
+    describe()
+    say("Draft cleared.")
+    paint()
+  }
+  // Loading a file over a draft already asks; discarding one outright must not be the cheaper action.
+  const clearButton = button("aw-btn aw-gh aw-sm", "Clear draft", () => {
+    if (!draft.text.trim() && !draft.outcome) return wipe()
+    void confirmDialog(clearButton, "Clear draft", "Discard the pasted source and its review?", "Clear draft", ctx.signal)
+      .then(confirmed => (confirmed ? wipe() : say("Kept the current draft.")))
+  }, ctx.signal)
+  /** Apply builds the review below a screenful of paste box and reference, so bring it into view. */
+  const showReview = () => {
+    const body = screen.closest(".aw-body")
+    if (body instanceof HTMLElement) body.scrollTop = Math.max(0, reviewCard.offsetTop - body.offsetTop)
+  }
   const cancelParse = button("aw-btn aw-gh aw-sm", "Cancel", () => { token++; busy = false; say("Parsing cancelled. The draft is unchanged."); paint() }, ctx.signal)
 
   const rowFor = (key: string, endpoint: Endpoint): Row => {
@@ -334,6 +352,7 @@ export function importScreen(ctx: Ctx): HTMLElement {
     draft.profileId = ctx.state().config.profile.id
     say(`${outcome.label} ${outcome.version} read. Review the ${outcome.native ? "profile" : "candidates"} below, then Import.`)
     paint()
+    showReview()
   }
 
   const runCommit = async () => {
@@ -366,59 +385,31 @@ export function importScreen(ctx: Ctx): HTMLElement {
     ctx.go("endpoints")
   }
 
-  /* ── Recorder ─────────────────────────────────────────────────────────── */
-  const recorderStatus = el("span", "aw-bd aw-s")
-  recorderStatus.setAttribute("role", "status")
-  let startedAt = 0
-  const start = button("aw-btn aw-pri aw-sm", "Start recording", () => {
-    if (ctx.state().recording) return
-    startedAt = Date.now()
-    ctx.startRecording()
-  }, ctx.signal)
-  start.prepend(icon("record", "aw-i14"))
-  const stop = button("aw-btn aw-out aw-sm", "Stop recording", () => {
-    if (!ctx.state().recording) return
-    ctx.stopRecording()
+  /* ── Recorded calls, as a draft source ────────────────────────────────── */
+  // Not a recorder: starting and stopping live on Home and the Record screen. This is the one thing
+  // only Import can do with a recording — turn it into a draft that merges into the active profile,
+  // where Record creates a whole new one.
+  const useRecorded = button("aw-btn aw-out aw-sm", "Use recorded calls", () => {
+    if (ctx.state().recording) ctx.stopRecording()
     const outcome = parseRecordings(ctx.state().recordings, ctx.state().config.profile.id)
     draft.outcome = outcome.error ? undefined : outcome
     draft.rows.clear()
     draft.profileId = ctx.state().config.profile.id
     say(outcome.error ?? `Recorded ${outcome.sourceCount} call${outcome.sourceCount === 1 ? "" : "s"}. Review the candidates below, then Import.`)
     paint()
+    showReview()
   }, ctx.signal)
-  const elapsed = () => (startedAt ? `${Math.floor((Date.now() - startedAt) / 1000)} s · ` : "")
-  const tick = setInterval(() => {
-    if (ctx.state().recording) recorderStatus.textContent = `Recording · ${elapsed()}${ctx.state().recordings.length} captured`
-  }, 1000)
-  ctx.signal.addEventListener("abort", () => clearInterval(tick), { once: true })
   ctx.watch(state => {
-    recorderStatus.textContent = state.recording
-      ? `Recording · ${elapsed()}${state.recordings.length} captured`
-      : `${state.recordings.length} captured`
-    start.disabled = state.recording
-    stop.disabled = !state.recording
+    useRecorded.textContent = `Use recorded calls${state.recordings.length ? ` (${state.recordings.length})` : ""}`
+    useRecorded.disabled = !state.recordings.length
   })
-
-  const recorder = card()
-  recorder.append(
-    group("aw-row aw-actions", el("span", "aw-lbl aw-grow", "Session recorder"), recorderStatus),
-    el("p", "aw-hint", "Records this frame's fetch/XHR requests after recording starts. Sensitive headers are redacted and bodies are bounded."),
-    group("aw-row aw-actions", start, stop,
-      button("aw-btn aw-gh aw-sm", "Open recorder screen", () => ctx.go("record"), ctx.signal)),
-  )
 
   const input = card()
   input.append(
     labeledAction("Paste or load JSON, cURL, or fetch()", source, formatJsonButton(source, ctx.signal)),
     detected,
-    group("aw-row aw-actions", apply, chooseFile, cancelParse,
-      button("aw-btn aw-gh aw-sm", "Clear draft", () => {
-        clearDraft()
-        source.value = ""
-        describe()
-        say("Draft cleared.")
-        paint()
-      }, ctx.signal),
+    group("aw-row aw-actions", apply, chooseFile, useRecorded, cancelParse,
+      clearButton,
       button("aw-btn aw-gh aw-sm", "Export draft", () => {
         if (!draft.text.trim()) return say("Nothing to export yet.")
         say(`Exported ${downloadFile(draft.text, draft.source || "import-draft", "txt", "text/plain")}.`)
@@ -444,7 +435,7 @@ export function importScreen(ctx: Ctx): HTMLElement {
       "fetch(): DevTools → Copy → Copy as fetch. Only a literal URL and a literal options object are read.",
     ].map(line => el("p", "aw-xs aw-mu", line))))
 
-  screen.append(recorder, input, reviewCard, formats)
+  screen.append(input, reviewCard, formats)
   ctx.chrome({ actions: [commit, back] })
   describe()
   paint()
