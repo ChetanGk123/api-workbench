@@ -30,6 +30,29 @@ when a later milestone lands.
 | M9 — Complete import support | CODE COMPLETE · all M9 acceptance gates PASS in Chrome (38 checks) · saved-bookmark and Edge checks NOT RUN |
 | M10 — Integrated release | NOT STARTED |
 
+## 2026-09-24 — The two dead header buttons are gone (UX review 1.1)
+
+**Scope.** `UX_REVIEW.md` 1.1: `Presets…` and `Promote common` sat under the global headers card
+on Endpoints, permanently `disabled`, explaining themselves only through a `title` tooltip that a
+disabled control rarely shows.
+
+**Change.** Both buttons and the `unavailable()` helper that existed only to build them are deleted
+from `src/ui/screens.ts`. Nothing else referenced either. Header presets and common-header promotion
+stay in `API_WORKBENCH_BUILD_PLAN.md` as work, not as inert UI.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0, no output. TypeScript 7.0.2.
+- `npm run build` → exit 0. raw 449,440 B, minified 255,734 B, encoded bookmark URL 368,652 characters.
+- `npx playwright test` against the already-running fixture server (a temporary config with
+  `webServer: undefined`, because port 4173 was held by an existing `npm run fixture`) →
+  **211 passed in 1.8 min**, Chrome, macOS darwin 25.6.0, Node v24.21.0.
+
+**Not run.** Saved-bookmark installation and all Edge checks, as for every milestone.
+
+**Next task.** UX review 1.2 — remove `settings.enabledModules`, remove the uncalled
+`replaceProfile()`, and decide what replaces the one-line Home **Activity** card.
+
 ## 2026-09-24 — Headers are visible and editable where a request is run
 
 **Scope.** The Test screen ran an endpoint without showing what it would send. Headers lived only

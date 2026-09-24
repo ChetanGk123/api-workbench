@@ -275,14 +275,6 @@ const MODULES = [
   { id: "chaos", title: "Chaos Engineering", milestone: "M5" },
 ] as const
 
-function unavailable(label: string, reason: string): HTMLButtonElement {
-  const control = el("button", "aw-btn aw-out aw-sm", label)
-  control.type = "button"
-  control.disabled = true
-  control.title = reason
-  return control
-}
-
 function updateProfile(ctx: Ctx, patch: Partial<Profile>) {
   const profile = ctx.state().config.profile
   ctx.updateProfile({ ...profile, ...patch, revision: profile.revision + 1, updatedAt: Date.now() })
@@ -691,8 +683,7 @@ function endpoints(ctx: Ctx): HTMLElement {
   const config = ctx.state().config
   const headers = disclosure(`Global headers · ${config.profile.globalHeaders.length}`,
     el("p", "aw-hint", "Applied to all requests. Changes are saved automatically."),
-    headerFields(ctx.signal, config.profile.globalHeaders, globalHeaders => updateProfile(ctx, { globalHeaders })),
-    group("aw-row aw-actions", unavailable("Presets…", "Header presets are coming later"), unavailable("Promote common", "Common-header review is coming later")))
+    headerFields(ctx.signal, config.profile.globalHeaders, globalHeaders => updateProfile(ctx, { globalHeaders })))
   headers.classList.add("aw-card", "aw-cp")
   headers.open = true
   const title = group("aw-row", el("span", "aw-h", "Endpoints"), el("span", "aw-bd aw-s", String(config.endpoints.length)), el("span", "aw-grow"))
