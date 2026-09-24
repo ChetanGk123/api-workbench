@@ -30,6 +30,57 @@ when a later milestone lands.
 | M9 — Complete import support | CODE COMPLETE · all M9 acceptance gates PASS in Chrome (38 checks) · saved-bookmark and Edge checks NOT RUN |
 | M10 — Integrated release | NOT STARTED |
 
+## 2026-09-25 — The panel opens taller and remembers where it was left (UX review 1.4)
+
+**Scope.** `UX_REVIEW.md` 1.4: the panel opened at 480x560 and every launch discarded the size and
+position the user had chosen.
+
+**Opening size.** `src/ui/theme.css` — `height: min(720px, calc(100vh - 96px))` in place of a flat
+`560px`. `max-height` is unchanged at `calc(100vh - 16px)`, so this raises the opening size only; a
+drag can still take the panel to the full viewport. The `- 96px` keeps the panel off the bottom of a
+short screen rather than swallowing it.
+
+**Remembered geometry.** Stored per origin, never in the profile.
+
+- `src/core/storage.ts` — `readPanelGeometry()` / `recordPanelGeometry()` under a `geometry:<origin>`
+  key beside the existing `version:<origin>` note, for the same stated reason: it belongs to the
+  origin, not to a profile, and must not travel through export, import or a profile switch.
+  `clearStoredConfig()` now deletes it too. The two IndexedDB single-key helpers the launch version
+  already used are generalised into `readKey`/`writeKey`, so this adds no third copy of that dance.
+  Stored geometry is validated on read (`Number.isFinite` on all four fields): a corrupt record must
+  not place the panel at `NaN`.
+- `src/ui/shell.ts` — a new `onGeometry` option, called when a header drag or a resize grip settles,
+  and `setGeometry()` to apply a remembered one. A pointerup that never moved is not a write, so
+  clicking the header does not touch storage. The minimized launcher shares the position but not the
+  size and is deliberately not recorded: a hidden panel measures 0 x 0.
+- `src/entry.ts` — reads the geometry after `mount()`, so a slow or failed read costs a reposition
+  rather than the panel's appearance.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0, no output. TypeScript 7.0.2.
+- `npm run build` → exit 0. raw 451,623 B, minified 256,848 B, encoded bookmark URL 370,262 characters.
+- `npx playwright test` → **214 passed in 1.7 min**, Chrome, macOS darwin 25.6.0, Node v24.21.0.
+  Two new tests in `tests/ui.spec.mjs`: a resize and a drag survive a reload and relaunch; a launch
+  that only clicked the header writes no geometry and opens at the default. The existing compact-panel
+  test now derives the expected opening height from the viewport instead of asserting 560.
+
+**Measured, at 1600x1000 (the review's own viewport).** The panel now opens 480x720, as the review
+asked. Home's content is 1039 px against a 577 px body, so it still scrolls: cards fully visible go
+from **3 of 7 at 560 px to 4 of 7 at 720 px**. The extra height helps and does not fix the density;
+Home carries 1039 px of content in a 480 px-wide column, and some of that growth is the new Activity
+log from the 1.2 entry above. Making Home fit is a layout question the review does not prescribe and
+was not attempted here.
+
+**Not run.** Saved-bookmark installation and all Edge checks, as for every milestone. The endpoint-list
+density after importing the 29-endpoint `openapi.json` was not re-measured: three attempts at driving
+that import from a throwaway probe failed on the review screen's controls, and the measurement is not
+needed to land the change. Geometry is not written when the tab closes mid-drag — the IndexedDB write
+is asynchronous, which the new test waits for explicitly rather than assuming.
+
+**Next task.** UX review 1.3 — navigation: keep the tab strip mounted on every screen, give Back a
+truthful `aria-label`, make Escape consistent across the five editors, and guard unsaved edits.
+
 ## 2026-09-25 — The Activity card becomes a real request log (UX review 1.2)
 
 **Scope.** `UX_REVIEW.md` 1.2, all three bullets.

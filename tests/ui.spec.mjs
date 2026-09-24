@@ -315,9 +315,10 @@ test('UI Format JSON is available on a recorded endpoint body and its response s
 });
 
 test('UI compact panel keeps navigation and close reachable while content scrolls', async ({ page }) => {
+  const viewport = page.viewportSize();
   const initial = await panel(page).boundingBox();
   expect(initial.width).toBe(480);
-  expect(initial.height).toBe(560);
+  expect(initial.height).toBe(Math.min(720, viewport.height - 96));
   await panel(page).evaluate(node => { node.style.width = '320px'; node.style.height = '220px'; });
   await expect(panel(page)).toHaveCSS('width', '320px');
   const footer = panel(page).locator('.aw-foot');
@@ -546,4 +547,53 @@ test('UI Home Activity lists the observed requests, newest first, instead of one
   expect(lines[0]).toMatch(/^\d\d:\d\d:\d\d {2}fetch GET \/api\/echo\?call=2 · request$/);
   expect(lines[2]).toContain('call=0');
   await expect(panel(page).getByText(/^Activity · 3 observed$/)).toBeVisible();
+});
+
+// The remembered geometry is written to IndexedDB asynchronously, so read it back rather than
+// assuming a reload cannot outrun the write.
+const storedGeometry = page => page.evaluate(() => new Promise(resolve => {
+  const request = indexedDB.open('api-workbench');
+  request.onsuccess = () => {
+    const database = request.result;
+    const read = database.transaction('configs', 'readonly').objectStore('configs').get(`geometry:${location.origin}`);
+    read.onsuccess = () => { database.close(); resolve(read.result ?? null); };
+  };
+}));
+
+test('UI a resized and moved panel opens the same way on the next launch', async ({ page }) => {
+  const opened = await panel(page).boundingBox();
+
+  // Geometry is remembered only when the pointer actually moved, so drive real drags.
+  const grip = await panel(page).locator('.aw-rs-se').boundingBox();
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(grip.x + grip.width / 2 - 120, grip.y + grip.height / 2 - 60, { steps: 4 });
+  await page.mouse.up();
+  const header = await panel(page).locator('.aw-tb').boundingBox();
+  await page.mouse.move(header.x + 40, header.y + header.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(260, 150, { steps: 4 });
+  await page.mouse.up();
+  const arranged = await panel(page).boundingBox();
+  expect(arranged.width).toBe(opened.width - 120);
+  expect(arranged.height).toBe(opened.height - 60);
+  expect(arranged.x).not.toBe(opened.x);
+
+  const expected = { x: Math.round(arranged.x), y: Math.round(arranged.y), width: arranged.width, height: arranged.height };
+  await expect.poll(() => storedGeometry(page)).toEqual(expected);
+
+  await page.reload();
+  await launch(page);
+  const restored = await panel(page).boundingBox();
+  expect({ x: Math.round(restored.x), y: Math.round(restored.y), width: restored.width, height: restored.height }).toEqual(expected);
+});
+
+test('UI a launch that never moved the panel leaves no geometry to restore', async ({ page }) => {
+  const opened = await panel(page).boundingBox();
+  // A click on the header is a pointerup too, and must not be recorded as a drag.
+  await panel(page).locator('.aw-tb').click({ position: { x: 40, y: 12 } });
+  await page.reload();
+  await launch(page);
+  expect(await storedGeometry(page)).toBeNull();
+  expect(await panel(page).boundingBox()).toEqual(opened);
 });

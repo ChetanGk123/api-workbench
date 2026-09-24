@@ -35,36 +35,51 @@ async function writeToIndexedDb(config: WorkbenchConfig): Promise<void> {
 }
 
 /**
- * The build that last ran on this origin, under its own key beside the config. It is deliberately
- * not part of WorkbenchConfig: it belongs to the origin, not to a profile, and must not travel
- * through export, import or a profile switch.
+ * A value kept beside the config under its own key. Everything here belongs to the origin, not to a
+ * profile, and must not travel through export, import or a profile switch.
  */
 function versionKey(): string { return `version:${originKey()}`; }
+function geometryKey(): string { return `geometry:${originKey()}`; }
 
-export async function readLaunchVersion(): Promise<string | undefined> {
+/** Where the panel was left. Restored on the next launch, clamped to whatever viewport it meets. */
+export type PanelGeometry = { x: number; y: number; width: number; height: number };
+
+const isVersion = (value: unknown): value is string => typeof value === 'string';
+/** Stored geometry is untrusted input: a corrupt record must not place the panel at NaN. */
+const isGeometry = (value: unknown): value is PanelGeometry =>
+  !!value && typeof value === 'object' &&
+  (['x', 'y', 'width', 'height'] as const).every(key => Number.isFinite((value as Record<string, unknown>)[key]));
+
+async function readKey<T>(key: string, accept: (value: unknown) => value is T): Promise<T | undefined> {
   try {
     const database = await openDatabase();
-    return await new Promise<string | undefined>((resolve, reject) => {
-      const request = database.transaction('configs', 'readonly').objectStore('configs').get(versionKey());
-      request.onsuccess = () => { database.close(); resolve(typeof request.result === 'string' ? request.result : undefined); };
+    return await new Promise<T | undefined>((resolve, reject) => {
+      const request = database.transaction('configs', 'readonly').objectStore('configs').get(key);
+      request.onsuccess = () => { database.close(); resolve(accept(request.result) ? request.result : undefined); };
       request.onerror = () => { database.close(); reject(request.error ?? new Error('IndexedDB read failed')); };
     });
   } catch { return undefined; }
 }
 
-export async function recordLaunchVersion(version: string): Promise<void> {
+async function writeKey(key: string, value: unknown): Promise<void> {
   try {
     const database = await openDatabase();
     await new Promise<void>((resolve, reject) => {
       const transaction = database.transaction('configs', 'readwrite');
-      transaction.objectStore('configs').put(version, versionKey());
+      transaction.objectStore('configs').put(value, key);
       transaction.oncomplete = () => { database.close(); resolve(); };
       transaction.onerror = () => { database.close(); reject(transaction.error ?? new Error('IndexedDB write failed')); };
     });
-  } catch { /* A version note that cannot be written only costs the next update check. */ }
+  } catch { /* A note that cannot be written costs only the next launch's convenience. */ }
 }
 
-/** Removes everything this origin holds: the saved configuration and the launch-version note. */
+export const readLaunchVersion = (): Promise<string | undefined> => readKey(versionKey(), isVersion);
+export const recordLaunchVersion = (version: string): Promise<void> => writeKey(versionKey(), version);
+export const readPanelGeometry = (): Promise<PanelGeometry | undefined> => readKey(geometryKey(), isGeometry);
+export const recordPanelGeometry = (geometry: PanelGeometry): Promise<void> => writeKey(geometryKey(), geometry);
+
+/** Removes everything this origin holds: the saved configuration, the launch-version note and the
+ * remembered panel geometry. */
 export async function clearStoredConfig(): Promise<void> {
   memory.delete(originKey());
   const database = await openDatabase();
@@ -73,6 +88,7 @@ export async function clearStoredConfig(): Promise<void> {
     const store = transaction.objectStore('configs');
     store.delete(originKey());
     store.delete(versionKey());
+    store.delete(geometryKey());
     transaction.oncomplete = () => { database.close(); resolve(); };
     transaction.onerror = () => { database.close(); reject(transaction.error ?? new Error('IndexedDB delete failed')); };
   });

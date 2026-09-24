@@ -30,7 +30,10 @@
 
 .aw-root {
   width: 480px;
-  height: 560px;
+  /* Tall enough that Home shows its four module cards, quick actions and run history without
+   * scrolling, without swallowing a short screen. A drag past this is remembered; max-height is the
+   * ceiling, this is only the opening size. */
+  height: min(720px, calc(100vh - 96px));
   min-width: min(320px, calc(100vw - 16px));
   min-height: min(180px, calc(100vh - 16px));
   max-width: calc(100vw - 16px);

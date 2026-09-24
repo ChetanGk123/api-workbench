@@ -20,7 +20,7 @@ import {
   type TestPlan,
   type WorkbenchConfig,
 } from "./core/model"
-import { clearStoredConfig, loadConfig, readLaunchVersion, recordLaunchVersion, saveConfig, exportConfig } from "./core/storage"
+import { clearStoredConfig, loadConfig, readLaunchVersion, readPanelGeometry, recordLaunchVersion, recordPanelGeometry, saveConfig, exportConfig } from "./core/storage"
 import { executeOnce } from "./tester/once"
 import { startRun, type RunState } from "./tester/run"
 import { failedCount, runToCsv, runToJson } from "./tester/results"
@@ -264,6 +264,7 @@ if (existing) {
     version,
     store,
     onClose: () => close(),
+    onGeometry: (geometry) => void recordPanelGeometry(geometry),
     addEndpoint: () => {
       const endpoint = defaultEndpoint(store.state.config.profile.id)
       persist({ ...store.state.config, endpoints: [...store.state.config.endpoints, endpoint] })
@@ -577,6 +578,9 @@ if (existing) {
         syncRecorder()
       })
       .catch(() => store.set({ storageReady: false }))
+    // Where the panel was left last time. Applied after mount, so a slow or failed read costs a
+    // reposition rather than the panel's appearance.
+    void readPanelGeometry().then((geometry) => { if (geometry) shell.setGeometry(geometry) })
     // The newest build this origin has seen, so Settings can say whether this bookmark is stale.
     void readLaunchVersion().then((seen) => {
       const newest = seen && compareVersions(seen, version) > 0 ? seen : version

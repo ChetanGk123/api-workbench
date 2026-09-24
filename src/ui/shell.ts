@@ -4,6 +4,7 @@ import { el, icon, button, iconButton, dropdown, confirmDialog } from "./dom"
 import type { Store } from "../core/store"
 import { RULE_MODULES, SCREENS, TABS, moduleState, renderScreen, type Ctx, type ScreenId, type UIState } from "./screens"
 import { moduleEnabled } from "../core/model"
+import type { PanelGeometry } from "../core/storage"
 
 export type ShellOptions = {
   version: string
@@ -42,6 +43,8 @@ export type ShellOptions = {
   stopRun: Ctx["stopRun"]
   openRun: Ctx["openRun"]
   exportRun: Ctx["exportRun"]
+  /** Called when a drag or a resize settles, so the size and place survive the next launch. */
+  onGeometry: (geometry: PanelGeometry) => void
 }
 
 export function createShell(options: ShellOptions) {
@@ -316,7 +319,16 @@ export function createShell(options: ShellOptions) {
     host.style.left = `${position.x}px`
     host.style.top = `${position.y}px`
   }
-  const draggable = (handle: HTMLElement) => {
+  /** The panel's live geometry. Read only while the panel is on screen: a minimized panel is
+   * `hidden`, and would measure 0 x 0. */
+  const remember = () =>
+    options.onGeometry({
+      x: position.x,
+      y: position.y,
+      width: panel.offsetWidth,
+      height: panel.offsetHeight,
+    })
+  const draggable = (handle: HTMLElement, remembers = false) => {
     let offsetX = 0,
       offsetY = 0,
       dragging = false
@@ -345,14 +357,18 @@ export function createShell(options: ShellOptions) {
       { signal },
     )
     const stop = (event: PointerEvent) => {
+      const moved = dragging
       dragging = false
       handle.classList.remove("aw-dragging")
       if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId)
+      // A click on the header is a pointerup too; only an actual drag is worth a write.
+      if (moved && remembers) remember()
     }
     handle.addEventListener("pointerup", stop, { signal })
     handle.addEventListener("pointercancel", stop, { signal })
   }
-  draggable(header)
+  draggable(header, true)
+  // The launcher carries the same position but not the panel's size, so it is not remembered.
   draggable(launcher)
 
   // Resize: one grip per edge and corner. A grip that moves the panel's left or top edge has to
@@ -422,8 +438,10 @@ export function createShell(options: ShellOptions) {
       { signal },
     )
     const stopResize = (event: PointerEvent) => {
+      const resized = active
       active = false
       if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId)
+      if (resized) remember()
     }
     handle.addEventListener("pointerup", stopResize, { signal })
     handle.addEventListener("pointercancel", stopResize, { signal })
@@ -520,6 +538,13 @@ export function createShell(options: ShellOptions) {
       document.documentElement.append(host)
       const box = host.getBoundingClientRect()
       place(window.innerWidth - box.width - 16, 16)
+    },
+    /** Restores a remembered geometry. The CSS min/max bound the size and `place` the position, so
+     * a geometry saved on a larger screen opens clamped to this one rather than off it. */
+    setGeometry({ x, y, width, height }: PanelGeometry) {
+      panel.style.width = `${width}px`
+      panel.style.height = `${height}px`
+      place(x, y)
     },
     restore() {
       restore()
