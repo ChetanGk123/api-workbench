@@ -34,6 +34,50 @@ async function writeToIndexedDb(config: WorkbenchConfig): Promise<void> {
   });
 }
 
+/**
+ * The build that last ran on this origin, under its own key beside the config. It is deliberately
+ * not part of WorkbenchConfig: it belongs to the origin, not to a profile, and must not travel
+ * through export, import or a profile switch.
+ */
+function versionKey(): string { return `version:${originKey()}`; }
+
+export async function readLaunchVersion(): Promise<string | undefined> {
+  try {
+    const database = await openDatabase();
+    return await new Promise<string | undefined>((resolve, reject) => {
+      const request = database.transaction('configs', 'readonly').objectStore('configs').get(versionKey());
+      request.onsuccess = () => { database.close(); resolve(typeof request.result === 'string' ? request.result : undefined); };
+      request.onerror = () => { database.close(); reject(request.error ?? new Error('IndexedDB read failed')); };
+    });
+  } catch { return undefined; }
+}
+
+export async function recordLaunchVersion(version: string): Promise<void> {
+  try {
+    const database = await openDatabase();
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction('configs', 'readwrite');
+      transaction.objectStore('configs').put(version, versionKey());
+      transaction.oncomplete = () => { database.close(); resolve(); };
+      transaction.onerror = () => { database.close(); reject(transaction.error ?? new Error('IndexedDB write failed')); };
+    });
+  } catch { /* A version note that cannot be written only costs the next update check. */ }
+}
+
+/** Removes everything this origin holds: the saved configuration and the launch-version note. */
+export async function clearStoredConfig(): Promise<void> {
+  memory.delete(originKey());
+  const database = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction('configs', 'readwrite');
+    const store = transaction.objectStore('configs');
+    store.delete(originKey());
+    store.delete(versionKey());
+    transaction.oncomplete = () => { database.close(); resolve(); };
+    transaction.onerror = () => { database.close(); reject(transaction.error ?? new Error('IndexedDB delete failed')); };
+  });
+}
+
 export function validateConfig(value: unknown): value is WorkbenchConfig {
   if (!value || typeof value !== 'object') return false;
   const config = value as Partial<WorkbenchConfig>;

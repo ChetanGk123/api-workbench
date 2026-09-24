@@ -1,5 +1,7 @@
 import { defaultEndpoint, type BodyKind, type Endpoint, type HttpMethod } from "../core/model"
-import type { Recording } from "./recorder"
+import { nameFor } from "../tester/context"
+import type { ContextBinding } from "../tester/expressions"
+import type { CredentialSource, Recording } from "./recorder"
 
 const METHODS: readonly string[] = [
   "GET",
@@ -17,6 +19,40 @@ export type Candidate = {
   key: string
   endpoint: Endpoint
   count: number
+  /**
+   * Header names the capture redacted and could not trace, so the endpoint carries nothing for
+   * them. Replaying without supplying them again is a different request from the one recorded,
+   * which is worth saying out loud rather than leaving to be found as an authorisation failure.
+   */
+  dropped: string[]
+  /** Bindings the restored headers read at send time; the new profile's plan carries them. */
+  bindings: ContextBinding[]
+}
+
+export const REDACTED = "[REDACTED]"
+
+/** The credential headers a recording held and could not trace to a page value. */
+export function droppedHeaders(recording: Recording): string[] {
+  return Object.entries(recording.headers)
+    .filter(([name, value]) => value === REDACTED && !recording.credentials?.[name.toLowerCase()])
+    .map(([name]) => name)
+}
+
+/** The binding a traced credential reads at send time. */
+export function bindingFor(source: CredentialSource): ContextBinding {
+  return { name: nameFor(source.source, source.key), source: source.source, key: source.key }
+}
+
+/**
+ * A traced credential comes back as a template, never as the value: the header is rebuilt from
+ * whatever the page holds at the moment the request is sent, so nothing secret is stored and a
+ * rotated token still works.
+ */
+function restoredHeaders(recording: Recording): Array<{ name: string; value: string }> {
+  return Object.entries(recording.credentials ?? {}).map(([name, source]) => ({
+    name,
+    value: `${source.prefix}{{$context("${bindingFor(source).name}")}}`,
+  }))
 }
 
 export type Candidates = {
@@ -74,9 +110,13 @@ export function endpointFromRecording(recording: Recording, profileId: string): 
       method: recording.method as HttpMethod,
       path: `${url.pathname}${url.search}`,
       // A redacted value is a marker, not a credential: it must never be replayed as a header.
-      headers: Object.entries(recording.headers)
-        .filter(([, value]) => value !== "[REDACTED]")
-        .map(([name, value]) => ({ name, value })),
+      // One that was traced to a page value comes back as the binding that reads it at send time.
+      headers: [
+        ...Object.entries(recording.headers)
+          .filter(([, value]) => value !== REDACTED)
+          .map(([name, value]) => ({ name, value })),
+        ...restoredHeaders(recording),
+      ],
       bodyKind: bodyKindOf(recording),
       body: recording.body ?? "",
     },
@@ -118,6 +158,8 @@ export function candidatesFrom(
       key,
       endpoint: existing ? { ...endpoint, id: existing.endpoint.id } : endpoint,
       count: (existing?.count ?? 0) + 1,
+      dropped: [...new Set([...(existing?.dropped ?? []), ...droppedHeaders(recording)])],
+      bindings: Object.values(recording.credentials ?? {}).map(bindingFor),
     })
     if (endpoint.hostKey !== "default") hosts[endpoint.hostKey] = new URL(recording.url).origin
   }

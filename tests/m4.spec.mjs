@@ -71,6 +71,50 @@ test('M4 recorder redacts request credentials before review', async ({ page }) =
   await expect(page.locator(`${panel}`).getByText('Bearer should-not-display', { exact: true })).toHaveCount(0);
 });
 
+test('M4 a recorded credential replays from the page, and is never stored', async ({ page }) => {
+  await launch(page);
+  const token = await page.evaluate(async () => {
+    const { token } = await (await fetch('/api/test/login', { method: 'POST' })).json();
+    localStorage.setItem('app_access_token', token);
+    return token;
+  });
+  await openRecorder(page);
+  await page.getByRole('button', { name: 'Start recording', exact: true }).click();
+  await page.evaluate(() => fetch('/api/test/auth', {
+    headers: { Authorization: `Bearer ${localStorage.getItem('app_access_token')}` },
+  }).then(response => response.text()));
+  await expect(page.getByText(/1 captured/)).toBeVisible();
+  await page.getByRole('button', { name: 'Stop recording', exact: true }).click();
+  // The review says where the header will come from, rather than leaving it missing.
+  await expect(page.locator(panel).getByText(/Sends local_app_access_token read from the page/)).toBeVisible();
+
+  await page.locator(panel).getByRole('textbox', { name: 'New profile name' }).fill('Recorded');
+  await page.getByRole('button', { name: 'Create profile', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to Home' }).click();
+  await page.locator(panel).getByRole('button', { name: 'Test', exact: true }).click();
+  await page.getByRole('button', { name: 'Run Once', exact: true }).click();
+  // The replay is the recorded request: the endpoint the page reached, authenticated.
+  await expect(page.getByText(/passed · HTTP 200/)).toBeVisible();
+  await expect(page.locator(`${panel} pre.aw-code`).first()).toContainText('"authenticated": true');
+
+  const config = await page.evaluate(async () => {
+    const database = await new Promise(resolve => { const request = indexedDB.open('api-workbench', 1); request.onsuccess = () => resolve(request.result); });
+    return new Promise(resolve => {
+      const read = database.transaction('configs', 'readonly').objectStore('configs').get(location.origin);
+      read.onsuccess = () => resolve(read.result);
+    });
+  });
+  // What is stored is the address of the value and the scheme word, never the value.
+  assert.deepEqual(config.endpoints[0].request.headers, [
+    { name: 'authorization', value: 'Bearer {{$context("local_app_access_token")}}' },
+  ]);
+  assert.deepEqual(config.plan.bindings, [
+    { name: 'local_app_access_token', source: 'local', key: 'app_access_token' },
+  ]);
+  assert.ok(token.length > 8);
+  assert.equal(JSON.stringify(config).includes(token), false, 'the token itself is never written to storage');
+});
+
 test('M4 records native XHR traffic and restores the review draft after relaunch', async ({ page }) => {
   await launch(page);
   await openRecorder(page);

@@ -133,6 +133,67 @@ test('every module screen edits rules in place without touching the host page', 
   expect(navigations).toEqual([]);
 });
 
+test('a failed run wears a badge, not the radio dot aw-rd also names', async ({ page }) => {
+  // Nothing listens on 4199, so the run fails for real and the row renders its red outcome badge.
+  await importSample(page, {
+    ...sample,
+    profile: { ...sample.profile, environments: { default: { default: 'http://127.0.0.1:4199' } } },
+  });
+  await goHome(page);
+  await panel(page).getByRole('button', { name: 'Test', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Run Once', exact: true }).click();
+  const badge = panel(page).locator('.aw-li .aw-bd.aw-rd').first();
+  await expect(badge).toHaveText('network-error');
+  // The reference sheet gives `.aw-rd` the 16px radio-dot geometry after the red badge tone, so a
+  // badge that inherits it collapses to a circle and spills its text across the row.
+  const box = await badge.evaluate(node => ({ client: node.clientWidth, scroll: node.scrollWidth, height: node.clientHeight }));
+  expect(box.scroll).toBeLessThanOrEqual(box.client + 1);
+  expect(box.client).toBeGreaterThan(box.height);
+});
+
+test('Once headers are visible on the Test screen and reach the request', async ({ page }) => {
+  await importSample(page);
+  await goHome(page);
+  await panel(page).getByRole('button', { name: 'Test', exact: true }).click();
+  await panel(page).getByRole('combobox', { name: 'Endpoint to run' }).selectOption({ label: 'POST · Imported echo payload' });
+  // Once and Load each carry a Headers card, and the hidden one is still in the DOM.
+  const headers = panel(page).locator('details:visible', { hasText: 'Headers' }).first();
+  await headers.locator('summary').click();
+  // The profile's own headers are here too, not only on Settings.
+  await expect(headers.getByRole('textbox', { name: 'Header name', exact: true }).first()).toHaveValue('X-Workbench-Import');
+  await expect(headers.getByText('Imported echo payload · replaces a global of the same name')).toBeVisible();
+
+  // The endpoint's own header, added from the Test screen, is what the server receives.
+  await headers.getByRole('button', { name: 'Add header', exact: true }).last().click();
+  await headers.getByRole('textbox', { name: 'Header name', exact: true }).last().fill('X-Fixture');
+  await headers.getByRole('textbox', { name: 'Header value', exact: true }).last().fill('from-test-screen');
+  // The badge counts what the request will carry: the global one plus the endpoint's two.
+  await expect(headers.locator('summary .aw-bd')).toHaveText('3');
+  await panel(page).getByRole('button', { name: 'Run Once', exact: true }).click();
+  await expect(panel(page).locator('pre.aw-code').first()).toContainText('"header": "from-test-screen"');
+
+  // Selecting another endpoint shows that endpoint's headers instead.
+  await panel(page).getByRole('combobox', { name: 'Endpoint to run' }).selectOption({ label: 'GET · Imported fixture health' });
+  await expect(headers.getByText('Imported fixture health · replaces a global of the same name')).toBeVisible();
+  await expect(headers.getByRole('textbox', { name: 'Header name', exact: true })).toHaveCount(1);
+});
+
+test('Load headers edit the profile headers every planned request carries', async ({ page }) => {
+  await importSample(page);
+  await goHome(page);
+  await panel(page).getByRole('button', { name: 'Test', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Load', exact: true }).click();
+  const headers = panel(page).locator('details:visible', { hasText: 'Headers' }).first();
+  await headers.locator('summary').click();
+  await expect(headers.getByText("An endpoint's own headers are edited on Endpoints.")).toBeVisible();
+  await headers.getByRole('textbox', { name: 'Header value', exact: true }).first().fill('edited-from-load');
+  await headers.getByRole('textbox', { name: 'Header value', exact: true }).first().blur();
+  // Writing a header re-renders the plan; the editor has to survive that or an edit loses focus.
+  await expect(headers).toHaveAttribute('open', '');
+  const saved = await exportConfig(page);
+  expect(saved.profile.globalHeaders).toEqual([{ name: 'X-Workbench-Import', value: 'edited-from-load' }]);
+});
+
 test('UI tester history updates while the screen stays open', async ({ page }) => {
   await importSample(page);
   await goHome(page);
@@ -155,6 +216,57 @@ test('UI Record screen supports capture, review and resetting the draft', async 
   await panel(page).getByRole('button', { name: /Reset/i }).click();
   await expect(panel(page).getByText('/api/fixture', { exact: true })).toHaveCount(0);
   await expect(panel(page).getByRole('button', { name: 'Start recording', exact: true })).toBeEnabled();
+});
+
+test('the Once result shows a JSON response indented, and only the response', async ({ page }) => {
+  await importSample(page);
+  await goHome(page);
+  await panel(page).getByRole('button', { name: 'Test', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Run Once', exact: true }).click();
+  const detail = panel(page).locator('pre.aw-code').first();
+  await expect(detail).toContainText('"source": "network"');
+  // Indented, not the single line the server sent. A body that does not parse is left as it is.
+  expect(await detail.textContent()).toMatch(/\{\n\s+"source"/);
+  // The box holds the response; a passing run's checks are already summarised in the status line.
+  await expect(detail).not.toContainText('Checks');
+  await expect(panel(page).getByText('passed · HTTP 200', { exact: false })).toBeVisible();
+});
+
+test('a failed check is reported under the result instead of inside the body', async ({ page }) => {
+  const impossible = {
+    ...sample,
+    endpoints: sample.endpoints.map(endpoint => ({ ...endpoint, checks: [{ kind: 'status', value: { min: 500, max: 599 } }] })),
+  };
+  await importSample(page, impossible);
+  await goHome(page);
+  await panel(page).getByRole('button', { name: 'Test', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Run Once', exact: true }).click();
+  const result = panel(page).locator('.aw-card', { hasText: 'RESULT' }).first();
+  await expect(result.getByText(/failed-check/)).toBeVisible();
+  await expect(result.locator('p.aw-rd')).toHaveCount(1);
+  await expect(result.locator('pre.aw-code')).not.toContainText('status 200');
+});
+
+test('a result box can be dragged taller than its resting height', async ({ page }) => {
+  await importSample(page);
+  await goHome(page);
+  await panel(page).getByRole('button', { name: 'Test', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Run Once', exact: true }).click();
+  const detail = panel(page).locator('pre.aw-code').first();
+  await expect(detail).toContainText('"source"');
+  const resting = await detail.evaluate(node => ({
+    resize: getComputedStyle(node).resize,
+    max: getComputedStyle(node).maxHeight,
+    height: node.clientHeight,
+  }));
+  expect(resting.resize).toBe('vertical');
+  expect(resting.max).toBe('160px');
+  // Dragging the handle is the browser writing a height onto the element; the cap has to give way
+  // or the box would stay at 160px however far it is pulled.
+  await detail.evaluate(node => { node.style.height = '360px'; });
+  const dragged = await detail.evaluate(node => ({ max: getComputedStyle(node).maxHeight, height: node.clientHeight }));
+  expect(dragged.max).toBe('none');
+  expect(dragged.height).toBeGreaterThan(300);
 });
 
 test('UI Format JSON appears only when there is something to format, and rewrites in place', async ({ page }) => {
@@ -273,8 +385,8 @@ test('UI title-bar profile menu switches profiles instead of opening Settings', 
 
   // Snapshot the imported profile, then diverge the active one from that snapshot.
   await headerButton(page, 'Settings').click();
-  await panel(page).getByPlaceholder('New profile name').fill('Copy');
-  await panel(page).getByRole('button', { name: 'Save as profile', exact: true }).click();
+  await panel(page).locator('.aw-body').getByRole('textbox', { name: 'Name', exact: true }).fill('Copy');
+  await panel(page).getByRole('button', { name: 'Save as copy', exact: true }).click();
   await openEndpoints(page);
   await panel(page).locator('.aw-endpoint-row').first().getByRole('button', { name: 'Delete', exact: true }).click();
   await expect(panel(page).locator('.aw-endpoint-row')).toHaveCount(1);
@@ -317,8 +429,8 @@ test('UI title-bar profile menu switches profiles instead of opening Settings', 
 test('UI export carries only the active profile and its endpoints, and import keeps the other saved profiles', async ({ page }) => {
   await importSample(page);
   await headerButton(page, 'Settings').click();
-  await panel(page).getByPlaceholder('New profile name').fill('Copy');
-  await panel(page).getByRole('button', { name: 'Save as profile', exact: true }).click();
+  await panel(page).locator('.aw-body').getByRole('textbox', { name: 'Name', exact: true }).fill('Copy');
+  await panel(page).getByRole('button', { name: 'Save as copy', exact: true }).click();
 
   const exported = await exportConfig(page);
   expect(exported.savedProfiles).toBeUndefined();
@@ -334,8 +446,8 @@ test('UI export carries only the active profile and its endpoints, and import ke
 test('UI deleting a profile activates the next one, and deleting the last leaves an empty profile', async ({ page }) => {
   await importSample(page);
   await headerButton(page, 'Settings').click();
-  await panel(page).getByPlaceholder('New profile name').fill('Copy');
-  await panel(page).getByRole('button', { name: 'Save as profile', exact: true }).click();
+  await panel(page).locator('.aw-body').getByRole('textbox', { name: 'Name', exact: true }).fill('Copy');
+  await panel(page).getByRole('button', { name: 'Save as copy', exact: true }).click();
   const switcher = panel(page).locator('.aw-tb').getByRole('button', { name: 'Active profile' });
   const options = panel(page).locator('.aw-body').getByRole('combobox', { name: 'Active profile' }).locator('option');
   const remove = panel(page).locator('.aw-body').getByRole('button', { name: 'Delete profile', exact: true });

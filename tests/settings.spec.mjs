@@ -1,0 +1,239 @@
+import { test, expect } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
+
+const bookmark = await readFile('dist/bookmarklet.txt', 'utf8');
+const source = decodeURIComponent(bookmark.slice(11));
+const sample = JSON.parse(await readFile('tests/fixtures/import-sample.json', 'utf8'));
+const panel = page => page.locator('#api-workbench .aw-root:not(.aw-min)');
+const body = page => panel(page).locator('.aw-body');
+const launch = page => page.evaluate(source); // UI checks only, not saved-bookmark installation evidence.
+const headerButton = (page, name) => panel(page).locator('.aw-tb').getByRole('button', { name, exact: true });
+
+let seq = 0;
+const base = (label, url, kind) => ({
+  id: `rule-${++seq}`, profileId: sample.profile.id, label, kind, enabled: true, priority: 0, seq, revision: 1,
+  matcher: { method: '*', url, query: '', headers: '', bodyContains: '' },
+});
+const mockRule = (label, url) => ({
+  ...base(label, url, 'mock'), mode: 'static', exhaustion: 'repeat-last',
+  slots: [{ status: 200, headers: 'Content-Type: application/json', body: '{"mocked":true}', delayMs: 0, fault: 'none' }],
+});
+const transform = () => ({ setHeaders: '', removeHeaders: '', patch: [], body: { find: '', replace: '', scope: 'first' }, status: 0 });
+// A rule that changes nothing is not applied, so the response carries a header for it to log.
+const interceptRule = (label, url) => ({
+  ...base(label, url, 'intercept'), request: transform(), response: { ...transform(), setHeaders: 'x-edited: yes' },
+});
+
+async function install(page, rules) {
+  await headerButton(page, 'Import').click();
+  await panel(page).getByRole('textbox', { name: 'Import source', exact: true }).fill(JSON.stringify({ ...sample, rules }));
+  await panel(page).getByRole('button', { name: 'Apply', exact: true }).click();
+  await panel(page).getByRole('combobox', { name: 'Import mode', exact: true }).selectOption('replace');
+  await panel(page).getByRole('button', { name: 'Import profile', exact: true }).click();
+  await expect(panel(page).locator('.aw-sub .aw-subtitle')).toHaveText('Endpoints');
+}
+
+async function goHome(page) {
+  const back = panel(page).locator('.aw-sub').getByRole('button', { name: 'Back to Home' });
+  if (await back.isVisible()) await back.click();
+  await panel(page).getByRole('button', { name: 'Home', exact: true }).click();
+}
+
+async function openSettings(page) {
+  await headerButton(page, 'Settings').click();
+  await expect(panel(page).locator('.aw-sub .aw-subtitle')).toHaveText('Settings');
+}
+
+async function activate(page, module) {
+  await goHome(page);
+  await panel(page).getByRole('button', { name: module, exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Activate', exact: true }).click();
+  await expect(panel(page).getByRole('button', { name: 'Deactivate', exact: true })).toBeVisible();
+}
+
+const get = (page, url) => page.evaluate(target => fetch(target).then(response => response.text()), url);
+
+const storedConfig = page => page.evaluate(async () => {
+  const database = await new Promise(resolve => { const request = indexedDB.open('api-workbench', 1); request.onsuccess = () => resolve(request.result); });
+  return new Promise(resolve => {
+    const read = database.transaction('configs', 'readonly').objectStore('configs').get(location.origin);
+    read.onsuccess = () => resolve(read.result ?? null);
+  });
+});
+
+test.beforeEach(async ({ page }) => { await page.goto('/fixture'); });
+
+test('a module switched off in Settings loses its tab and its Home card, and comes back', async ({ page }) => {
+  await launch(page);
+  await openSettings(page);
+  await expect(body(page).getByRole('switch', { name: 'Chaos Engineering' })).toHaveAttribute('aria-checked', 'true');
+  await body(page).getByRole('switch', { name: 'Chaos Engineering' }).click();
+  await expect(body(page).getByRole('switch', { name: 'Chaos Engineering' })).toHaveAttribute('aria-checked', 'false');
+  await goHome(page);
+  await expect(panel(page).locator('.aw-tabs').getByRole('button', { name: 'Chaos', exact: true })).toBeHidden();
+  await expect(panel(page).locator('.aw-tabs').getByRole('button', { name: 'Mock', exact: true })).toBeVisible();
+  await expect(body(page).getByText('Chaos Engineering')).toHaveCount(0);
+
+  // The switch is part of the profile, so a relaunch on this origin still hides it.
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await launch(page);
+  await expect(panel(page).locator('.aw-tabs').getByRole('button', { name: 'Chaos', exact: true })).toBeHidden();
+  await openSettings(page);
+  await body(page).getByRole('switch', { name: 'Chaos Engineering' }).click();
+  await goHome(page);
+  await expect(panel(page).locator('.aw-tabs').getByRole('button', { name: 'Chaos', exact: true })).toBeVisible();
+});
+
+test('the traffic log keeps the number of entries its module is set to', async ({ page }) => {
+  await launch(page);
+  await install(page, [mockRule('mocked', '/api/settings-log')]);
+  await activate(page, 'Mock');
+  await openSettings(page);
+  await body(page).getByRole('spinbutton', { name: 'Max traffic log entries (Mock Server)' }).fill('2');
+  await body(page).getByRole('spinbutton', { name: 'Max traffic log entries (Mock Server)' }).blur();
+  await goHome(page);
+  await panel(page).getByRole('button', { name: 'Mock', exact: true }).click();
+  for (const index of [1, 2, 3, 4]) await get(page, '/api/settings-log');
+  // The cap trims the log, not the counting: the rule still reports all four hits.
+  const log = body(page).locator('.aw-card.aw-list').last();
+  await expect(log.locator('.aw-li')).toHaveCount(2);
+  await expect(body(page).getByText('4 hits')).toBeVisible();
+
+  // Reset puts the default back.
+  await openSettings(page);
+  await body(page).getByRole('button', { name: 'Reset max traffic log entries (Mock Server)' }).click();
+  await expect(body(page).getByRole('spinbutton', { name: 'Max traffic log entries (Mock Server)' })).toHaveValue('50');
+});
+
+test('response bodies reach the intercept traffic log only while Settings asks for them', async ({ page }) => {
+  await launch(page);
+  await install(page, [interceptRule('watch', '/api/fixture')]);
+  await activate(page, 'Intercept');
+  await get(page, '/api/fixture');
+  await panel(page).getByRole('button', { name: 'Intercept', exact: true }).click();
+  await expect(body(page).locator('.aw-card.aw-list').last().locator('.aw-li')).toHaveCount(1);
+  await expect(body(page).locator('details', { hasText: 'Response body' })).toHaveCount(0);
+
+  await openSettings(page);
+  await body(page).getByRole('checkbox', { name: 'Store response bodies in traffic log' }).click();
+  await goHome(page);
+  await get(page, '/api/fixture');
+  await panel(page).getByRole('button', { name: 'Intercept', exact: true }).click();
+  const stored = body(page).locator('details', { hasText: 'Response body' }).first();
+  await expect(stored).toBeVisible();
+  await stored.locator('summary').click();
+  await expect(stored.locator('pre')).toContainText('fixture');
+});
+
+test('Max captures caps the recorder draft', async ({ page }) => {
+  await launch(page);
+  await openSettings(page);
+  await body(page).getByRole('spinbutton', { name: 'Max captures (Recorder)' }).fill('1');
+  await body(page).getByRole('spinbutton', { name: 'Max captures (Recorder)' }).blur();
+  await goHome(page);
+  await panel(page).getByRole('button', { name: 'Record', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Start recording', exact: true }).click();
+  await get(page, '/api/fixture');
+  await get(page, '/api/echo');
+  await expect(panel(page).getByText(/1 captured/)).toBeVisible();
+});
+
+test('switching the recorder off closes the Record screen and stops a recording', async ({ page }) => {
+  await launch(page);
+  await goHome(page);
+  await panel(page).getByRole('button', { name: 'Record', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Start recording', exact: true }).click();
+  await openSettings(page);
+  await body(page).getByRole('switch', { name: 'Recorder' }).click();
+
+  await goHome(page);
+  await expect(panel(page).getByRole('button', { name: 'Record', exact: true })).toHaveCount(0);
+  await openSettings(page);
+  await body(page).getByRole('switch', { name: 'Recorder' }).click();
+  await goHome(page);
+  await expect(panel(page).getByRole('button', { name: 'Record', exact: true })).toBeVisible();
+  // Switching it off stopped the recording, so the screen comes back ready to start again.
+  await panel(page).getByRole('button', { name: 'Record', exact: true }).click();
+  await expect(panel(page).getByRole('button', { name: 'Start recording', exact: true })).toBeEnabled();
+  await expect(panel(page).getByRole('button', { name: 'Stop recording', exact: true })).toBeDisabled();
+});
+
+test('Save stores the live profile so a switch away and back returns to it', async ({ page }) => {
+  await launch(page);
+  await install(page, []);
+  await openSettings(page);
+  await body(page).getByRole('textbox', { name: 'Name', exact: true }).fill('Alpha');
+  await body(page).getByRole('button', { name: 'Save profile', exact: true }).click();
+  await body(page).getByRole('textbox', { name: 'Name', exact: true }).fill('Beta');
+  await body(page).getByRole('button', { name: 'Save as copy', exact: true }).click();
+
+  const active = body(page).getByRole('combobox', { name: 'Active profile' });
+  await active.selectOption({ label: 'Beta' });
+  await body(page).getByRole('button', { name: 'Load profile', exact: true }).click();
+  await expect(panel(page).locator('.aw-tb').getByRole('button', { name: 'Active profile' })).toHaveText('Beta');
+  await openSettings(page);
+  await body(page).getByRole('combobox', { name: 'Active profile' }).selectOption({ label: 'Alpha' });
+  await body(page).getByRole('button', { name: 'Load profile', exact: true }).click();
+  await expect(panel(page).locator('.aw-tb').getByRole('button', { name: 'Active profile' })).toHaveText('Alpha');
+  // Alpha came back with the endpoints it was saved with.
+  await goHome(page);
+  await panel(page).getByRole('button', { name: /^Endpoints/ }).click();
+  await expect(panel(page).locator('.aw-endpoint-row')).toHaveCount(sample.endpoints.length);
+});
+
+test('Check for update compares this build against the one recorded for the origin', async ({ page }) => {
+  await launch(page);
+  await openSettings(page);
+  await body(page).getByRole('button', { name: 'Check for update', exact: true }).click();
+  await expect(body(page).getByText(/this origin/)).toBeVisible();
+  // A newer build recorded here means the running bookmark is the stale copy.
+  await page.evaluate(async () => {
+    const database = await new Promise(resolve => { const request = indexedDB.open('api-workbench', 1); request.onsuccess = () => resolve(request.result); });
+    await new Promise(resolve => {
+      const write = database.transaction('configs', 'readwrite');
+      write.objectStore('configs').put('99.0.0', `version:${location.origin}`);
+      write.oncomplete = resolve;
+    });
+  });
+  await body(page).getByRole('button', { name: 'Check for update', exact: true }).click();
+  await expect(body(page).getByText(/A newer build \(99\.0\.0\)/)).toBeVisible();
+});
+
+test('Clear stored data asks first, then empties this origin', async ({ page }) => {
+  await launch(page);
+  await install(page, [mockRule('mocked', '/api/settings-clear')]);
+  expect(await storedConfig(page)).not.toBeNull();
+  await openSettings(page);
+
+  await body(page).getByRole('button', { name: 'Clear stored data', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect((await storedConfig(page)).endpoints.length).toBe(sample.endpoints.length);
+
+  await body(page).getByRole('button', { name: 'Clear stored data', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Clear', exact: true }).click();
+  await expect(body(page).getByRole('combobox', { name: 'Active profile' })).toHaveValue('default');
+  const after = await storedConfig(page);
+  expect(after.endpoints).toEqual([]);
+  expect(after.rules ?? []).toEqual([]);
+});
+
+test('Page context globals lists what the named root holds', async ({ page }) => {
+  await page.evaluate(() => { window.__awDemo = { baseUrl: 'https://api.example.test', token: 'abcdef123456' }; });
+  await launch(page);
+  await openSettings(page);
+  const globals = panel(page).locator('details', { hasText: 'Page context globals' });
+  await globals.locator('summary').click();
+  await globals.getByRole('textbox', { name: 'Global roots (comma separated)' }).fill('__awDemo');
+  await globals.getByRole('textbox', { name: 'Global roots (comma separated)' }).blur();
+  await expect(globals.getByText('__awDemo.baseUrl')).toBeVisible();
+  // Previews are masked, never the whole value.
+  await expect(globals.getByText('abcdef123456')).toHaveCount(0);
+  await expect(globals.getByText(/abc…6 \(12 chars\)/)).toBeVisible();
+
+  // Test's Scan page starts from the roots Settings holds.
+  await goHome(page);
+  await panel(page).getByRole('button', { name: 'Test', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Load', exact: true }).click();
+  await panel(page).locator('details', { hasText: 'Page context' }).first().locator('summary').click();
+  await expect(panel(page).getByRole('textbox', { name: 'Global roots (comma separated)' })).toHaveValue('__awDemo');
+});

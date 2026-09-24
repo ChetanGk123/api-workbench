@@ -20,6 +20,13 @@ export { parseHeaderLines } from "./transform"
 
 export type RequestKind = "fetch" | "xhr"
 
+/**
+ * `TESTER_MARK` is how a request the workbench's own tester dispatched through the page's wrapped
+ * fetch is recognised afterwards. It is an unknown member of the fetch init, which the platform
+ * ignores, so the request that leaves the page is the one the plan describes.
+ */
+export const TESTER_MARK = "__awTester"
+
 export type RequestContext = Readonly<{
   kind: RequestKind
   method: string
@@ -27,6 +34,8 @@ export type RequestContext = Readonly<{
   headers: Readonly<Record<string, string>>
   body?: string
   signal?: AbortSignal
+  /** Dispatched by the workbench tester rather than by the page. */
+  fromTester?: boolean
 }>
 
 export type HeaderBag =
@@ -53,6 +62,7 @@ export function createRequestContext(input: {
   headers?: HeaderBag
   body?: string | Blob | FormData | URLSearchParams | ArrayBuffer | null
   signal?: AbortSignal
+  fromTester?: boolean
 }): RequestContext {
   return Object.freeze({
     kind: input.kind,
@@ -61,6 +71,7 @@ export function createRequestContext(input: {
     headers: Object.freeze(normalizeHeaders(input.headers ?? {})),
     body: typeof input.body === "string" ? input.body : undefined,
     signal: input.signal,
+    fromTester: input.fromTester,
   })
 }
 
@@ -298,6 +309,8 @@ export type RuleActivity = {
   url: string
   outcome: string
   at: number
+  /** The response body, only when the profile asks the traffic log to keep it. */
+  body?: string
 }
 
 export type SyntheticResponse = {

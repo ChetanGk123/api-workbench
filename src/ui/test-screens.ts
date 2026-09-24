@@ -2,6 +2,8 @@ import {
   el,
   icon,
   button,
+  headerFields,
+  prettyJson,
   iconButton,
   card,
   caption,
@@ -16,9 +18,11 @@ import {
 import {
   MAX_CONCURRENCY,
   MAX_ITERATIONS,
+  mergeHeaders,
   RAMP_STEP_MS,
   stepPhase,
   type Endpoint,
+  type HeaderValue,
   type TestPlan,
 } from "../core/model"
 import { preflight, type Preflight } from "../tester/plan"
@@ -138,7 +142,8 @@ const SOURCES: ContextSource[] = ["cookie", "local", "session", "meta", "dom", "
 function contextCard(ctx: Ctx): HTMLElement {
   const box = card()
   const chosen = new Set<ContextSource>(["cookie", "meta"])
-  let roots = ""
+  // Settings keeps the roots this profile scans; the scan starts from them and edits stay local.
+  let roots = (ctx.state().config.profile.settings.globalRoots ?? []).join(", ")
   const results = el("div", "aw-card aw-list")
   results.setAttribute("aria-label", "Scan results")
   const status = el("p", "aw-hint", "Nothing scanned yet. Values are previewed masked and never exported.")
@@ -198,7 +203,7 @@ function contextCard(ctx: Ctx): HTMLElement {
         else chosen.delete(source)
       }, ctx.signal).field,
     )
-  const rootField = textField("Global roots (comma separated)", "", (value) => (roots = value), ctx.signal)
+  const rootField = textField("Global roots (comma separated)", roots, (value) => (roots = value), ctx.signal)
   const scan = button("aw-btn aw-out aw-sm", "Scan page", () => {
     const candidates = scanPage([...chosen], roots.split(",").map((item) => item.trim()).filter(Boolean))
     show(candidates)
@@ -231,6 +236,69 @@ function builtinsCard(): HTMLElement {
 /* ── Test screen ───────────────────────────────────────────────────────────── */
 
 /** The M3 direct send, kept intact: one endpoint, one request, active rules bypassed. */
+/**
+ * What this request will actually send, editable in place. The plan's own runs read the same two
+ * sets, so this is the request being changed, not a copy of it that a run would ignore.
+ */
+function headersCard(ctx: Ctx, endpointId?: () => string): HTMLDetailsElement & { redraw: () => void } {
+  const box = disclosure("Headers")
+  const count = el("span", "aw-bd aw-s")
+  box.querySelector("summary")?.append(el("span", "aw-grow"), count)
+  const globals = el("div", "aw-col aw-gap6")
+  const local = el("div", "aw-col aw-gap6")
+  const localLabel = el("span", "aw-lbl")
+  const effective = () => {
+    const config = ctx.state().config
+    const endpoint = endpointId ? config.endpoints.find((item) => item.id === endpointId()) : undefined
+    return { config, endpoint }
+  }
+  const retotal = (local: HeaderValue[]) => {
+    count.textContent = String(mergeHeaders(ctx.state().config.profile.globalHeaders, local).length)
+  }
+  const draw = () => {
+    const { config, endpoint } = effective()
+    globals.replaceChildren(
+      el("span", "aw-lbl", "Global · sent with every request"),
+      headerFields(ctx.signal, config.profile.globalHeaders, (globalHeaders) => {
+        const profile = ctx.state().config.profile
+        ctx.updateProfile({ ...profile, globalHeaders, revision: profile.revision + 1, updatedAt: Date.now() })
+        const { endpoint: current } = effective()
+        retotal(current?.request.headers ?? [])
+      }),
+    )
+    local.replaceChildren()
+    if (!endpointId) {
+      count.textContent = String(config.profile.globalHeaders.filter((header) => !header.removed).length)
+      return
+    }
+    if (!endpoint) {
+      count.textContent = "0"
+      return
+    }
+    localLabel.textContent = `${endpoint.name} · replaces a global of the same name`
+    local.append(
+      localLabel,
+      // Re-rendering here would replace the input being typed into, so a save only retotals.
+      headerFields(ctx.signal, endpoint.request.headers, (headers: HeaderValue[]) => {
+        const current = ctx.state().config.endpoints.find((item) => item.id === endpoint.id)
+        if (!current) return
+        ctx.updateEndpoint({ ...current, request: { ...current.request, headers }, updatedAt: Date.now() })
+        retotal(headers)
+      }),
+    )
+    retotal(endpoint.request.headers)
+  }
+  draw()
+  box.append(
+    globals,
+    local,
+    el("p", "aw-hint", endpointId
+      ? "Edits are saved to the profile and the endpoint, so a run sends exactly this."
+      : "Sent with every request in the plan. An endpoint's own headers are edited on Endpoints."),
+  )
+  return Object.assign(box, { redraw: draw })
+}
+
 function oncePanel(ctx: Ctx): { panel: HTMLElement; actions: Node[] } {
   const panel = el("div", "aw-col aw-gap12")
   const config = ctx.state().config
@@ -255,10 +323,20 @@ function oncePanel(ctx: Ctx): { panel: HTMLElement; actions: Node[] } {
   run.disabled = !config.endpoints.length
   const result = card()
   const detail = el("pre", "aw-code aw-wrap", "No result yet.")
+  // Failed checks only. A passing run already says so in the status line, and the body box holds
+  // the response, not a report about it.
+  const failures = el("div", "aw-col aw-gap2")
   let previous = ctx.state().testerResult
   const refresh = (current: NonNullable<ReturnType<Ctx["state"]>["testerResult"]>) => {
     status.textContent = `${current.outcome}${current.status ? ` · HTTP ${current.status}` : ""} · ${current.durationMs} ms${current.error ? ` · ${current.error}` : ""}`
-    detail.textContent = `${current.body || current.error || "No response body."}\n\nChecks\n${current.checks.map((check) => `${check.state} · ${check.detail}`).join("\n")}`
+    // A response body is read here, not edited, so a JSON one is shown indented; anything else is
+    // shown exactly as it arrived.
+    detail.textContent = current.body ? (prettyJson(current.body) ?? current.body) : current.error || "No response body."
+    failures.replaceChildren(
+      ...current.checks
+        .filter((check) => check.state === "failed")
+        .map((check) => el("p", "aw-hint aw-rd", check.detail)),
+    )
   }
   if (previous) refresh(previous)
   ctx.watch((state) => {
@@ -268,10 +346,13 @@ function oncePanel(ctx: Ctx): { panel: HTMLElement; actions: Node[] } {
       run.disabled = !config.endpoints.length
     }
   })
-  result.append(caption("Result"), status, detail)
+  result.append(caption("Result"), status, detail, failures)
+  const headers = headersCard(ctx, () => selector.value)
+  selector.addEventListener("change", () => headers.redraw(), { signal: ctx.signal })
   panel.append(
     el("p", "aw-hint", "One request using this page\u2019s session. Direct execution bypasses active rules."),
     group("aw-row", selector, run),
+    headers,
     result,
     caption("Run history"),
     onceHistory(ctx),
@@ -309,9 +390,12 @@ export function testScreen(ctx: Ctx): HTMLElement {
   const screen = el("div", "aw-col aw-gap12")
   const direct = oncePanel(ctx)
   const loadPanel = el("div", "aw-col aw-gap12")
-  // Watchers belong to the screen, not to one render pass, so these two are built once and moved.
+  // Watchers belong to the screen, not to one render pass, so these are built once and moved.
   const history = planRunHistory(ctx)
   const context = contextCard(ctx)
+  // Editing a header writes to the profile, which re-renders the plan; rebuilding the editor here
+  // would close it and drop focus mid-edit, so it is built once and moved like the two above.
+  const planHeaders = headersCard(ctx)
   const once = button("aw-btn aw-sm", "Once", () => showView("once"), ctx.signal)
   const load = button("aw-btn aw-sm", "Load", () => showView("load"), ctx.signal)
   let view: "once" | "load" = "once"
@@ -435,6 +519,7 @@ export function testScreen(ctx: Ctx): HTMLElement {
     loadPanel.replaceChildren(
       baseUrls,
       config,
+      planHeaders,
       phaseList(ctx, plan, setupEndpoints, "Setup phase", "No setup steps. Move an endpoint here to run it once per run."),
       phaseList(ctx, plan, loadEndpoints, "Load phase", "No load steps. Add endpoints in Endpoints first."),
       notify,

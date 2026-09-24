@@ -1,5 +1,5 @@
 import { createRequestContext, type Pipeline, type Plan, type SyntheticResponse } from "./pipeline"
-import { statusText } from "./rules"
+import { statusText, TESTER_MARK } from "./rules"
 import { applyTransform, textLike } from "./transform"
 
 function syntheticResponse(plan: Plan, url: string): Response {
@@ -43,6 +43,7 @@ export function fetchAdapter(captured: typeof fetch, pipeline: Pipeline): typeof
       headers: input instanceof Request ? input.headers : new Headers(init?.headers),
       body: typeof init?.body === "string" ? init.body : undefined,
       signal,
+      fromTester: (init as Record<string, unknown> | undefined)?.[TESTER_MARK] === true,
     })
     const lifecycle = pipeline.beginRequest(requestContext, "fetch")
     const plan = lifecycle.plan

@@ -71,15 +71,17 @@ test('M3 direct Once uses the page session and reports checks', async ({ page })
   await page.getByRole('button', { name: 'Run Once', exact: true }).click();
   await expect(page.getByText(/passed · HTTP 200/)).toBeVisible();
   await expect(page.locator(`${panel} .aw-code`)).toContainText('authenticated');
-  await expect(page.locator(`${panel} .aw-code`)).toContainText('Checks');
+  // The checks are reported by the outcome above the body, not appended to the response.
+  await expect(page.locator(`${panel} .aw-code`)).not.toContainText('Checks');
+  await expect(page.locator(`${panel} .aw-body p.aw-rd`)).toHaveCount(0);
   await expect(page.getByText('Run history', { exact: true })).toBeVisible();
 });
 
 test('M3 profiles, environment mapping and native JSON import are usable', async ({ page }) => {
   await launch(page);
   await page.locator(`${panel} .aw-tb`).getByRole('button', { name: 'Settings', exact: true }).click();
-  await page.getByPlaceholder('New profile name').fill('Staging');
-  await page.getByRole('button', { name: 'Save as profile', exact: true }).click();
+  await page.locator(`${panel} .aw-body`).getByRole('textbox', { name: 'Name', exact: true }).fill('Staging');
+  await page.getByRole('button', { name: 'Save as copy', exact: true }).click();
   // The title-bar control is a real profile switcher, not a second route into Settings.
   const switcher = page.locator(`${panel} .aw-tb`).getByRole('button', { name: 'Active profile' });
   const openMenu = page.locator('#api-workbench .aw-menu:not([hidden])');
@@ -88,7 +90,10 @@ test('M3 profiles, environment mapping and native JSON import are usable', async
   await page.keyboard.press('Escape');
   const settingsProfile = page.locator(`${panel} .aw-body`).getByRole('combobox', { name: 'Active profile' });
   await expect(settingsProfile.locator('option', { hasText: 'Staging' })).toHaveCount(1);
+  // Selecting names the profile to load; Load is what switches, so reading the list is safe.
   await settingsProfile.selectOption({ label: 'Staging' });
+  await expect(switcher).toHaveText('127.0.0.1');
+  await page.locator(`${panel} .aw-body`).getByRole('button', { name: 'Load profile', exact: true }).click();
   await expect(switcher).toHaveText('Staging');
   await page.getByPlaceholder('host_key').fill('api');
   await page.getByPlaceholder('origin URL').fill('http://127.0.0.1:4173');

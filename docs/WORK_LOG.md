@@ -30,6 +30,478 @@ when a later milestone lands.
 | M9 — Complete import support | CODE COMPLETE · all M9 acceptance gates PASS in Chrome (38 checks) · saved-bookmark and Edge checks NOT RUN |
 | M10 — Integrated release | NOT STARTED |
 
+## 2026-09-24 — Headers are visible and editable where a request is run
+
+**Scope.** The Test screen ran an endpoint without showing what it would send. Headers lived only
+in the endpoint editor and on the profile, two screens away from the Run button.
+
+**Change.** A collapsed **Headers** card on both Test views, with a badge for the number the
+request will carry.
+
+- **Once** — the profile's global headers and the selected endpoint's own, both editable, the
+  second relabelled as the selector changes. The badge is the merged total, so a global replaced by
+  a same-named endpoint header is counted once.
+- **Load** — the global headers, which every planned request carries, and a line saying an
+  endpoint's own headers are edited on Endpoints.
+
+Edits write to the profile and to the endpoint, so a run sends exactly what the card shows; there
+is no per-run override state that a run could ignore.
+
+**Refactor.** `headerFields` moved from `screens.ts` to `dom.ts` and takes an `AbortSignal` rather
+than a `Ctx`, which is all it ever used. Importing it from `screens.ts` would have created a real
+import cycle, since `screens.ts` imports the Test screens.
+
+**Two bugs found while building, both fixed.**
+
+- The first version called `draw()` from the save callback, which replaced the input being typed
+  into: the header name committed and the value was silently lost. The wire assertion caught it
+  (`"header": null`, stored value empty). A save now only retotals the badge.
+- The Load card is built once and moved into each render, like the page-context and history cards:
+  writing a global header re-renders the plan, which would otherwise close the card mid-edit.
+
+**Tests.** `tests/ui.spec.mjs` — a header typed on the Test screen comes back in the echo
+response as `"header": "from-test-screen"`; the badge reads the merged total; changing the selector
+shows the other endpoint's headers; and a Load-view edit persists into the exported profile with
+the card still open. Both tests scope to `details:visible`, since the hidden view's card stays in
+the DOM.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0, `npm run build` → exit 0.
+- `npx playwright test` → 211 passed in 1.7 m on a freshly started fixture server, Chrome
+  (channel `chrome`), macOS darwin 25.6.0, Node v24.21.0.
+
+**Not run.** Edge, saved-bookmark installation.
+
+**Limitations.** Load shows profile-wide headers only; a plan step's own headers are still edited on
+Endpoints. Header removal in the card deletes the row rather than marking `removed`, so suppressing
+a global header for one endpoint still needs the endpoint editor.
+
+**Next task.** M10 — integrated release.
+
+## 2026-09-24 — A recorded credential replays from the page, and is still never stored
+
+**Scope.** Follow-up to the entry below, after the user confirmed the missing header was
+`Authorization`. Naming the dropped header was not enough: a recorded endpoint should send the
+request that was recorded.
+
+**Approach.** The recorder sees the real header value at capture — redaction happens on the way to
+storage — so it now locates that value among the page's `localStorage`, `sessionStorage` and cookie
+entries and keeps only its address: `{ source, key, prefix }`. Nothing secret is written: the
+prefix is the scheme word, such as `Bearer `. `endpointFromRecording` rebuilds a traced header as
+`Bearer {{$context("local_app_access_token")}}`, the candidate carries the matching
+`ContextBinding`, and creating a profile from the review seeds the new plan's bindings with them,
+so the template resolves from the first run.
+
+**Guards.** The stored value must be a *suffix* of the header and the remaining prefix must match
+`/^[A-Za-z]* ?$/`, so a secret cannot end up inside the prefix. Values shorter than 8 characters are
+not matched. `Cookie` and `Set-Cookie` are never rebuilt this way — the browser attaches cookies
+itself and `document.cookie` cannot read an HttpOnly one anyway. A credential that cannot be traced
+keeps the previous behaviour: dropped, and named in the review as not found on the page.
+
+**Changed files.** `src/recorder/recorder.ts` (`CredentialSource`, page lookup, `credentials` on a
+`Recording`), `src/recorder/promote.ts` (traced headers become templates, `Candidate.bindings`),
+`src/tester/context.ts` (`nameFor` exported so a binding name matches Scan page's), `src/ui/
+screens.ts` (review wording, bindings passed on profile creation), `src/entry.ts`
+(`createProfileFromRecordings` seeds the plan's bindings).
+
+**Tests.** `tests/m4.spec.mjs` — records a real bearer-authenticated call against the fixture's
+`/api/test/auth`, creates a profile from the review, replays with Run Once and requires
+`HTTP 200` with `"authenticated": true`; then asserts the stored header is the template, the plan
+holds the binding, and the raw token appears nowhere in the stored configuration.
+`tests/m4-core.spec.mjs` — a recording carrying `credentials` produces the template header, the
+binding, and an empty `dropped`.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0, `npm run build` → exit 0.
+- `npx playwright test` → 209 passed in 1.7 m on a freshly started fixture server, Chrome
+  (channel `chrome`), macOS darwin 25.6.0, Node v24.21.0.
+
+**Not run.** Edge, saved-bookmark installation. Tracing is exercised against a token held as a
+plain string in `localStorage`; a token wrapped inside a JSON blob, or held only in a closure, is
+by design not traced and falls back to the named-and-dropped notice.
+
+**Next task.** M10 — integrated release.
+
+## 2026-09-24 — A recorded credential that cannot be replayed now says so
+
+**Reported.** On a real site, running a recorded `POST /api/v1/birthday_list` returned
+`You're not authorised to access., try logging in.` while the page's own call succeeded, read as
+the tool reporting something other than what the backend sent.
+
+**Finding — not a reporting defect.** The panel showed what that request received. The request
+differed: the recorder redacts `authorization`, `cookie`, `set-cookie`, `proxy-authorization`,
+`x-api-key` and `x-auth-token` (`recorder.ts`), and `endpointFromRecording` drops a redacted header
+rather than replaying the marker, so the replay is unauthenticated. The reported endpoint name
+carries the recorder's `METHOD pathname` form, so it came from a capture. The API answers with
+HTTP 200 and an error envelope, so the status check passes and the run reads as `passed`.
+
+**Reproduced** against the fixture's bearer-protected `/api/test/auth`: the page's own call returns
+200 `{"authenticated":true}`; the same call recorded, promoted and replayed returns 401 with
+`request.headers: []`.
+
+**Workaround verified end to end.** Scan page → Local storage → Use on the token, then an
+`Authorization: Bearer {{$context("local_aw_demo_token")}}` header on the endpoint: Run Once
+returns 200 with the authenticated body. The binding resolves at dispatch, so no credential is
+stored and a rotated token still works.
+
+**Change.** `Candidate` carries `dropped: string[]` — the header names the capture redacted, unioned
+across the calls that collapse into one endpoint — and the recorder review prints them on that row:
+`authorization recorded but not stored. Add it as a header — {{$context("…")}} reads the live value
+at send.` Rows with no credential say nothing. The redaction and the drop are unchanged: a
+credential is still never written to a profile. Reusing `HeaderValue.removed` was rejected — a
+removed local header also suppresses a global header of the same name, which would silently strip a
+profile-wide `Authorization`.
+
+**Tests.** `tests/m4-core.spec.mjs` — the existing redaction check now also asserts the candidate
+names the dropped header, plus a new check that repeated calls report each credential once, that
+non-credential headers still arrive, and that a request without credentials reports none.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0, `npm run build` → exit 0.
+- `npx playwright test` → 207 passed in 1.7 m on a freshly started fixture server, Chrome
+  (channel `chrome`), macOS darwin 25.6.0, Node v24.21.0.
+
+**Not run.** Edge, saved-bookmark installation. The reporting user's own site was not inspected:
+the mechanism is reproduced locally and their endpoint's origin is inferred from its recorder-shaped
+name, so that their case is this case is a strong inference, not a measurement.
+
+**Open.** The notice appears at capture time. The confusion happens at replay time, where the
+endpoint no longer knows what was dropped; carrying it onto the endpoint would make the Once result
+able to say it too. Not built — offered to the user.
+
+**Next task.** M10 — integrated release.
+
+## 2026-09-24 — The result box resizes, and holds the response alone
+
+**Reported.** The Once result box could not be made taller, and the `Checks / passed · status 200`
+trailer inside it was not wanted.
+
+**Resizing.** `.aw-code` carries the platform's own `resize: vertical` handle. The 160px cap moved
+to `.aw-code:not([style*="height"])`, so a box sizes to its content until the handle is dragged —
+at which point the browser writes a height into the element's style attribute, the selector stops
+matching and the cap is gone. Without that split the handle could only shrink a box, since
+`max-height` would keep winning over the dragged `height`. No script, and every read-only code box
+gains it: the Once result, a traffic log's stored body, the saved response sample and the activity
+log. Measured: 115px at rest with `max-height: 160px`, 358px after a height is set with
+`max-height: none`.
+
+**Checks trailer.** `src/ui/test-screens.ts` renders the response body alone. A passing run's
+outcome is already the status line above it (`passed · HTTP 200 · 7 ms`). What that line does not
+carry is *which* check failed, so failed checks — and only failed ones — now render as red lines
+under the box rather than as text appended to the response.
+
+**Tests.** `tests/ui.spec.mjs` — the body is indented and contains no `Checks`; a run whose only
+check cannot pass reports exactly one red line outside the body and nothing inside it; the box is
+`resize: vertical`, capped at 160px at rest and uncapped once a height is set.
+`tests/m3.spec.mjs` asserted the old trailer and now asserts its absence.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0, `npm run build` → exit 0.
+- `npx playwright test` → 206 passed in 1.7 m on a freshly started fixture server, Chrome
+  (channel `chrome`), macOS darwin 25.6.0, Node v24.21.0.
+
+**Not run.** Edge, saved-bookmark installation. The resize handle is exercised by setting the
+height the browser would set; a real pointer drag on the native handle was not automated.
+
+**Next task.** M10 — integrated release.
+
+## 2026-09-24 — Read-only JSON bodies are shown indented
+
+**Scope.** The Once result printed the response body exactly as it arrived, so a one-line JSON
+payload wrapped across the card. Editable JSON fields already had `formatJsonButton`; a read-only
+display has nothing to press, so it formats itself.
+
+**Change.** `src/ui/test-screens.ts` (Once result) and `src/ui/rule-screens.ts` (the traffic log's
+stored response body) render `prettyJson(body) ?? body` — the helper already in `dom.ts`. It
+returns null for anything that is not JSON or is already indented, so a non-JSON body is shown
+exactly as it arrived and nothing is re-stringified twice. The endpoint sample response was left
+alone: it is an editable draft field with its own Format control, and formatting there is a saved
+edit rather than a display choice.
+
+**Test.** `tests/ui.spec.mjs` — a Once run against the fixture asserts the rendered body matches
+`/\{\n\s+"source"/`, which the server's single-line JSON cannot.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0, `npm run build` → exit 0.
+- `npx playwright test tests/ui.spec.mjs` → 16 passed.
+- `npx playwright test tests/settings.spec.mjs tests/m3.spec.mjs tests/m5.spec.mjs tests/m6.spec.mjs`
+  → 38 passed.
+- The clean full-suite run recorded with the previous entry was 203 passed.
+
+**Next task.** M10 — integrated release.
+
+## 2026-09-24 — Red badges collapsed into the radio dot `aw-rd` also names
+
+**Reported.** A failed Run Once drew its `network-error` outcome as red text spilling across the
+run-history row instead of a badge.
+
+**Cause.** `design/reference/aw-theme.css` gives `.aw-rd` two meanings: the red badge tone at
+line 69, and the 16×16 radio-dot geometry at line 122. The second wins, so every red badge in the
+app rendered as a 16px circle with its text overflowing, and every `p.aw-hint.aw-rd` error line
+rendered as a circle too. `.aw-quick` already restated the geometry for one case — the Remove
+operation button — which was the same collision fixed once, locally.
+
+**Fix.** `src/ui/theme.css` restates the geometry for the two shapes that are not that radio:
+`.aw-bd.aw-rd` (pill: auto width, 20px high, red border and tint restored) and `p.aw-rd` (plain
+block text). The reference sheet stays unmodified, as the build requires. This repairs the run
+history row, a failed plan step's badge, the mock rule row's non-2xx status badge, and the error
+paragraphs on Results and Import.
+
+**Test.** `tests/ui.spec.mjs` — a profile pointed at a port nothing listens on makes Run Once fail
+for real, then the row's badge is measured: `scrollWidth <= clientWidth` (its text fits) and
+`clientWidth > clientHeight` (a pill, not a circle). Verified to fail without the fix
+(scrollWidth 44 against clientWidth 14) and pass with it.
+
+**Also reported: Run Once failing while Load runs pass.** Not a defect in the panel. Earlier in the
+session the long-running fixture server on 4173 was stopped so the suite could start a fresh one —
+`tests/m8.spec.mjs` asserts on absolute hit counts and only passes against a server that has not
+served those paths yet. A browser tab still open against the stopped server keeps working for
+anything a mock or rule answers, while Run Once dispatches on the captured transport and gets a
+refused connection, reported as `network-error · Failed to fetch` in a few milliseconds. Reproduced
+the reported flow against a running server — importing `openapi.json` and running `Echo GET` Once
+returns HTTP 200 — and restarted the fixture server.
+
+**Commands and outcomes.**
+
+- `npm run build` → exit 0.
+- `npx playwright test tests/ui.spec.mjs` → 15 passed, including the new check.
+- `npx playwright test` → 203 passed in 1.7 m on a freshly started fixture server. An earlier run
+  against a warm server failed four checks (`m7` ×2, `m8` ×2); `m7` passed on rerun and the `m8`
+  pair are the absolute-hit-count artifact described above.
+
+**Note for future runs.** A fixture server is now running outside the test runner, so
+`npx playwright test` cannot start its own on 4173. Stop it first, or run with a config that sets
+`webServer.reuseExistingServer` — but `m8` needs a server that has not yet served its paths.
+
+**Next task.** M10 — integrated release.
+
+## 2026-09-24 — Recorder recovery card removed from Settings
+
+**Scope.** The card added earlier the same day is gone at the user's request. Settings now opens on
+Profiles. Everything that existed only to feed it went with it, rather than being left as state
+nothing reads: `UIState.recorderBytes` / `recorderRestored`, the recorder's `restored` counter and
+its getter, and the `.aw-alertcard` / `.aw-dot8` rules in the theme.
+
+**Kept.** The Recorder row in Modules — its switch, Max captures and Include tester traffic — and
+the recorder's `bytes` / `limit` / `setLimit` API, which the cap and its test still use. The Record
+screen keeps its own recorder controls, including the Reset that the removed card duplicated.
+
+**Changed files.** `src/ui/screens.ts` (card deleted, state fields dropped, import narrowed),
+`src/entry.ts` (recorder store fields dropped), `src/recorder/recorder.ts` (`restored` removed),
+`src/ui/theme.css`, `tests/settings.spec.mjs` (the card's two checks removed; the recorder-off
+check now proves the recording stopped from the Record screen instead of the card),
+`tests/recorder-core.spec.mjs`.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0.
+- `npm run build` → exit 0.
+- `npx playwright test tests/settings.spec.mjs tests/recorder-core.spec.mjs tests/ui.spec.mjs` →
+  26 passed.
+- `npx playwright test` → 202 passed in 1.6 m, Chrome (channel `chrome`), macOS darwin 25.6.0,
+  Node v24.21.0. Two checks fewer than the 204 before this change: the removed card's own.
+
+**Not run.** Edge, saved-bookmark installation.
+
+**Next task.** M10 — integrated release.
+
+## 2026-09-24 — The recorder becomes real in Settings: live recovery card and its own module row
+
+**Scope.** Follow-up to the Settings build-out. The Recorder recovery card printed fixed copy and
+an always-enabled button, and the recorder was the one switchable surface with no row in Modules.
+
+**Recovery card now reports the recorder, not a paragraph.** `recorder.ts` exposes `bytes`,
+`restored`, `limit` and its bounds (`BODY_LIMIT`, `RECOVERY_LIMIT`, `DEFAULT_RECORD_LIMIT`), and the
+card reads them through the store: a Recording/Stopped/Idle badge, `N of <limit> requests held`,
+`N KB of 1024 KB resume storage`, the truncation bound quoted from the constant that applies it,
+and a line naming how many records came back from this tab's earlier session. Reset is disabled
+when there is nothing recording and nothing held, so the button cannot report a reset that did
+nothing.
+
+**Recorder is a module row.** A switch in Modules bound to `enabledModules.record`, with
+**Max captures** (`settings.recorderLimit`, applied by `recorder.setLimit`, which drops the oldest
+immediately when lowered) and **Include tester traffic** (`settings.recorderIncludeTester`). Off
+hides Home's Record quick action, redirects the Record screen Home and stops an active recording.
+`shell.go` now gates any switched-off surface, not only tabs.
+
+**Include tester traffic was dead and is now real.** The recorder skipped
+`url.startsWith('workbench://tester')`, a scheme nothing in the codebase ever emits, so the flag
+filtered nothing. A run in `rules` mode dispatches through the page's wrapped fetch, so `entry.ts`
+marks those calls with `TESTER_MARK` — an unknown member of the fetch init, which the platform
+ignores, so the request that leaves the page is still the one the plan describes — the fetch
+adapter carries it into `RequestContext.fromTester`, and the recorder filters on that. Direct-mode
+runs and Run Once use the captured transport and never reach the recorder at all.
+
+**Changed files.** `src/recorder/recorder.ts`, `src/network/rules.ts` (`TESTER_MARK`,
+`RequestContext.fromTester`), `src/network/fetch-adapter.ts`, `src/entry.ts` (recorder limit sync,
+tester mark, recorder state in the store), `src/core/model.ts` (`recorderLimit`,
+`recorderIncludeTester`), `src/ui/screens.ts` (live card, Modules row, Home quick-action gating),
+`src/ui/shell.ts` (gate any surface).
+
+**Tests.** New `tests/recorder-core.spec.mjs` — 3 checks against the recorder with a fake pipeline:
+the limit trims to the newest and `bytes` follows the kept records, lowering the limit drops the
+oldest at once, tester traffic is filtered unless asked for, and a reset reports nothing held.
+`tests/settings.spec.mjs` grows 3 browser checks: the card's figures follow real captures, Max
+captures caps the draft, and switching the recorder off closes the Record screen and stops a
+recording.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0.
+- `npm run build` → exit 0.
+- `npx playwright test` → 204 passed in 1.7 m, Chrome (channel `chrome`), macOS darwin 25.6.0,
+  Node v24.21.0.
+
+**Not run.** Edge, saved-bookmark installation. The tester-traffic filter is covered at the
+recorder's own boundary (a `fromTester` event) and by the marking code being the only producer; a
+full load-run-while-recording browser check was not added.
+
+**Limitations.** `Include tester traffic` only affects plan runs in *Apply active rules* mode,
+because that is the only tester traffic that enters the pipeline. The resume-storage figure is the
+recorder's own byte accounting, not what `sessionStorage` reports.
+
+**Next task.** M10 — integrated release.
+
+## 2026-09-24 — Settings built out to `Settings.html`, controls included
+
+**Scope.** The Settings screen carried profiles, environments, a body limit and nothing else,
+while `design/reference/screens/Settings.html` specifies six cards. The user chose the full
+option: every control in the reference, working, rather than a layout-only match. Nothing in the
+reference is rendered inert.
+
+**What each new control actually does.**
+
+- **Recorder recovery** — stops the recorder and discards its draft (`stopRecording` +
+  `resetRecorder`). The reference copy said bodies over 16K are omitted; `recorder.ts` truncates
+  them, so the card says truncated.
+- **Profiles** — select · Load · Delete, an inset Name field with Save, and Export, as the
+  reference lays them out. Selecting no longer switches profiles: Load does, so reading the list
+  cannot throw away the live profile's unsaved endpoints and rules.
+- **Modules** — the switches drive `profile.settings.enabledModules`, which until now was written
+  to every profile and read by nothing. A module switched off loses its tab, its Home card and its
+  activation, and the Endpoints sub-header drops its Test shortcut with the Test module.
+- **Max traffic / chaos log entries** — `settings.logLimits` per module. `entry.ts` trims the
+  shared activity log per module rather than at one global 50, so a noisy mock cannot push the
+  intercept log out, and each module's screen shows what its own cap keeps. Hit counts are
+  unaffected: the cap trims the log, not the counting.
+- **Store response bodies in traffic log** — off by default because it makes the panel observe
+  traffic, which is what makes the adapters clone and read every response. On, the body is attached
+  to the newest intercept entry for that rule and URL, bounded by the profile's body limit, and the
+  traffic row grows a `Response body` disclosure.
+- **Core** — body-check limit kept, now clamped at 1,000,000 KB instead of unbounded.
+- **Page context globals** — reuses the existing `scanPage(["global"], roots)` scanner rather than
+  a second one. Roots are stored per profile and seed Test → Scan page. Previews stay masked.
+- **About** — Version, the reference's `Not cached (inline bookmarklet)` line, and the newest build
+  recorded for the origin. **Check for update** compares this build against a `version:<origin>`
+  note written at launch beside the config: an inline bookmarklet fetches nothing, so there is no
+  manifest to ask, but a bookmark older than the newest build that has run here is a stale copy and
+  the check says so. **Clear stored data** deletes this origin's configuration and version note and
+  restarts the panel on an empty profile, behind a confirmation.
+
+**Deliberate deviations from the reference, and why.**
+
+- The reference's single **Save** cannot both rename the live profile and fork a copy; both are
+  real behaviours the app had. The inset keeps Save (stores the live profile under this name,
+  which is also how it is renamed) and adds **Save as copy**.
+- **Clear cache** is labelled **Clear stored data**. Nothing is cached — the reference's own line
+  says so — and the honest action behind that button removes saved profiles, so the label says
+  what it removes.
+- An extra **Newest** row in About reports the recorded build, which is what the update check
+  compares against.
+- The **Environments** card is not in the reference and was kept; host mapping has nowhere else to
+  live.
+
+**Changed files.** `src/core/model.ts` (settings fields, `DEFAULT_LOG_LIMIT`, `moduleEnabled`,
+`logLimit`), `src/core/storage.ts` (`clearStoredConfig`, `readLaunchVersion`,
+`recordLaunchVersion`), `src/network/rules.ts` (`RuleActivity.body`), `src/entry.ts` (per-module
+log trimming, response-body capture, `saveProfile`, `checkForUpdate`, `clearStoredData`, launch
+version), `src/ui/screens.ts` (the Settings screen, Home module gating), `src/ui/shell.ts` (tab
+gating), `src/ui/rule-screens.ts` (per-module log cap and body disclosure in the traffic log),
+`src/ui/test-screens.ts` (scan roots seeded from Settings), `src/ui/dom.ts` (`switchBox`, six
+reference icons), `src/ui/theme.css` (Modules card, widths, alert card).
+
+**Tests.** New `tests/settings.spec.mjs` — 8 checks: module gating survives a relaunch, the log cap
+trims the log but not the hit count and Reset restores 50, response bodies appear only while the
+setting is on, Reset recorder clears the draft, Save + Load round-trips a profile with its
+endpoints, the update check reports a newer recorded build, Clear stored data asks first and then
+empties IndexedDB, and Page context globals lists a masked value and seeds Test's scan. Updated
+`tests/m3.spec.mjs`, `tests/ui.spec.mjs`, `tests/m9.spec.mjs` for the split Save / Save as copy and
+the explicit Load.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0.
+- `npm run build` → exit 0. raw 441,386 B, minified 251,707 B, encoded bookmark URL 362,923
+  characters.
+- `npx playwright test` → 198 passed in 1.7 m, Chrome (channel `chrome`), macOS darwin 25.6.0,
+  Node v24.21.0.
+- A leftover fixture server from an earlier session was holding 4173 with accumulated hit counters;
+  `tests/m8.spec.mjs` only passes against a fresh server, so it was stopped and every run since
+  starts its own.
+
+**Not run.** Edge, saved-bookmark installation. No visual-regression gate: the screen was compared
+by eye against `design/reference/screens/Settings.html` from a screenshot of the running panel.
+
+**Limitations.** The update check can only report what this origin has seen; a bookmark that has
+never run here reads as the newest. Response-body capture correlates a traffic event to the newest
+activity entry with the same rule and URL, so two identical in-flight requests can attach in the
+order the bodies resolve. Module gating hides screens but does not stop an already-active module
+mid-flight beyond switching it off.
+
+**Next task.** M10 — integrated release.
+
+## 2026-09-24 — Rule rows laid out as the module reference screens
+
+**Scope.** The rule rows on Mock, Intercept, Chaos and Route did not match
+`Mock.html` / `Intercept.html`. They inherited `.aw-endpoint-meta`'s 54px indent,
+which exists so the Endpoints list can hang a path under a first-line method
+badge; a rule row carries its own method badge on the meta line, so the line was
+pushed in under nothing. Fixed at the shared row, not per screen.
+
+**Changed files.**
+
+- `src/ui/rule-screens.ts` — `ruleRow` now uses `aw-rule-row` (reference padding
+  `10px 8px 10px 12px`, 10px gap) and adds `aw-rule-meta` to the meta line; the
+  URL no longer grows, so the summary badge sits beside it as the reference shows
+  rather than hard right; the delete control is the reference's `×` at `aw-sm`;
+  the URL carries a `title` for the truncated text. `summary` may now return a
+  node, and Mock returns the reference's `→ 200` (green under 400, red at or
+  above it) as a fragment so the badge is a meta-line child and cannot be clipped
+  by a shrinking wrapper. Section and traffic headings drop `aw-grow`, putting
+  the count badge next to its label as every reference screen has it.
+- `src/ui/theme.css` — added `.aw-rule-row` and `.aw-rule-meta`.
+  `.aw-endpoint-row` / `.aw-endpoint-meta` are unchanged, so Endpoints, the
+  recorder review and the import preview keep their 8px padding and 54px indent.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0.
+- `npm run build` → exit 0. raw 422,334 B, minified 240,903 B, encoded bookmark
+  URL 347,277 characters.
+- `npx playwright test` → 190 passed in 1.6 m, Chrome (channel `chrome`), macOS
+  darwin 25.6.0, Node v24.21.0. Run against an already-running fixture server via
+  a scratch config with `reuseExistingServer`, because port 4173 was occupied by a
+  session outside this one; test files themselves were unmodified.
+
+**Verification.** Mock and Intercept screenshotted from the running panel with a
+throwaway spec (deleted afterwards) and compared against the reference screens:
+badge flush with the label, URL truncating, `→ 200` intact at the row's end.
+
+**Not run.** Edge, saved-bookmark installation. No visual-regression gate exists;
+the comparison was by eye against `design/reference/screens/`.
+
+**Limitations.** The rule row still shows a hit count and, on Intercept/Chaos/
+Route, a summary badge that the reference rows do not carry — existing behaviour,
+deliberately kept. Meta text is `aw-xs` (12px) where the reference sets 11px
+inline.
+
+**Next task.** M10 — integrated release.
+
 ## 2026-09-24 — Playground links to the landing page
 
 Updated both installation links in `tests/fixtures/page.html` to `/index.html`.

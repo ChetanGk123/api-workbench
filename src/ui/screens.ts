@@ -1,5 +1,5 @@
-import { el, icon, button, confirmDialog, iconButton, card, caption, group, labeled, labeledAction, formatJsonButton, disclosure, downloadJson, type IconName } from "./dom"
-import { nameFromHost, pageProfileName, type Endpoint, type HeaderValue, type Profile, type Rule, type RuleKind, type TestPlan, type WorkbenchConfig } from "../core/model"
+import { el, icon, button, confirmDialog, headerFields, iconButton, card, cardHeading, caption, group, labeled, labeledAction, formatJsonButton, disclosure, downloadJson, switchBox, toggleBox, type IconName } from "./dom"
+import { DEFAULT_LOG_LIMIT, logLimit, mergeHeaders, moduleEnabled, nameFromHost, pageProfileName, type Endpoint, type HeaderValue, type Profile, type Rule, type RuleKind, type TestPlan, type WorkbenchConfig } from "../core/model"
 import type { RuleActivity } from "../network/rules"
 import type { PausedEntry } from "../breakpoints/registry"
 import { chaosScreen, interceptScreen, mockScreen, routeScreen } from "./rule-screens"
@@ -8,6 +8,9 @@ import type { RunState } from "../tester/run"
 import { onceRow, resultsScreen, runRow, testScreen } from "./test-screens"
 import type { Recording } from "../recorder/recorder"
 import { candidatesFrom, type Candidate } from "../recorder/promote"
+import { DEFAULT_RECORD_LIMIT } from "../recorder/recorder"
+import { scanPage, type ContextCandidate } from "../tester/context"
+import type { ContextBinding } from "../tester/expressions"
 import { importScreen, takeImportSummary } from "./import-screen"
 
 export type ScreenId =
@@ -47,6 +50,8 @@ export type UIState = {
   openRun?: RunState
   /** Completed runs, newest first and bounded by MAX_RUN_SUMMARIES. */
   runs: RunState[]
+  /** The newest build this origin has ever run, read from storage at launch. */
+  newestVersion?: string
 }
 
 export type Ctx = {
@@ -65,6 +70,8 @@ export type Ctx = {
   exportConfig: () => string
   runOnce: (endpointId: string) => void
   saveProfileAs: (name: string) => void
+  /** Renames the live profile and stores its configuration under that name. */
+  saveProfile: (name: string) => void
   selectProfile: (id: string) => void
   deleteProfile: (id: string) => void
   /**
@@ -80,6 +87,8 @@ export type Ctx = {
     name: string,
     endpoints: Endpoint[],
     hosts: Record<string, string>,
+    /** Bindings the recorded headers read at send time; they become the new plan's context. */
+    bindings?: ContextBinding[],
   ) => void
   saveRule: (rule: Rule) => void
   deleteRule: (id: string) => void
@@ -89,6 +98,10 @@ export type Ctx = {
   /** Next creation sequence for a new rule; ties on priority resolve by it. */
   nextRuleSeq: () => number
   continueAllPaused: () => void
+  /** Compares this build against the newest one recorded for the origin; resolves with the note. */
+  checkForUpdate: () => Promise<string>
+  /** Deletes this origin's saved configuration and restarts the panel on an empty profile. */
+  clearStoredData: () => Promise<void>
   /** The live test plan of the active profile. */
   plan: () => TestPlan
   updatePlan: (plan: TestPlan) => void
@@ -275,41 +288,6 @@ function updateProfile(ctx: Ctx, patch: Partial<Profile>) {
   ctx.updateProfile({ ...profile, ...patch, revision: profile.revision + 1, updatedAt: Date.now() })
 }
 
-function headerFields(ctx: Ctx, values: HeaderValue[], save: (headers: HeaderValue[]) => void): HTMLElement {
-  const section = el("div", "aw-col aw-gap10")
-  const rows = el("div", "aw-col aw-gap6")
-  let headers = values.map(header => ({ ...header }))
-  const render = () => {
-    rows.replaceChildren()
-    for (const header of headers) {
-      const name = el("input", "aw-in aw-mono")
-      name.value = header.name
-      name.placeholder = "Header name"
-      name.setAttribute("aria-label", "Header name")
-      const value = el("input", "aw-in aw-mono")
-      value.value = header.value
-      value.placeholder = "Header value"
-      value.setAttribute("aria-label", "Header value")
-      const commit = () => { header.name = name.value; header.value = value.value; save(headers.map(item => ({ ...item }))) }
-      name.addEventListener("change", commit, { signal: ctx.signal })
-      value.addEventListener("change", commit, { signal: ctx.signal })
-      rows.append(group("aw-header-row", name, value, iconButton("aw-btn aw-gh aw-ic", "close", "Remove header", () => {
-        headers = headers.filter(item => item !== header)
-        save(headers.map(item => ({ ...item })))
-        render()
-      }, ctx.signal)))
-    }
-  }
-  const add = button("aw-btn aw-out aw-sm aw-self", "Add header", () => {
-    headers.push({ name: "", value: "" })
-    render()
-    rows.lastElementChild?.querySelector("input")?.focus()
-  }, ctx.signal)
-  add.prepend(icon("plus", "aw-i14"))
-  render()
-  section.append(rows, add)
-  return section
-}
 
 /**
  * What each module reports on its Home card, in the wording of `home.html`: the rule ratio and
@@ -491,6 +469,15 @@ function recordScreen(ctx: Ctx): HTMLElement {
       const path = el("span", "aw-grow aw-tr aw-mono aw-xs aw-mu", draft.endpoint.request.path)
       path.title = draft.endpoint.request.path
       row.append(group("aw-row aw-endpoint-meta", path, el("span", "aw-xs aw-mu", draft.endpoint.hostKey)))
+      // A credential is redacted at capture and never stored. Where its value was traced to the
+      // page, the header comes back as a binding; where it was not, saying so here costs nothing
+      // and finding out from a 401 later does.
+      if (draft.bindings.length)
+        row.append(el("p", "aw-hint aw-endpoint-meta",
+          `Sends ${draft.bindings.map(binding => binding.name).join(", ")} read from the page at run time, not a stored copy.`))
+      if (draft.dropped.length)
+        row.append(el("p", "aw-hint aw-endpoint-meta",
+          `${draft.dropped.join(", ")} recorded but not stored, and not found on the page. Add it as a header before replaying.`))
       list.append(row)
     }
     if (!list.children.length) list.append(el("div", "aw-empty", "Nothing captured yet. Start recording, then use the page."))
@@ -529,7 +516,9 @@ function recordScreen(ctx: Ctx): HTMLElement {
     if (!chosen.length) { notice.textContent = "Select at least one endpoint to create a profile."; return }
     if (!profileName.value.trim()) { notice.textContent = "Enter a name for the new profile."; profileName.focus(); return }
     if (ctx.state().recording) ctx.stopRecording()
-    ctx.createProfileFromRecordings(profileName.value, chosen.map(draft => draft.endpoint), hosts)
+    // One binding per page value, however many of the chosen endpoints read it.
+    const bindings = [...new Map(chosen.flatMap(draft => draft.bindings).map(binding => [binding.name, binding])).values()]
+    ctx.createProfileFromRecordings(profileName.value, chosen.map(draft => draft.endpoint), hosts, bindings)
     // The capture buffer is consumed by the commit, so a second commit cannot duplicate it.
     recordDrafts.clear()
     ctx.resetRecorder()
@@ -586,9 +575,15 @@ function activityLog(ctx: Ctx): HTMLElement {
 function home(ctx: Ctx): HTMLElement {
   const screen = el("div", "aw-col aw-gap12")
   const modules = el("div", "aw-col aw-gap12")
-  for (const module of MODULES) modules.append(moduleCard(ctx, module))
+  // A module switched off in Settings is not on Home either; the tab strip hides it in step.
+  const profile = ctx.state().config.profile
+  for (const module of MODULES)
+    if (moduleEnabled(profile, module.id)) modules.append(moduleCard(ctx, module))
+  if (!modules.childElementCount)
+    modules.append(el("div", "aw-empty", "Every module is switched off in Settings → Modules."))
   const quick = el("div", "aw-g3")
-  for (const id of ["endpoints", "record", "import", "settings"] as const) quick.append(quickAction(ctx, id))
+  for (const id of ["endpoints", "record", "import", "settings"] as const)
+    if (moduleEnabled(profile, id)) quick.append(quickAction(ctx, id))
   screen.append(modules, caption("Quick actions"), quick, caption("Run history"), runHistory(ctx), activityLog(ctx))
   return screen
 }
@@ -666,7 +661,7 @@ function endpointEditor(ctx: Ctx, endpoint: Endpoint, options: EditorOptions = {
   }
   const request = card()
   request.append(caption("Request"), group("aw-g2", labeled("Method", method), labeled("Path", path)),
-    el("span", "aw-lbl", "Headers"), headerFields(ctx, draft.request.headers, headers => { draft.request.headers = headers }),
+    el("span", "aw-lbl", "Headers"), headerFields(ctx.signal, draft.request.headers, headers => { draft.request.headers = headers }),
     disclosure(`Inherited from global · ${ctx.state().config.profile.globalHeaders.length}`,
       el("pre", "aw-code aw-wrap", ctx.state().config.profile.globalHeaders.map(header => `${header.name}: ${header.value}`).join("\n") || "No global headers.")),
     labeledAction("Body", body, formatJsonButton(body, ctx.signal)))
@@ -696,7 +691,7 @@ function endpoints(ctx: Ctx): HTMLElement {
   const config = ctx.state().config
   const headers = disclosure(`Global headers · ${config.profile.globalHeaders.length}`,
     el("p", "aw-hint", "Applied to all requests. Changes are saved automatically."),
-    headerFields(ctx, config.profile.globalHeaders, globalHeaders => updateProfile(ctx, { globalHeaders })),
+    headerFields(ctx.signal, config.profile.globalHeaders, globalHeaders => updateProfile(ctx, { globalHeaders })),
     group("aw-row aw-actions", unavailable("Presets…", "Header presets are coming later"), unavailable("Promote common", "Common-header review is coming later")))
   headers.classList.add("aw-card", "aw-cp")
   headers.open = true
@@ -795,22 +790,45 @@ function environmentFields(ctx: Ctx, screen: ScreenId): HTMLElement {
     group("aw-g2", key, origin), addHost, group("aw-row", envName, addEnv), status)
 }
 
-function settings(ctx: Ctx): HTMLElement {
-  const screen = el("div", "aw-col aw-gap12")
+let fieldSeq = 0
+/** The reference's inline setting row: a muted label on the left, its control on the right. */
+function inlineField(text: string, input: HTMLElement, ...extra: Node[]): HTMLElement {
+  const id = `aw-set-${++fieldSeq}`
+  input.id = id
+  const label = el("label", "aw-xs aw-mu aw-grow", text)
+  label.htmlFor = id
+  return group("aw-row", label, input, ...extra)
+}
+
+/** A whole-number input sized as the reference sizes its limit fields. */
+function limitInput(label: string, value: number, onCommit: (value: number) => void, signal: AbortSignal, fallback = DEFAULT_LOG_LIMIT) {
+  const input = el("input", "aw-in aw-mono aw-w84")
+  input.type = "number"
+  input.min = "1"
+  input.max = "1000"
+  input.value = String(value)
+  input.setAttribute("aria-label", label)
+  input.addEventListener("change", () => {
+    const next = Math.min(1000, Math.max(1, Math.round(Number(input.value) || fallback)))
+    input.value = String(next)
+    onCommit(next)
+  }, { signal })
+  return input
+}
+
+function profileCard(ctx: Ctx): HTMLElement {
   const config = ctx.state().config
+  const section = card()
   const status = el("p", "aw-hint")
   status.setAttribute("role", "status")
-  const profileName = el("input", "aw-in aw-grow")
-  profileName.value = config.profile.name
-  profileName.setAttribute("aria-label", "Name")
-  const save = button("aw-btn aw-pri aw-sm", "Save profile", () => {
-    updateProfile(ctx, { name: profileName.value.trim() || config.profile.name })
-    status.textContent = "Profile saved."
-    refreshProfiles()
-  }, ctx.signal)
   const saved = el("select", "aw-sel aw-grow")
-  // labeledAction() puts the delete control outside a <label>, so the select carries its own
-  // accessible name; it repeats the visible text rather than contradicting it.
+  saved.setAttribute("aria-label", "Active profile")
+  const load = button("aw-btn aw-sec", "Load", () => {
+    if (saved.value === ctx.state().config.profile.id) return
+    ctx.selectProfile(saved.value)
+    ctx.go("settings")
+  }, ctx.signal)
+  load.setAttribute("aria-label", "Load profile")
   const refreshProfiles = () => {
     const current = ctx.state().config
     saved.replaceChildren()
@@ -820,15 +838,16 @@ function settings(ctx: Ctx): HTMLElement {
       saved.append(option)
     }
     saved.value = current.profile.id
+    load.disabled = true
   }
-  saved.setAttribute("aria-label", "Active profile")
   refreshProfiles()
-  // A red, labelled button, like the rule editors' Delete: an icon-only ghost control read as
-  // decoration next to the selector.
-  const remove = button("aw-btn aw-dst aw-sm", "Delete profile", () => {
+  // Selecting is not switching: the reference gives the switch its own button, so reading the list
+  // never throws away the live profile's unsaved endpoints and rules.
+  saved.addEventListener("change", () => { load.disabled = saved.value === ctx.state().config.profile.id }, { signal: ctx.signal })
+  // A profile takes its endpoints and rules with it and there is no undo, so this one asks first.
+  const remove = button("aw-btn aw-dst", "Delete", () => {
     const current = ctx.state().config
     const last = !(current.savedProfiles ?? []).some(item => item.profile.id !== current.profile.id)
-    // A profile takes its endpoints and rules with it and there is no undo, so this one asks first.
     void confirmDialog(remove, "Delete profile",
       `"${current.profile.name}" and its endpoints and rules are removed.${last ? " It is the last profile, so an empty one takes its place." : ""}`,
       "Delete", ctx.signal).then(confirmed => {
@@ -837,47 +856,245 @@ function settings(ctx: Ctx): HTMLElement {
         ctx.go("settings")
       })
   }, ctx.signal)
-  remove.prepend(icon("trash", "aw-i14"))
-  saved.addEventListener("change", () => { ctx.selectProfile(saved.value); ctx.go("settings") }, { signal: ctx.signal })
-  const saveAsName = el("input", "aw-in aw-grow")
-  saveAsName.placeholder = "New profile name"
-  saveAsName.setAttribute("aria-label", "New profile name")
-  const saveAs = button("aw-btn aw-out aw-sm", "Save as profile", () => {
-    if (!saveAsName.value.trim()) { status.textContent = "Enter a new profile name."; saveAsName.focus(); return }
-    ctx.saveProfileAs(saveAsName.value)
-    saveAsName.value = ""
+  remove.setAttribute("aria-label", "Delete profile")
+
+  const nameInput = el("input", "aw-in aw-grow")
+  nameInput.value = config.profile.name
+  const nameLabel = el("label", "aw-lbl", "Name")
+  nameLabel.htmlFor = (nameInput.id = `aw-set-${++fieldSeq}`)
+  const save = button("aw-btn aw-pri", "Save", () => {
+    const name = nameInput.value.trim() || ctx.state().config.profile.name
+    ctx.saveProfile(name)
+    status.textContent = `"${name}" holds this configuration; switching away and back returns to it.`
     refreshProfiles()
-    status.textContent = "Profile copy saved. Select it above to switch."
   }, ctx.signal)
-  const profile = card()
-  // Three adjacent text fields need visible labels, not just accessible names.
-  const saveAsBlock = el("div", "aw-inset aw-col aw-gap10")
-  saveAsBlock.append(el("span", "aw-lbl", "Save current config as a new profile"), group("aw-row", saveAsName, saveAs))
-  profile.append(group("aw-row", icon("book"), el("span", "aw-lbl", "Profiles")),
-    labeledAction("Active profile", saved, remove),
-    group("aw-col aw-gap6", el("span", "aw-lbl", "Profile name"), group("aw-row", profileName, save)),
-    saveAsBlock, status,
-    el("div", "aw-xs aw-mu", `Origin-scoped storage · ${ctx.state().storageReady ? "IndexedDB available" : "session fallback"}`),
-    button("aw-btn aw-out aw-sm", "Export profile + endpoints", () => {
-      status.textContent = `Exported ${downloadJson(ctx.exportConfig(), ctx.state().config.profile.name)}.`
-    }, ctx.signal))
-  const environments = disclosure("Environments", environmentFields(ctx, "settings"))
-  environments.classList.add("aw-card", "aw-cp")
-  environments.open = true
-  const limit = el("input", "aw-in aw-mono")
+  save.setAttribute("aria-label", "Save profile")
+  save.prepend(icon("save", "aw-i14"))
+  // The reference shows one Save. Keeping a copy is the other half of the same field, and the two
+  // differ in what happens to the live profile, so the second one is spelled out rather than
+  // guessed from whether the name was edited.
+  const copy = button("aw-btn aw-out", "Save as copy", () => {
+    const live = ctx.state().config.profile
+    const name = nameInput.value.trim()
+    if (!name || name === live.name) {
+      status.textContent = "Give the copy a name of its own."
+      nameInput.focus()
+      return
+    }
+    ctx.saveProfileAs(name)
+    status.textContent = `Saved "${name}" as a separate profile. Load it above to switch.`
+    refreshProfiles()
+  }, ctx.signal)
+  const saveBlock = el("div", "aw-inset aw-col aw-gap8")
+  saveBlock.append(
+    el("span", "aw-xs aw-mu", "Save current config as profile"),
+    nameLabel,
+    group("aw-row aw-gap6", nameInput, save, copy),
+  )
+
+  const exportButton = button("aw-btn aw-out aw-w", "Export profile + endpoints", () => {
+    status.textContent = `Exported ${downloadJson(ctx.exportConfig(), ctx.state().config.profile.name)}.`
+  }, ctx.signal)
+  exportButton.prepend(icon("upload", "aw-i14"))
+
+  section.append(
+    group("aw-row aw-gap8", icon("save"), cardHeading("Profiles")),
+    group("aw-fld", el("span", "aw-lbl", "Active profile"), group("aw-row aw-gap6", saved, load, remove)),
+    saveBlock,
+    exportButton,
+    status,
+  )
+  return section
+}
+
+/** The reference lists the five rule modules; the recorder is the app's sixth switchable surface. */
+const MODULE_ROWS = [...MODULES.map((module) => ({ id: module.id as ScreenId, title: module.title })), {
+  id: "record" as ScreenId,
+  title: "Recorder",
+}]
+
+function modulesCard(ctx: Ctx): HTMLElement {
+  const section = el("section", "aw-card aw-col aw-modules")
+  const list = el("div", "aw-list")
+  const settingsOf = () => ctx.state().config.profile.settings
+  const write = (patch: Partial<Profile["settings"]>) =>
+    updateProfile(ctx, { settings: { ...settingsOf(), ...patch } })
+  for (const { id, title } of MODULE_ROWS) {
+    const enabled = moduleEnabled(ctx.state().config.profile, id)
+    const head = el("div", "aw-row")
+    head.append(
+      icon(SCREENS[id].icon),
+      el("span", "aw-grow aw-medium", title),
+      switchBox(title, enabled, (value) => {
+        // A module that is off has no tab and no Home card, so it must not keep working either.
+        if (!value) {
+          const kind = RULE_MODULES.find((rule) => rule === id)
+          if (kind) ctx.setModuleActive(kind, false)
+          if (id === "record" && ctx.state().recording) ctx.stopRecording()
+        }
+        write({ enabledModules: { ...settingsOf().enabledModules, [id]: value } })
+        ctx.go("settings")
+      }, ctx.signal),
+    )
+    // Only the modules that keep a log of their own carry settings under their name.
+    const extras: Node[] = []
+    if (id === "mock" || id === "intercept" || id === "chaos") {
+      const label = id === "chaos" ? "Max chaos log entries" : "Max traffic log entries"
+      const input = limitInput(`${label} (${title})`, logLimit(ctx.state().config.profile, id), (value) => {
+        write({ logLimits: { ...settingsOf().logLimits, [id]: value } })
+      }, ctx.signal)
+      const reset = button("aw-btn aw-gh aw-sm", "Reset", () => {
+        input.value = String(DEFAULT_LOG_LIMIT)
+        write({ logLimits: { ...settingsOf().logLimits, [id]: DEFAULT_LOG_LIMIT } })
+      }, ctx.signal)
+      reset.setAttribute("aria-label", `Reset ${label.toLowerCase()} (${title})`)
+      reset.prepend(icon("reset", "aw-i12"))
+      const row = inlineField(label, input, reset)
+      row.classList.add("aw-modopt")
+      extras.push(row)
+    }
+    if (id === "record") {
+      const captures = limitInput("Max captures (Recorder)",
+        settingsOf().recorderLimit ?? DEFAULT_RECORD_LIMIT,
+        (value) => write({ recorderLimit: value }), ctx.signal, DEFAULT_RECORD_LIMIT)
+      const resetCaptures = button("aw-btn aw-gh aw-sm", "Reset", () => {
+        captures.value = String(DEFAULT_RECORD_LIMIT)
+        write({ recorderLimit: DEFAULT_RECORD_LIMIT })
+      }, ctx.signal)
+      resetCaptures.setAttribute("aria-label", "Reset max captures (Recorder)")
+      resetCaptures.prepend(icon("reset", "aw-i12"))
+      const row = inlineField("Max captures", captures, resetCaptures)
+      row.classList.add("aw-modopt")
+      const tester = group("aw-chk aw-xs aw-modopt",
+        toggleBox("Include tester traffic", settingsOf().recorderIncludeTester === true, (value) => {
+          write({ recorderIncludeTester: value })
+          ctx.go("settings")
+        }, ctx.signal),
+        document.createTextNode("Include tester traffic"))
+      extras.push(row, tester)
+    }
+    if (id === "intercept") {
+      const bodies = group("aw-chk aw-xs aw-modopt",
+        toggleBox("Store response bodies in traffic log", settingsOf().storeResponseBodies === true, (value) => {
+          write({ storeResponseBodies: value })
+          ctx.go("settings")
+        }, ctx.signal),
+        document.createTextNode("Store response bodies in traffic log"))
+      extras.push(bodies)
+    }
+    if (!extras.length) head.classList.add("aw-mod")
+    list.append(extras.length ? group("aw-col aw-mod", head, ...extras) : head)
+  }
+  section.append(group("aw-row aw-gap8", icon("layout"), cardHeading("Modules")), list)
+  return section
+}
+
+function globalsCard(ctx: Ctx): HTMLElement {
+  const roots = () => ctx.state().config.profile.settings.globalRoots ?? []
+  const results = el("div", "aw-card aw-list")
+  const status = el("p", "aw-hint")
+  status.setAttribute("role", "status")
+  const show = (candidates: ContextCandidate[]) => {
+    results.replaceChildren()
+    for (const candidate of candidates.slice(0, 40))
+      results.append(group("aw-li aw-xs",
+        el("span", "aw-grow aw-tr aw-mono", candidate.key),
+        el("span", "aw-mu", candidate.preview)))
+    if (!candidates.length)
+      results.replaceChildren(el("div", "aw-empty", roots().length ? "Nothing found under these roots." : "No roots named yet."))
+  }
+  const scan = () => {
+    const found = scanPage(["global"], roots())
+    show(found)
+    status.textContent = roots().length
+      ? `${found.length} value${found.length === 1 ? "" : "s"} under ${roots().join(", ")}. Previews are masked; Test → Scan page starts from these roots.`
+      : "Name a root object to scan, such as window's own app or config global."
+  }
+  const input = el("input", "aw-in aw-mono aw-grow")
+  input.value = roots().join(", ")
+  input.setAttribute("aria-label", "Global roots (comma separated)")
+  input.addEventListener("change", () => {
+    updateProfile(ctx, {
+      settings: {
+        ...ctx.state().config.profile.settings,
+        globalRoots: input.value.split(",").map(item => item.trim()).filter(Boolean),
+      },
+    })
+    scan()
+  }, { signal: ctx.signal })
+  const rescan = button("aw-btn aw-out aw-sm", "Scan", scan, ctx.signal)
+  rescan.setAttribute("aria-label", "Scan page globals")
+  rescan.prepend(icon("search", "aw-i12"))
+  const box = disclosure("Page context globals", group("aw-row aw-gap6", input, rescan), status, results)
+  box.classList.add("aw-card", "aw-cp")
+  box.querySelector("summary")?.append(el("span", "aw-xs aw-mu", "Scanned for auto-detection"))
+  scan()
+  return box
+}
+
+function aboutCard(ctx: Ctx): HTMLElement {
+  const section = card()
+  const status = el("p", "aw-hint")
+  status.setAttribute("role", "status")
+  const newest = ctx.state().newestVersion
+  const check = button("aw-btn aw-out aw-sm", "Check for update", () => {
+    check.disabled = true
+    status.textContent = "Checking the build recorded for this origin…"
+    void ctx.checkForUpdate().then(message => { status.textContent = message; check.disabled = false })
+  }, ctx.signal)
+  check.prepend(icon("refresh", "aw-i14"))
+  const clear = button("aw-btn aw-dst aw-sm", "Clear stored data", () => {
+    void confirmDialog(clear, "Clear stored data",
+      "Removes this origin's saved configuration — every profile, endpoint, rule and plan — and restarts the panel on an empty profile. Export first if you want a copy.",
+      "Clear", ctx.signal).then(confirmed => {
+        if (!confirmed) return
+        void ctx.clearStoredData().then(() => ctx.go("settings"))
+      })
+  }, ctx.signal)
+  clear.prepend(icon("trash", "aw-i14"))
+  section.append(
+    group("aw-row aw-gap8", icon("info"), cardHeading("About API Workbench")),
+    group("aw-row aw-xs", el("span", "aw-mu aw-w64", "Version"), el("span", "aw-bd aw-s aw-mono", ctx.version)),
+    group("aw-row aw-xs", el("span", "aw-mu aw-w64", "Cache"),
+      group("aw-row aw-gap6", document.createTextNode("Not cached"), el("span", "aw-mu", "(inline bookmarklet)"))),
+    group("aw-row aw-xs", el("span", "aw-mu aw-w64", "Newest"),
+      el("span", "aw-mu", newest ? (newest === ctx.version ? "this build" : `${newest} has run on this origin`) : "not recorded yet")),
+    group("aw-row aw-gap6", check, clear),
+    status,
+  )
+  return section
+}
+
+function settings(ctx: Ctx): HTMLElement {
+  const screen = el("div", "aw-col aw-gap12")
+  const config = ctx.state().config
+  const limit = el("input", "aw-in aw-mono aw-w100")
   limit.type = "number"
   limit.min = "1"
+  limit.max = "1000000"
   limit.value = String(config.profile.settings.bodyLimitKb)
-  limit.setAttribute("aria-label", "Body-check size limit (KB)")
   limit.addEventListener("change", () => {
-    const value = Math.max(1, Math.round(Number(limit.value) || 1))
+    const value = Math.min(1000000, Math.max(1, Math.round(Number(limit.value) || 1)))
     limit.value = String(value)
     updateProfile(ctx, { settings: { ...ctx.state().config.profile.settings, bodyLimitKb: value } })
   }, { signal: ctx.signal })
   const core = card()
-  core.append(group("aw-row", icon("gear"), el("span", "aw-lbl", "Core")), labeled("Body-check size limit (KB)", limit))
-  screen.append(profile, environments, core,
-    el("p", "aw-hint", "Profiles are saved to this page origin. Switching environments changes host mappings, not endpoint paths."))
+  core.append(
+    group("aw-row aw-gap8", icon("cpu"), cardHeading("Core")),
+    inlineField("Body-check size limit (KB)", limit),
+  )
+  const environments = disclosure("Environments", environmentFields(ctx, "settings"))
+  environments.classList.add("aw-card", "aw-cp")
+  environments.open = true
+  screen.append(
+    profileCard(ctx),
+    modulesCard(ctx),
+    core,
+    environments,
+    globalsCard(ctx),
+    aboutCard(ctx),
+    el("p", "aw-hint", "Profiles are saved to this page origin. Switching environments changes host mappings, not endpoint paths."),
+  )
   return screen
 }
 

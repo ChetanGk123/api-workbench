@@ -34,7 +34,7 @@ export function mask(value: string): string {
   return `${value.slice(0, 3)}…${value.slice(-1)} (${value.length} chars)`
 }
 
-function nameFor(source: ContextSource, key: string, taken: Set<string>): string {
+export function nameFor(source: ContextSource, key: string, taken = new Set<string>()): string {
   const base = `${source}_${key}`.replace(/[^\w]+/g, "_").replace(/^_|_$/g, "").slice(0, 48) || source
   let name = base
   for (let suffix = 2; taken.has(name); suffix++) name = `${base}_${suffix}`

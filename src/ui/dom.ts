@@ -1,5 +1,6 @@
 // Runtime DOM is built with createElement/textContent only: no HTML parsing, no Trusted Types
 // policy and no interpolation of imported data into markup.
+import type { HeaderValue } from "../core/model"
 export function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
   className = "",
@@ -117,6 +118,32 @@ export const ICONS = {
     p(
       "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z",
     ),
+  ],
+  upload: [p("M12 3v12"), p("m17 8-5-5-5 5"), p("M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4")],
+  reset: [p("M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"), p("M3 3v5h5")],
+  refresh: [
+    p("M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"),
+    p("M21 3v5h-5"),
+    p("M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"),
+    p("M8 16H3v5"),
+  ],
+  info: [circle("12", "12", "10"), p("M12 16v-4"), p("M12 8h.01")],
+  search: [circle("11", "11", "8"), p("m21 21-4.3-4.3")],
+  cpu: [
+    rect("4", "4", "16", "16"),
+    rect("9", "9", "6", "6"),
+    p("M15 2v2"),
+    p("M15 20v2"),
+    p("M2 15h2"),
+    p("M2 9h2"),
+    p("M20 15h2"),
+    p("M20 9h2"),
+    p("M9 2v2"),
+    p("M9 20v2"),
+  ],
+  layout: [
+    rect("14", "3", "7", "7"),
+    p("M10 21V8a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5a1 1 0 0 0-1-1H3"),
   ],
   globe: [
     circle("12", "12", "10"),
@@ -326,6 +353,43 @@ export function cardHeading(text: string, ...extra: Node[]): HTMLElement {
 
 export function caption(text: string): HTMLElement {
   return el("div", "aw-cap aw-capl", text)
+}
+
+/** The shared header-row editor: a name/value pair per row, committed on change. */
+export function headerFields(signal: AbortSignal, values: HeaderValue[], save: (headers: HeaderValue[]) => void): HTMLElement {
+  const section = el("div", "aw-col aw-gap10")
+  const rows = el("div", "aw-col aw-gap6")
+  let headers = values.map(header => ({ ...header }))
+  const render = () => {
+    rows.replaceChildren()
+    for (const header of headers) {
+      const name = el("input", "aw-in aw-mono")
+      name.value = header.name
+      name.placeholder = "Header name"
+      name.setAttribute("aria-label", "Header name")
+      const value = el("input", "aw-in aw-mono")
+      value.value = header.value
+      value.placeholder = "Header value"
+      value.setAttribute("aria-label", "Header value")
+      const commit = () => { header.name = name.value; header.value = value.value; save(headers.map(item => ({ ...item }))) }
+      name.addEventListener("change", commit, { signal: signal })
+      value.addEventListener("change", commit, { signal: signal })
+      rows.append(group("aw-header-row", name, value, iconButton("aw-btn aw-gh aw-ic", "close", "Remove header", () => {
+        headers = headers.filter(item => item !== header)
+        save(headers.map(item => ({ ...item })))
+        render()
+      }, signal)))
+    }
+  }
+  const add = button("aw-btn aw-out aw-sm aw-self", "Add header", () => {
+    headers.push({ name: "", value: "" })
+    render()
+    rows.lastElementChild?.querySelector("input")?.focus()
+  }, signal)
+  add.prepend(icon("plus", "aw-i14"))
+  render()
+  section.append(rows, add)
+  return section
 }
 
 export function group(className: string, ...children: Node[]): HTMLElement {
@@ -542,6 +606,18 @@ export function checkField(label: string, checked: boolean, onChange: (value: bo
   input.addEventListener("change", () => onChange(input.checked), { signal })
   wrapper.append(input, document.createTextNode(label))
   return { input, field: wrapper }
+}
+
+/** The reference's sliding switch, used where a whole module is turned on or off. */
+export function switchBox(label: string, checked: boolean, onChange: (value: boolean) => void, signal: AbortSignal) {
+  const control = el("button", `aw-sw${checked ? " aw-on" : ""}`)
+  control.type = "button"
+  control.setAttribute("role", "switch")
+  control.setAttribute("aria-checked", String(checked))
+  control.setAttribute("aria-label", label)
+  control.append(el("span", "aw-th"))
+  control.addEventListener("click", () => onChange(!checked), { signal })
+  return control
 }
 
 /** The reference's tick-box toggle: a button, so a row click never submits or navigates. */

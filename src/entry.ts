@@ -1,7 +1,8 @@
 import { createStore } from "./core/store"
 import { createShell } from "./ui/shell"
 import type { UIState } from "./ui/screens"
-import { createPipeline } from "./network/pipeline"
+import { createPipeline, type RuleActivity } from "./network/pipeline"
+import { TESTER_MARK } from "./network/rules"
 import { fetchAdapter } from "./network/fetch-adapter"
 import { xhrAdapter } from "./network/xhr-adapter"
 import {
@@ -9,6 +10,7 @@ import {
   defaultEndpoint,
   defaultProfile,
   defaultTestPlan,
+  logLimit,
   MAX_RUN_SUMMARIES,
   suggestProfileName,
   type Endpoint,
@@ -18,13 +20,13 @@ import {
   type TestPlan,
   type WorkbenchConfig,
 } from "./core/model"
-import { loadConfig, saveConfig, exportConfig } from "./core/storage"
+import { clearStoredConfig, loadConfig, readLaunchVersion, recordLaunchVersion, saveConfig, exportConfig } from "./core/storage"
 import { executeOnce } from "./tester/once"
 import { startRun, type RunState } from "./tester/run"
 import { failedCount, runToCsv, runToJson } from "./tester/results"
 import { createScope } from "./tester/expressions"
 import { downloadFile } from "./ui/dom"
-import { createRecorder } from "./recorder/recorder"
+import { createRecorder, DEFAULT_RECORD_LIMIT } from "./recorder/recorder"
 import { createBreakpoints } from "./breakpoints/registry"
 
 const version = __AW_VERSION__
@@ -79,6 +81,8 @@ if (existing) {
     const next = withPlan(config)
     store.set({ config: next })
     void saveConfig(next)
+    syncBodyCapture()
+    syncRecorder()
   }
   const report = (message: string) =>
     store.set({ observed: store.state.observed + 1, activity: message })
@@ -87,10 +91,22 @@ if (existing) {
   // A pause makes the page wait on the user, so restore a minimized panel's launcher visibly and
   // keep the queue in state for the Intercept screen.
   breakpoints.onChange((paused) => store.set({ paused }))
-  const recorder = createRecorder(pipeline, (recordings) =>
-    store.set({ recordings: [...recordings] }),
-  )
+  const recorder = createRecorder(pipeline, (recordings) => store.set({ recordings: [...recordings] }))
   store.set({ recordings: recorder.records })
+  /** The recorder's cap is the profile's, so a loaded or edited profile retunes it. */
+  const syncRecorder = () =>
+    recorder.setLimit(store.state.config.profile.settings?.recorderLimit ?? DEFAULT_RECORD_LIMIT)
+
+  /** Dotted numeric compare, so 1.10.0 sorts above 1.9.0; unparsable parts compare as 0. */
+  const compareVersions = (left: string, right: string) => {
+    const parts = (value: string) => value.split(".").map((part) => Number.parseInt(part, 10) || 0)
+    const [a, b] = [parts(left), parts(right)]
+    for (let index = 0; index < Math.max(a.length, b.length); index++) {
+      const difference = (a[index] ?? 0) - (b[index] ?? 0)
+      if (difference) return difference
+    }
+    return 0
+  }
 
   const rulesOf = (config: WorkbenchConfig) => config.rules ?? []
   // Making a profile live swaps the rule set and drops every cursor, budget and sample stream.
@@ -133,10 +149,60 @@ if (existing) {
     }
     store.set({ ruleHits: hits, ruleCursors: cursors })
   }
+  const kindOf = (ruleId: string) => rulesOf(store.state.config).find((rule) => rule.id === ruleId)?.kind
+  /**
+   * Each module keeps the number of entries its own setting asks for, counted from the newest, so
+   * a noisy mock cannot push the intercept log out of a single shared cap.
+   */
+  const trimLog = (entries: RuleActivity[]): RuleActivity[] => {
+    const profile = store.state.config.profile
+    const kept = new Map<string, number>()
+    const keep: RuleActivity[] = []
+    for (let index = entries.length - 1; index >= 0; index--) {
+      const entry = entries[index]!
+      const kind = kindOf(entry.ruleId)
+      const limit = kind ? logLimit(profile, kind) : logLimit(profile, "route")
+      const seen = kept.get(kind ?? "") ?? 0
+      if (seen >= limit) continue
+      kept.set(kind ?? "", seen + 1)
+      keep.push(entry)
+    }
+    return keep.reverse()
+  }
   pipeline.onActivity((activity) => {
-    store.set({ matched: [...store.state.matched, activity].slice(-50) })
+    store.set({ matched: trimLog([...store.state.matched, activity]) })
     syncRuleStats()
   })
+  /**
+   * Response bodies in the traffic log. Observing traffic is what makes the adapters clone and read
+   * every response, so this is wired only while the profile asks for it. The body arrives after the
+   * activity was announced, so it is attached to the newest entry of that rule and URL.
+   */
+  let stopBodyCapture: (() => void) | undefined
+  const syncBodyCapture = () => {
+    const wanted = store.state.config.profile.settings.storeResponseBodies === true
+    if (wanted === !!stopBodyCapture) return
+    if (!wanted) {
+      stopBodyCapture?.()
+      stopBodyCapture = undefined
+      return
+    }
+    stopBodyCapture = pipeline.observe((event) => {
+      const body = event.response?.body
+      if (body == null) return
+      const limit = Math.max(1, store.state.config.profile.settings.bodyLimitKb) * 1024
+      const ids = new Set(event.ruleIds)
+      const entries = [...store.state.matched]
+      for (let index = entries.length - 1; index >= 0; index--) {
+        const entry = entries[index]!
+        if (entry.body !== undefined || !ids.has(entry.ruleId)) continue
+        if (entry.url !== event.request.url || kindOf(entry.ruleId) !== "intercept") continue
+        entries[index] = { ...entry, body: body.length > limit ? `${body.slice(0, limit)}…` : body }
+        store.set({ matched: entries })
+        return
+      }
+    })
+  }
   const persistRules = (rules: Rule[]) => {
     pipeline.setRules(rules)
     persist({ ...store.state.config, rules })
@@ -156,7 +222,12 @@ if (existing) {
     const plan = planOf(config)
     runController = new AbortController()
     // Direct uses the captured transport; Apply active rules goes through the page's wrappers.
-    const fetcher: typeof window.fetch = plan.mode === "rules" ? (...args) => window.fetch(...args) : directFetch
+    // A run in rules mode dispatches through the page's wrapped fetch, so it is marked: the
+    // recorder leaves the workbench's own traffic out of a page recording unless asked not to.
+    const fetcher: typeof window.fetch =
+      plan.mode === "rules"
+        ? (input, init) => window.fetch(input, { ...init, [TESTER_MARK]: true } as RequestInit)
+        : directFetch
     const publish = (run: RunState) => store.set({ run, openRun: run })
     void startRun({
       plan,
@@ -217,6 +288,29 @@ if (existing) {
           testerHistory: [testerResult, ...store.state.testerHistory].slice(0, 10),
         }),
       )
+    },
+    /**
+     * Stores the live profile as it stands, under `name`. Switching profiles installs a stored
+     * snapshot over the live one, so a profile that was never stored is a profile that cannot be
+     * returned to; this is how it gets there, and how it is renamed.
+     */
+    saveProfile: (name) => {
+      const config = store.state.config
+      const profile = {
+        ...config.profile,
+        name: name.trim() || config.profile.name,
+        revision: config.profile.revision + 1,
+        updatedAt: Date.now(),
+      }
+      const snapshot = { profile, endpoints: config.endpoints, rules: rulesOf(config), plan: planOf(config) }
+      const saved = config.savedProfiles ?? []
+      persist({
+        ...config,
+        profile,
+        savedProfiles: saved.some((item) => item.profile.id === profile.id)
+          ? saved.map((item) => (item.profile.id === profile.id ? snapshot : item))
+          : [...saved, snapshot],
+      })
     },
     saveProfileAs: (name) => {
       const config = store.state.config
@@ -302,7 +396,8 @@ if (existing) {
       store.set({ screen: "endpoints" })
     },
     startRecording: () => {
-      if (recorder.start()) store.set({ recording: true })
+      const capture = store.state.config.profile.settings?.recorderIncludeTester === true
+      if (recorder.start({ includeTester: capture })) store.set({ recording: true })
     },
     stopRecording: () => {
       recorder.stop()
@@ -336,6 +431,32 @@ if (existing) {
     nextRuleSeq: () =>
       rulesOf(store.state.config).reduce((highest, rule) => Math.max(highest, rule.seq), 0) + 1,
     continueAllPaused: () => breakpoints.continueAll(),
+    /**
+     * An inline bookmarklet fetches nothing, so there is no remote manifest to ask. What this
+     * origin does know is the newest build that has ever run here, recorded at launch: a bookmark
+     * older than that note is a stale copy the user saved before re-installing.
+     */
+    checkForUpdate: async () => {
+      const seen = await readLaunchVersion()
+      if (!seen) {
+        void recordLaunchVersion(version)
+        store.set({ newestVersion: version })
+        return `No earlier build is recorded for this origin. ${version} is noted as the newest.`
+      }
+      if (seen === version) return `Up to date: no build newer than ${version} has run on this origin.`
+      if (compareVersions(seen, version) < 0) {
+        void recordLaunchVersion(version)
+        store.set({ newestVersion: version })
+        return `${version} is newer than the ${seen} recorded here; this origin now expects ${version}.`
+      }
+      return `A newer build (${seen}) has run on this origin. Re-install the bookmarklet from the landing page to replace this ${version} bookmark.`
+    },
+    clearStoredData: async () => {
+      await clearStoredConfig()
+      // What is on screen has to match what is stored, so the panel restarts on an empty profile.
+      activate(defaultProfile(), [], [], [])
+      store.set({ testerHistory: [], runs: [], openRun: undefined, newestVersion: undefined })
+    },
     plan: () => planOf(store.state.config),
     updatePlan: (plan: TestPlan) => persist({ ...store.state.config, plan }),
     savePlanAs: (name) => {
@@ -379,7 +500,7 @@ if (existing) {
         downloadFile(runToJson(run, store.state.config.profile.revision), name, "json", "application/json")
       else downloadFile(runToCsv(run), name, "csv", "text/csv")
     },
-    createProfileFromRecordings: (name, endpoints, hosts) => {
+    createProfileFromRecordings: (name, endpoints, hosts, bindings = []) => {
       const config = store.state.config
       const now = Date.now()
       const profile: Profile = {
@@ -404,7 +525,8 @@ if (existing) {
           plan: planOf(config),
         })
       savedProfiles.push({ profile, endpoints: owned, rules: [] })
-      activate(profile, owned, [], savedProfiles)
+      // The recorded headers reference these by name, so the plan carries them from the first run.
+      activate(profile, owned, [], savedProfiles, { ...defaultTestPlan(profile.id), bindings })
     },
   })
 
@@ -446,8 +568,16 @@ if (existing) {
           syncRuleStats()
         }
         store.set({ storageReady: true })
+        syncBodyCapture()
+        syncRecorder()
       })
       .catch(() => store.set({ storageReady: false }))
+    // The newest build this origin has seen, so Settings can say whether this bookmark is stale.
+    void readLaunchVersion().then((seen) => {
+      const newest = seen && compareVersions(seen, version) > 0 ? seen : version
+      store.set({ newestVersion: newest })
+      if (newest === version && seen !== version) void recordLaunchVersion(version)
+    })
   } catch (error) {
     close()
     throw error

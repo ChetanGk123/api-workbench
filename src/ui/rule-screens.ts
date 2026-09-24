@@ -2,6 +2,7 @@ import { el, icon, button, iconButton, card, caption, cardHeading, group, labele
 import {
   CHAOS_PRESETS,
   defaultInterceptRule,
+  logLimit,
   defaultRouteRule,
   forbiddenRequestHeader,
   MAX_REPLAY_COPIES,
@@ -191,9 +192,9 @@ function endpointPicker(
   return group("aw-col aw-gap6", picker.field, note)
 }
 
-function ruleRow(ctx: Ctx, rule: Rule, summary: string, onOpen: () => void): HTMLElement {
+function ruleRow(ctx: Ctx, rule: Rule, summary: string | Node, onOpen: () => void): HTMLElement {
   const screen = rule.kind
-  const row = el("div", "aw-row aw-gap8 aw-endpoint-row")
+  const row = el("div", "aw-row aw-gap10 aw-rule-row")
   row.append(
     toggleBox(
       `Enable ${rule.label}`,
@@ -205,13 +206,16 @@ function ruleRow(ctx: Ctx, rule: Rule, summary: string, onOpen: () => void): HTM
       ctx.signal,
     ),
   )
-  const open = button("aw-grow aw-col aw-endpoint-name aw-tr", "", onOpen, ctx.signal)
+  const open = button("aw-grow aw-col aw-gap2 aw-endpoint-name aw-tr", "", onOpen, ctx.signal)
   open.append(el("span", "", rule.label))
-  const meta = el("span", "aw-row aw-gap6 aw-endpoint-meta aw-mono aw-xs")
+  // The badge sits on the meta line itself, so this line is flush with the label, not indented.
+  const meta = el("span", "aw-row aw-gap6 aw-endpoint-meta aw-rule-meta aw-mono aw-xs")
+  const url = el("span", "aw-tr", rule.matcher.url)
+  url.title = rule.matcher.url
   meta.append(
     el("span", `aw-bd aw-m aw-${rule.matcher.method === "*" ? "GET" : rule.matcher.method}`, rule.matcher.method),
-    el("span", "aw-tr aw-grow", rule.matcher.url),
-    el("span", "aw-bd aw-s", summary),
+    url,
+    typeof summary === "string" ? el("span", "aw-bd aw-s", summary) : summary,
   )
   open.append(meta)
   const hits = el("span", "aw-xs aw-mu")
@@ -223,8 +227,8 @@ function ruleRow(ctx: Ctx, rule: Rule, summary: string, onOpen: () => void): HTM
     open,
     hits,
     iconButton(
-      "aw-btn aw-gh aw-ic aw-xs2",
-      "trash",
+      "aw-btn aw-gh aw-ic aw-sm",
+      "close",
       `Delete ${rule.label}`,
       () => {
         ctx.deleteRule(rule.id)
@@ -236,7 +240,13 @@ function ruleRow(ctx: Ctx, rule: Rule, summary: string, onOpen: () => void): HTM
   return row
 }
 
-function ruleList(ctx: Ctx, rules: Rule[], empty: string, summary: (rule: Rule) => string, onOpen: (rule: Rule) => void): HTMLElement {
+function ruleList(
+  ctx: Ctx,
+  rules: Rule[],
+  empty: string,
+  summary: (rule: Rule) => string | Node,
+  onOpen: (rule: Rule) => void,
+): HTMLElement {
   const list = el("div", "aw-card aw-list")
   if (!rules.length) return el("div", "aw-empty", empty)
   for (const rule of rules) list.append(ruleRow(ctx, rule, summary(rule), () => onOpen(rule)))
@@ -245,7 +255,7 @@ function ruleList(ctx: Ctx, rules: Rule[], empty: string, summary: (rule: Rule) 
 
 function section(title: string, count: number, ...children: Node[]): HTMLElement {
   const wrapper = el("div", "aw-col aw-gap8")
-  wrapper.append(group("aw-row", el("span", "aw-lbl aw-grow", title), el("span", "aw-bd aw-s", String(count))))
+  wrapper.append(group("aw-row", el("span", "aw-lbl", title), el("span", "aw-bd aw-s", String(count))))
   wrapper.append(...children)
   return wrapper
 }
@@ -268,25 +278,35 @@ function matchedTraffic(ctx: Ctx, kind: RuleKind): HTMLElement {
   const wrapper = el("div", "aw-col aw-gap8")
   const count = el("span", "aw-bd aw-s", "0")
   wrapper.append(
-    group("aw-row", el("span", "aw-lbl aw-grow", TRAFFIC_TITLE[kind][0]), count),
+    group("aw-row", el("span", "aw-lbl", TRAFFIC_TITLE[kind][0]), count),
     rows,
   )
   ctx.watch((state) => {
     const ids = new Set((state.config.rules ?? []).filter((rule) => rule.kind === kind).map((rule) => rule.id))
-    const entries = state.matched.filter((item) => ids.has(item.ruleId)).slice(-12).reverse()
+    // Settings caps this module's log; the screen shows what the cap keeps, newest first.
+    const entries = state.matched
+      .filter((item) => ids.has(item.ruleId))
+      .slice(-logLimit(state.config.profile, kind))
+      .reverse()
     count.textContent = String(entries.length)
     rows.replaceChildren()
     for (const entry of entries) {
       const path = el("span", "aw-grow aw-tr aw-mono aw-xs", entry.url ? new URL(entry.url).pathname : "—")
       path.title = entry.url
-      rows.append(
-        group(
-          "aw-li aw-row aw-gap8",
-          el("span", `aw-bd aw-m aw-${entry.method || "GET"}`, entry.method || "·"),
-          path,
-          el("span", "aw-xs aw-mu", entry.outcome),
-        ),
+      const line = group(
+        "aw-li aw-row aw-gap8",
+        el("span", `aw-bd aw-m aw-${entry.method || "GET"}`, entry.method || "·"),
+        path,
+        el("span", "aw-xs aw-mu", entry.outcome),
       )
+      if (entry.body == null) {
+        rows.append(line)
+        continue
+      }
+      // Bodies are kept only while Settings asks for them, so a row carries one or says nothing.
+      const body = disclosure("Response body", el("pre", "aw-code aw-wrap", prettyJson(entry.body) ?? entry.body))
+      body.classList.add("aw-bodylog")
+      rows.append(group("aw-col", line, body))
     }
     if (!entries.length) rows.replaceChildren(el("div", "aw-empty", TRAFFIC_TITLE[kind][1]))
   })
@@ -518,7 +538,16 @@ export function mockScreen(ctx: Ctx): HTMLElement {
   }
   const summary = (rule: Rule) => {
     const mock = rule as MockRule
-    return mock.mode === "sequence" ? `${mock.slots.length} step sequence` : String(mock.slots[0]?.status ?? 200)
+    if (mock.mode === "sequence") return `${mock.slots.length} step sequence`
+    const status = mock.slots[0]?.status ?? 200
+    // A fragment, so the arrow and badge are meta-line children themselves and keep the row's gap
+    // and shrink behaviour; a wrapper would shrink and clip the badge on a long URL.
+    const parts = document.createDocumentFragment()
+    parts.append(
+      el("span", "aw-mu", "\u2192"),
+      el("span", `aw-bd ${status < 400 ? "aw-gr" : "aw-rd"}`, String(status)),
+    )
+    return parts
   }
   const linked = rules.filter((rule) => rule.endpointId)
   const adhoc = rules.filter((rule) => !rule.endpointId)

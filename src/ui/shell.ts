@@ -3,6 +3,7 @@ import additions from "./theme.css"
 import { el, icon, button, iconButton, dropdown, confirmDialog } from "./dom"
 import type { Store } from "../core/store"
 import { RULE_MODULES, SCREENS, TABS, moduleState, renderScreen, type Ctx, type ScreenId, type UIState } from "./screens"
+import { moduleEnabled } from "../core/model"
 
 export type ShellOptions = {
   version: string
@@ -15,6 +16,7 @@ export type ShellOptions = {
   exportConfig: Ctx["exportConfig"]
   runOnce: Ctx["runOnce"]
   saveProfileAs: Ctx["saveProfileAs"]
+  saveProfile: Ctx["saveProfile"]
   selectProfile: Ctx["selectProfile"]
   deleteProfile: Ctx["deleteProfile"]
   commitImport: Ctx["commitImport"]
@@ -30,6 +32,8 @@ export type ShellOptions = {
   resetSequence: Ctx["resetSequence"]
   nextRuleSeq: Ctx["nextRuleSeq"]
   continueAllPaused: Ctx["continueAllPaused"]
+  checkForUpdate: Ctx["checkForUpdate"]
+  clearStoredData: Ctx["clearStoredData"]
   plan: Ctx["plan"]
   updatePlan: Ctx["updatePlan"]
   savePlanAs: Ctx["savePlanAs"]
@@ -230,6 +234,7 @@ export function createShell(options: ShellOptions) {
     exportConfig: options.exportConfig,
     runOnce: options.runOnce,
     saveProfileAs: options.saveProfileAs,
+    saveProfile: options.saveProfile,
     selectProfile: options.selectProfile,
     deleteProfile: options.deleteProfile,
     commitImport: options.commitImport,
@@ -245,6 +250,8 @@ export function createShell(options: ShellOptions) {
     resetSequence: options.resetSequence,
     nextRuleSeq: options.nextRuleSeq,
     continueAllPaused: options.continueAllPaused,
+    checkForUpdate: options.checkForUpdate,
+    clearStoredData: options.clearStoredData,
     plan: options.plan,
     updatePlan: options.updatePlan,
     savePlanAs: options.savePlanAs,
@@ -255,8 +262,17 @@ export function createShell(options: ShellOptions) {
     exportRun: options.exportRun,
   }
 
+  /** Settings' module switches decide which surfaces exist; a switched-off one redirects Home. */
+  const syncTabs = () => {
+    const profile = store.state.config.profile
+    for (const [tabId, tab] of tabs) tab.hidden = tabId !== "home" && !moduleEnabled(profile, tabId)
+  }
+  const available = (id: ScreenId) => id === "home" || moduleEnabled(store.state.config.profile, id)
+
   function go(id: ScreenId) {
     for (const control of profileMenus) control.close()
+    syncTabs()
+    if (!available(id)) id = "home"
     if (store.state.minimized) restore()
     const focused = root.activeElement
     store.set({ screen: id })
@@ -276,7 +292,8 @@ export function createShell(options: ShellOptions) {
     if (isSubscreen) {
       subIcon.replaceWith((subIcon = icon(SCREENS[id].icon, "aw-i14")))
       subLabel.textContent = SCREENS[id].label
-      subTest.hidden = id !== "endpoints"
+      // The Endpoints shortcut leads to Test, so it goes when that module is switched off.
+      subTest.hidden = id !== "endpoints" || !!tabs.get("test")?.hidden
     }
     // Reset the shared chrome before the screen renders; screens override it via ctx.chrome.
     backTo = () => go("home")
@@ -466,6 +483,10 @@ export function createShell(options: ShellOptions) {
       ? `${launcherLabel.textContent} — restore the panel to continue or abort`
       : (launcherLabel.textContent ?? "")
     launcherDot.className = paused || active.length ? "aw-dot aw-a" : "aw-dot"
+    // The stored configuration arrives after mount, so the tab strip follows it rather than the
+    // empty profile the panel started on.
+    syncTabs()
+    if (!available(store.state.screen)) go("home")
     syncProfiles()
   })
 

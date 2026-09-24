@@ -294,8 +294,14 @@
 .aw-ta {
   min-width: 0;
 }
+/* A read-only code box grows with its content to a point, then scrolls. The drag handle is the
+ * platform's own; the cap is dropped once the browser writes a dragged height into the element's
+ * style attribute, so the handle can grow the box as well as shrink it. */
 .aw-code {
   overflow: auto;
+  resize: vertical;
+}
+.aw-code:not([style*="height"]) {
   max-height: 160px;
 }
 .aw-wrap {
@@ -339,13 +345,56 @@
   gap: 10px;
   color: var(--aw-zinc-400);
 }
+/* A rule row carries the method badge on its own meta line, so that line is flush, not indented. */
+.aw-rule-row {
+  padding: 10px 8px 10px 12px;
+}
+.aw-rule-meta {
+  padding-left: 0;
+}
 .aw-subtitle {
   font-size: 13.5px;
   font-weight: 600;
   gap: 7px;
 }
 
+/* Settings' Modules card: a heading above a bordered list, as Settings.html lays it out. */
+.aw-modules {
+  gap: 0;
+}
+.aw-modules > .aw-row:first-child {
+  padding: 14px 14px 6px;
+}
+.aw-mod {
+  padding: 10px 14px 12px;
+  gap: 10px;
+}
+/* A module's own settings hang under its name, clear of the icon. */
+.aw-modopt {
+  padding-left: 24px;
+}
+/* A traffic-log row that kept a response body: the disclosure sits under the row, inside the item. */
+.aw-bodylog {
+  padding: 0 12px 10px;
+}
+.aw-medium {
+  font-weight: 500;
+}
+
 /* Widths the reference screens set inline on a few controls. */
+.aw-w84 {
+  width: 84px;
+  height: 28px;
+  flex-shrink: 0;
+}
+.aw-w100 {
+  width: 100px;
+  flex-shrink: 0;
+}
+.aw-w64 {
+  width: 64px;
+  flex-shrink: 0;
+}
 .aw-w110 {
   width: 110px;
   flex-shrink: 0;
@@ -354,9 +403,31 @@
   width: 140px;
   flex-shrink: 0;
 }
-/* A quick-add operation button: a badge that behaves like a button. `aw-rd` is two things in the
- * reference sheet — the red badge tone and the 16px radio dot — so the geometry is restated here,
- * after it, or the Remove button collapses to a circle. */
+/* `aw-rd` is two things in the reference sheet — the red badge tone and the 16px radio dot — and
+ * the dot's geometry comes second, so anything else it tints collapses into a circle with its text
+ * spilling out. The geometry is restated here, after it, for the shapes that are not that radio. */
+.aw-bd.aw-rd {
+  width: auto;
+  height: 20px;
+  margin-top: 0;
+  padding: 0 7px;
+  border-radius: 5px;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.08);
+}
+p.aw-rd {
+  display: block;
+  width: auto;
+  height: auto;
+  margin-top: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: #f87171;
+}
+
+/* A quick-add operation button: a badge that behaves like a button. Same collision as above. */
 .aw-quick {
   height: 24px;
   width: auto;

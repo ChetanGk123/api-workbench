@@ -54,6 +54,43 @@ test('M4 a candidate carries the recorded request and response sample without re
   assert.deepEqual(endpoint.request.headers, [{ name: 'content-type', value: 'application/json' }]);
   assert.equal(endpoint.sampleResponse.status, 201);
   assert.equal(endpoint.sampleResponse.body, '{"ok":true}');
+  // The credential is gone from the request, and the candidate says which one, so a replay that
+  // is no longer the recorded request does not have to be diagnosed from its 401.
+  assert.deepEqual(candidates[0].dropped, ['authorization']);
+});
+
+test('M4 a candidate names every credential the capture redacted, once', () => {
+  const credentialled = overrides => recording({
+    url: 'https://app.test/api/guarded',
+    headers: { authorization: '[REDACTED]', cookie: '[REDACTED]', accept: 'application/json' },
+    ...overrides,
+  });
+  const { candidates } = candidatesFrom([credentialled(), credentialled()], 'profile-1');
+  assert.equal(candidates.length, 1);
+  assert.deepEqual(candidates[0].dropped, ['authorization', 'cookie']);
+  assert.deepEqual(candidates[0].endpoint.request.headers, [{ name: 'accept', value: 'application/json' }]);
+
+  // A request that carried no credential says nothing.
+  const { candidates: plain } = candidatesFrom([recording({ url: 'https://app.test/api/open' })], 'profile-1');
+  assert.deepEqual(plain[0].dropped, []);
+});
+
+test('M4 a traced credential returns as a binding template, not a stored value', () => {
+  const { candidates } = candidatesFrom([recording({
+    url: 'https://app.test/api/guarded',
+    headers: { authorization: '[REDACTED]', accept: 'application/json' },
+    credentials: { authorization: { source: 'local', key: 'app_access_token', prefix: 'Bearer ' } },
+  })], 'profile-1');
+
+  assert.deepEqual(candidates[0].endpoint.request.headers, [
+    { name: 'accept', value: 'application/json' },
+    { name: 'authorization', value: 'Bearer {{$context("local_app_access_token")}}' },
+  ]);
+  assert.deepEqual(candidates[0].bindings, [
+    { name: 'local_app_access_token', source: 'local', key: 'app_access_token' },
+  ]);
+  // Traced, so it is not reported as dropped.
+  assert.deepEqual(candidates[0].dropped, []);
 });
 
 test('M4 third-party origins become host keys the new profile can map', () => {

@@ -250,9 +250,10 @@ test('M9 the draft survives Back and Minimize, and a profile change forces a reb
 
   // A profile switch while a review is open blocks the commit until it is rebuilt.
   await openScreen(page, 'Settings');
-  await panel(page).getByPlaceholder('New profile name').fill('Second');
-  await panel(page).getByRole('button', { name: 'Save as profile', exact: true }).click();
+  await panel(page).locator('.aw-body').getByRole('textbox', { name: 'Name', exact: true }).fill('Second');
+  await panel(page).getByRole('button', { name: 'Save as copy', exact: true }).click();
   await panel(page).locator('.aw-body').getByRole('combobox', { name: 'Active profile' }).selectOption({ label: 'Second' });
+  await panel(page).locator('.aw-body').getByRole('button', { name: 'Load profile', exact: true }).click();
   await openImport(page);
   await expect(panel(page).locator('.aw-card', { hasText: 'Import review' })).toContainText('The active profile changed');
   await expect(panel(page).locator('.aw-foot').getByRole('button', { name: /Import selected/ })).toBeDisabled();

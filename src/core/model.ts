@@ -41,8 +41,35 @@ export type Profile = {
   environments: Record<string, Record<string, string>>;
   activeEnvironment: string;
   globalHeaders: HeaderValue[];
-  settings: { bodyLimitKb: number; enabledModules: Record<string, boolean> };
+  settings: {
+    bodyLimitKb: number;
+    /** Module visibility. A module switched off here loses its tab, its Home card and its rules. */
+    enabledModules: Record<string, boolean>;
+    /** Traffic-log entries kept per rule module. Absent means DEFAULT_LOG_LIMIT. */
+    logLimits?: Partial<Record<RuleKind, number>>;
+    /** Intercept only: keep the response body beside a traffic-log entry. Off by default: it makes
+     * the panel observe traffic, which reads every response body. */
+    storeResponseBodies?: boolean;
+    /** Roots the page scanner walks for globals; Test's Scan page starts from these. */
+    globalRoots?: string[];
+    /** Requests the recorder keeps in its draft. Absent means the recorder's own default. */
+    recorderLimit?: number;
+    /** Whether the recorder captures the workbench tester's own requests. */
+    recorderIncludeTester?: boolean;
+  };
 };
+
+export const DEFAULT_LOG_LIMIT = 50;
+/** A module is on unless it was explicitly switched off, so an older profile keeps every module. */
+export function moduleEnabled(profile: Profile, id: string): boolean {
+  // An imported profile need not carry settings at all, and a missing switch means "on".
+  return profile.settings?.enabledModules?.[id] !== false;
+}
+
+export function logLimit(profile: Profile, kind: RuleKind): number {
+  const value = profile.settings.logLimits?.[kind];
+  return typeof value === 'number' && value > 0 ? value : DEFAULT_LOG_LIMIT;
+}
 
 export type ProfileSnapshot = { profile: Profile; endpoints: Endpoint[]; rules?: Rule[]; plan?: TestPlan };
 /** `plan` is the live plan; `savedPlans` are stored copies, each owned by the profile it names. */
