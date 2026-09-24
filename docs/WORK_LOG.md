@@ -30,6 +30,66 @@ when a later milestone lands.
 | M9 — Complete import support | CODE COMPLETE · all M9 acceptance gates PASS in Chrome (38 checks) · saved-bookmark and Edge checks NOT RUN |
 | M10 — Integrated release | NOT STARTED |
 
+## 2026-09-25 — Endpoints gets a filter, a Run button and a Delete that asks (UX review 2.2)
+
+**Scope.** `UX_REVIEW.md` 2.2. Four of its six bullets are addressed; two are deliberately not, with
+reasons below.
+
+**Filter.** A search field above the list, hidden until there are two endpoints. Every
+whitespace-separated term must appear in `method name alias path`, so `get echo` narrows where `get`
+alone would not. The count badge reads `N of M` while filtering. `src/ui/screens.ts`.
+
+**The list redraws, the screen does not.** A filter, a move and a delete now rebuild only the list
+element. Moving one endpoint was 28 `ctx.go("endpoints")` calls, each a full screen rebuild.
+
+**Reordering is refused while filtered.** A filtered list hides the neighbour a move would swap with,
+so Move up/down are disabled with the filter set and say why in their title.
+
+**Delete asks first,** naming the endpoint, through the same `confirmDialog` used elsewhere. The review
+called a one-click Delete beside Edit the most likely accidental data loss in the product.
+
+**Run on the row.** A play button per row runs that endpoint and opens Test. The Once selector now
+follows the result it is showing: `refresh()` sets it from `testerResult.endpointId` and redraws the
+headers card, so arriving from an Endpoints row does not leave the picker naming a different endpoint
+than the result below it. `src/ui/test-screens.ts`.
+
+**Not done, deliberately.** *Grouping by tag, path prefix or method* — the filter covers the same need
+(`get /pets` is a group), and grouping is a layout design the review does not specify. *Multi-select and
+bulk delete* — real work, and the case for it is pruning a large import, which is better served where
+per-row include checkboxes and Select all / Clear already exist: the Import review screen. Neither is
+started; both remain open items from 2.2.
+
+**A regression of mine, found and fixed.** `tests/m2-core.spec.mjs` uses `node:test`, not Playwright.
+Playwright's `testMatch: '*.spec.mjs'` imports it, so its cases run at collection time and print to
+stdout — and Playwright reports "No tests found" for that file and **exits 0 whatever they do**. Under
+that blind spot, the `location.origin` shortening added to `pipeline.ts` in the 2026-09-25 activity-log
+entry was failing three of its cases (`location` does not exist in Node). It is now guarded with
+`typeof location === "undefined"` and those three pass.
+
+**A pre-existing failure, not fixed here.** The fourth case in that file, `M4 recorder subscribes to
+bounded, redacted traffic and disposes cleanly`, fails at commit `02cf980`, before any of this work —
+verified by checking out that tree's `src/` and re-running. It is unrelated to 2.2 and left alone, but
+it is a failing gate that the suite's exit code hides. **Both of these deserve their own task: make the
+`node:test` files fail the run, then fix that case.**
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0, no output. TypeScript 7.0.2.
+- `npm run build` → exit 0. raw 452,878 B, minified 257,293 B, encoded bookmark URL 370,941 characters.
+- `npx playwright test` → **218 passed in 1.7 min, exit 0**, Chrome, macOS darwin 25.6.0, Node v24.21.0.
+  Three new tests: the filter and its refusal to reorder; Delete asks and Cancel keeps; Run sends and
+  opens Test on that endpoint. Two existing tests now confirm the delete dialog (`m3`, `ui`).
+- One earlier full run failed `UI Home Activity lists the observed requests` once and passed it in
+  isolation and on two further full runs. The cause was not identified; the assertion read the rendered
+  log once instead of polling it, and now polls, which removes the race whatever it was.
+- Measured, endpoint row with five icon buttons: at the 480 px default the name field is 220 px; at the
+  320 px minimum width it is 60 px and truncates with its `title` intact. No horizontal overflow at
+  either width.
+
+**Not run.** Saved-bookmark installation and all Edge checks.
+
+**Next task.** UX review 2.3 — the endpoint editor: checks are read-only, rendered as a `<pre>` of JSON.
+
 ## 2026-09-25 — Import stops being a recorder, and its review is no longer below the fold (UX review 2.1)
 
 **Scope.** `UX_REVIEW.md` 2.1, all three bullets. The import flow itself was called the best part of

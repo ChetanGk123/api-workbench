@@ -327,7 +327,15 @@ function oncePanel(ctx: Ctx): { panel: HTMLElement; actions: Node[] } {
   // the response, not a report about it.
   const failures = el("div", "aw-col aw-gap2")
   let previous = ctx.state().testerResult
+  /** Set once the headers card exists, which is built after the first refresh. */
+  let onSelected = () => {}
   const refresh = (current: NonNullable<ReturnType<Ctx["state"]>["testerResult"]>) => {
+    // The result below belongs to one endpoint, so the selector above it names that one — whether
+    // the run started here or on an Endpoints row, which lands on this screen mid-flight.
+    if ([...selector.options].some((option) => option.value === current.endpointId)) {
+      selector.value = current.endpointId
+      onSelected()
+    }
     status.textContent = `${current.outcome}${current.status ? ` · HTTP ${current.status}` : ""} · ${current.durationMs} ms${current.error ? ` · ${current.error}` : ""}`
     // A response body is read here, not edited, so a JSON one is shown indented; anything else is
     // shown exactly as it arrived.
@@ -348,6 +356,7 @@ function oncePanel(ctx: Ctx): { panel: HTMLElement; actions: Node[] } {
   })
   result.append(caption("Result"), status, detail, failures)
   const headers = headersCard(ctx, () => selector.value)
+  onSelected = () => headers.redraw()
   selector.addEventListener("change", () => headers.redraw(), { signal: ctx.signal })
   panel.append(
     el("p", "aw-hint", "One request using this page\u2019s session. Direct execution bypasses active rules."),

@@ -688,6 +688,12 @@ function endpointEditor(ctx: Ctx, endpoint: Endpoint, options: EditorOptions = {
   return section
 }
 
+/** Every whitespace-separated term must appear, so "get pets" narrows where "get" alone would not. */
+function matchesFilter(endpoint: Endpoint, query: string): boolean {
+  const haystack = `${endpoint.request.method} ${endpoint.name} ${endpoint.alias} ${endpoint.request.path}`.toLowerCase()
+  return query.split(/\s+/).every(term => haystack.includes(term))
+}
+
 function endpoints(ctx: Ctx): HTMLElement {
   const screen = el("div", "aw-col aw-gap12")
   const config = ctx.state().config
@@ -696,38 +702,67 @@ function endpoints(ctx: Ctx): HTMLElement {
     headerFields(ctx.signal, config.profile.globalHeaders, globalHeaders => updateProfile(ctx, { globalHeaders })))
   headers.classList.add("aw-card", "aw-cp")
   headers.open = true
-  const title = group("aw-row", el("span", "aw-h", "Endpoints"), el("span", "aw-bd aw-s", String(config.endpoints.length)), el("span", "aw-grow"))
+  const count = el("span", "aw-bd aw-s", String(config.endpoints.length))
+  const title = group("aw-row", el("span", "aw-h", "Endpoints"), count, el("span", "aw-grow"))
   const add = button("aw-btn aw-pri aw-sm", "Add endpoint", () => { ctx.addEndpoint(); ctx.go("endpoints") }, ctx.signal)
   add.prepend(icon("plus", "aw-i14"))
   title.append(add)
+  const filter = el("input", "aw-in") as HTMLInputElement
+  filter.type = "search"
+  filter.placeholder = "Filter by method, name or path"
+  filter.setAttribute("aria-label", "Filter endpoints")
   const list = el("div", "aw-card aw-list")
-  for (const [index, endpoint] of config.endpoints.entries()) {
-    const row = el("div", "aw-col aw-gap2 aw-endpoint-row")
-    const editEndpoint = () => {
-      const editor = endpointEditor(ctx, ctx.state().config.endpoints.find(item => item.id === endpoint.id) ?? endpoint)
-      screen.replaceChildren(editor)
-      screen.closest(".aw-body")?.scrollTo(0, 0)
-      editor.querySelector<HTMLInputElement>('[aria-label="Name"]')?.focus({ preventScroll: true })
+  list.setAttribute("aria-label", "Endpoints")
+
+  // Only the list is redrawn on a filter, a move or a delete. Rebuilding the screen for each of
+  // those is what made moving one endpoint 28 full re-renders.
+  const drawList = () => {
+    const endpoints = ctx.state().config.endpoints
+    const query = filter.value.trim().toLowerCase()
+    const shown = query ? endpoints.filter(endpoint => matchesFilter(endpoint, query)) : endpoints
+    count.textContent = query ? `${shown.length} of ${endpoints.length}` : String(endpoints.length)
+    list.replaceChildren()
+    for (const endpoint of shown) {
+      const index = endpoints.indexOf(endpoint)
+      const row = el("div", "aw-col aw-gap2 aw-endpoint-row")
+      const editEndpoint = () => {
+        const editor = endpointEditor(ctx, ctx.state().config.endpoints.find(item => item.id === endpoint.id) ?? endpoint)
+        screen.replaceChildren(editor)
+        screen.closest(".aw-body")?.scrollTo(0, 0)
+        editor.querySelector<HTMLInputElement>('[aria-label="Name"]')?.focus({ preventScroll: true })
+      }
+      const name = button("aw-endpoint-name aw-grow aw-tr", endpoint.name, editEndpoint, ctx.signal)
+      name.title = endpoint.name
+      const run = iconButton("aw-btn aw-gh aw-ic aw-xs2", "play", "Run", () => { ctx.runOnce(endpoint.id); ctx.go("test") }, ctx.signal)
+      const move = (direction: "up" | "down") => { ctx.reorderEndpoint(endpoint.id, direction); drawList() }
+      const up = iconButton("aw-btn aw-gh aw-ic aw-xs2", "up", "Move up", () => move("up"), ctx.signal)
+      const down = iconButton("aw-btn aw-gh aw-ic aw-xs2", "down", "Move down", () => move("down"), ctx.signal)
+      // A filtered list hides the neighbour a move would swap with, so order is edited unfiltered.
+      up.disabled = !!query || index === 0
+      down.disabled = !!query || index === endpoints.length - 1
+      if (query) up.title = down.title = "Clear the filter to reorder"
+      const remove = iconButton("aw-btn aw-gh aw-ic aw-xs2", "trash", "Delete", () => {
+        void confirmDialog(remove, "Delete endpoint", `Delete "${endpoint.name}"? This cannot be undone.`, "Delete", ctx.signal)
+          .then(confirmed => { if (confirmed) { ctx.deleteEndpoint(endpoint.id); drawList() } })
+      }, ctx.signal)
+      const line = group("aw-row aw-gap8", el("span", `aw-bd aw-m aw-${endpoint.request.method}`, endpoint.request.method), name, run, up, down,
+        iconButton("aw-btn aw-gh aw-ic aw-xs2", "edit", "Edit", editEndpoint, ctx.signal), remove)
+      const path = el("span", "aw-grow aw-tr aw-mono aw-xs aw-mu", endpoint.request.path)
+      path.title = endpoint.request.path
+      const checks = el("span", "aw-row aw-xs aw-mu", String(endpoint.checks.length))
+      checks.prepend(icon("list", "aw-i12"))
+      checks.title = `${endpoint.checks.length} checks`
+      row.append(line, group("aw-row aw-endpoint-meta", path, checks))
+      list.append(row)
     }
-    const name = button("aw-endpoint-name aw-grow aw-tr", endpoint.name, editEndpoint, ctx.signal)
-    name.title = endpoint.name
-    const move = (direction: "up" | "down") => { ctx.reorderEndpoint(endpoint.id, direction); ctx.go("endpoints") }
-    const up = iconButton("aw-btn aw-gh aw-ic aw-xs2", "up", "Move up", () => move("up"), ctx.signal)
-    up.disabled = index === 0
-    const down = iconButton("aw-btn aw-gh aw-ic aw-xs2", "down", "Move down", () => move("down"), ctx.signal)
-    down.disabled = index === config.endpoints.length - 1
-    const line = group("aw-row aw-gap8", el("span", `aw-bd aw-m aw-${endpoint.request.method}`, endpoint.request.method), name, up, down,
-      iconButton("aw-btn aw-gh aw-ic aw-xs2", "edit", "Edit", editEndpoint, ctx.signal),
-      iconButton("aw-btn aw-gh aw-ic aw-xs2", "trash", "Delete", () => { ctx.deleteEndpoint(endpoint.id); ctx.go("endpoints") }, ctx.signal))
-    const path = el("span", "aw-grow aw-tr aw-mono aw-xs aw-mu", endpoint.request.path)
-    path.title = endpoint.request.path
-    const checks = el("span", "aw-row aw-xs aw-mu", String(endpoint.checks.length))
-    checks.prepend(icon("list", "aw-i12"))
-    checks.title = `${endpoint.checks.length} checks`
-    row.append(line, group("aw-row aw-endpoint-meta", path, checks))
-    list.append(row)
+    if (!endpoints.length) list.append(el("div", "aw-empty", "No endpoints yet. Add one or import a profile to get started."))
+    else if (!shown.length) list.append(el("div", "aw-empty", `Nothing matches "${filter.value.trim()}".`))
   }
-  if (!config.endpoints.length) list.append(el("div", "aw-empty", "No endpoints yet. Add one or import a profile to get started."))
+  filter.addEventListener("input", drawList, { signal: ctx.signal })
+  drawList()
+  // The filter is worth its own row only once there is a list to lose things in.
+  filter.hidden = config.endpoints.length < 2
+
   // A committed import lands here and states what it saved, once.
   const imported = takeImportSummary()
   const summary = el("p", "aw-hint", imported)
@@ -736,7 +771,7 @@ function endpoints(ctx: Ctx): HTMLElement {
   const environments = disclosure("Base URLs", environmentFields(ctx, "endpoints"))
   environments.classList.add("aw-card", "aw-cp")
   environments.open = true
-  screen.append(headers, title, summary, list, environments)
+  screen.append(headers, title, filter, summary, list, environments)
   return screen
 }
 

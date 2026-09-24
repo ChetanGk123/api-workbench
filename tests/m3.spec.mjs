@@ -48,7 +48,8 @@ test('M3 endpoint CRUD, profile export and same-origin relaunch persistence', as
   await launch(page);
   await page.getByRole('button', { name: /^Endpoints/ }).click();
   await expect(page.getByText('fixture health', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  await page.locator('.aw-endpoint-row').getByRole('button', { name: 'Delete', exact: true }).click();
+  await page.locator('dialog.aw-dlg').getByRole('button', { name: 'Delete', exact: true }).click();
   await expect(page.getByText('fixture health', { exact: true })).toHaveCount(0);
   expect(requests.filter(url => url.includes('/api/')).length).toBe(0);
 });

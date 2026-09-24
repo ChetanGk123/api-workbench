@@ -79,10 +79,10 @@ export function createPipeline(report: (message: string) => void, breakpoints?: 
     trace.push(entry)
     if (trace.length > 64) trace.shift()
     // The panel is narrow, so a same-origin URL is logged as its path; a cross-origin one is not
-    // shortened, because which origin it went to is the point.
-    const where = context.url.startsWith(`${location.origin}/`)
-      ? context.url.slice(location.origin.length)
-      : context.url
+    // shortened, because which origin it went to is the point. The pipeline is also exercised
+    // outside a page by the core tests, where there is no `location` to compare against.
+    const origin = typeof location === "undefined" ? "" : location.origin
+    const where = origin && context.url.startsWith(`${origin}/`) ? context.url.slice(origin.length) : context.url
     report(`${transport} ${context.method} ${where} · ${kind}${detail ? ` · ${detail}` : ""}`)
     return entry
   }

@@ -390,6 +390,7 @@ test('UI title-bar profile menu switches profiles instead of opening Settings', 
   await panel(page).getByRole('button', { name: 'Save as copy', exact: true }).click();
   await openEndpoints(page);
   await panel(page).locator('.aw-endpoint-row').first().getByRole('button', { name: 'Delete', exact: true }).click();
+  await panel(page).locator('dialog.aw-dlg').getByRole('button', { name: 'Delete', exact: true }).click();
   await expect(panel(page).locator('.aw-endpoint-row')).toHaveCount(1);
 
   // The menu is mounted beside the panel so the panel's overflow cannot clip it.
@@ -540,9 +541,9 @@ test('UI Home Activity lists the observed requests, newest first, instead of one
   await launch(page);
   await page.evaluate(async () => { for (let index = 0; index < 3; index++) await fetch(`/api/echo?call=${index}`); });
   const log = panel(page).locator('.aw-code');
-  await expect(log).toContainText('/api/echo?call=0');
+  // The store batches its notifications, so poll the rendered log rather than reading it once.
+  await expect.poll(async () => (await log.textContent()).split('\n').length).toBe(3);
   const lines = (await log.textContent()).split('\n');
-  expect(lines).toHaveLength(3);
   // Newest first, each line stamped and carrying the method and the same-origin path.
   expect(lines[0]).toMatch(/^\d\d:\d\d:\d\d {2}fetch GET \/api\/echo\?call=2 · request$/);
   expect(lines[2]).toContain('call=0');
@@ -596,4 +597,59 @@ test('UI a launch that never moved the panel leaves no geometry to restore', asy
   await launch(page);
   expect(await storedGeometry(page)).toBeNull();
   expect(await panel(page).boundingBox()).toEqual(opened);
+});
+
+test('UI the endpoint list filters, and a filtered list refuses to reorder', async ({ page }) => {
+  await importSample(page);
+  const rows = panel(page).locator('.aw-endpoint-row');
+  await expect(rows).toHaveCount(2);
+  const filter = panel(page).getByRole('searchbox', { name: 'Filter endpoints', exact: true });
+  const count = panel(page).locator('.aw-bd.aw-s').first();
+
+  // Every term must match, across method, name and path.
+  await filter.fill('echo');
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('/api/echo');
+  await expect(count).toHaveText('1 of 2');
+  await filter.fill('post echo');
+  await expect(rows).toHaveCount(1);
+  await filter.fill('get echo');
+  await expect(rows).toHaveCount(0);
+  await expect(panel(page).locator('.aw-empty')).toContainText('Nothing matches "get echo"');
+
+  // Order is edited against the whole list, never a filtered view of it.
+  await filter.fill('echo');
+  await expect(rows.first().getByRole('button', { name: 'Move up', exact: true })).toBeDisabled();
+  await expect(rows.first().getByRole('button', { name: 'Move down', exact: true })).toBeDisabled();
+  await filter.fill('');
+  await expect(rows).toHaveCount(2);
+  await expect(count).toHaveText('2');
+  await expect(rows.first().getByRole('button', { name: 'Move down', exact: true })).toBeEnabled();
+});
+
+test('UI deleting an endpoint asks first, and Cancel keeps it', async ({ page }) => {
+  await importSample(page);
+  const rows = panel(page).locator('.aw-endpoint-row');
+  const name = await rows.first().locator('.aw-endpoint-name').textContent();
+  await rows.first().getByRole('button', { name: 'Delete', exact: true }).click();
+  const dialog = panel(page).locator('dialog.aw-dlg');
+  await expect(dialog).toContainText(`Delete "${name}"? This cannot be undone.`);
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(rows).toHaveCount(2);
+  await rows.first().getByRole('button', { name: 'Delete', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).not.toContainText(name);
+});
+
+test('UI Run on an endpoint row sends it and opens Test on that endpoint', async ({ page }) => {
+  await importSample(page);
+  const rows = panel(page).locator('.aw-endpoint-row');
+  const target = rows.nth(1);
+  const name = await target.locator('.aw-endpoint-name').textContent();
+  await target.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(panel(page).locator('.aw-tabs').getByRole('button', { name: 'Test', exact: true })).toHaveAttribute('aria-current', 'page');
+  // The selector names the endpoint whose result is shown, not whichever one is first.
+  await expect(panel(page).getByRole('combobox', { name: 'Endpoint to run', exact: true }).locator('option:checked')).toHaveText(new RegExp(name));
+  await expect(panel(page).locator('.aw-card [role=status]').first()).toContainText(/HTTP \d\d\d/);
 });
