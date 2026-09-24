@@ -534,3 +534,16 @@ test('UI Home reports each module the way the reference card does, and switches 
   await expect(intercept).not.toHaveClass(/aw-live/);
   await expect(interceptTab.locator('.aw-d')).toBeHidden();
 });
+
+test('UI Home Activity lists the observed requests, newest first, instead of one line', async ({ page }) => {
+  await launch(page);
+  await page.evaluate(async () => { for (let index = 0; index < 3; index++) await fetch(`/api/echo?call=${index}`); });
+  const log = panel(page).locator('.aw-code');
+  await expect(log).toContainText('/api/echo?call=0');
+  const lines = (await log.textContent()).split('\n');
+  expect(lines).toHaveLength(3);
+  // Newest first, each line stamped and carrying the method and the same-origin path.
+  expect(lines[0]).toMatch(/^\d\d:\d\d:\d\d {2}fetch GET \/api\/echo\?call=2 · request$/);
+  expect(lines[2]).toContain('call=0');
+  await expect(panel(page).getByText(/^Activity · 3 observed$/)).toBeVisible();
+});

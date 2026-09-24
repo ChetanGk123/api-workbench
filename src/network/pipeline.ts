@@ -78,7 +78,12 @@ export function createPipeline(report: (message: string) => void, breakpoints?: 
     }
     trace.push(entry)
     if (trace.length > 64) trace.shift()
-    report(`${transport} ${context.method} · ${kind}${detail ? ` · ${detail}` : ""}`)
+    // The panel is narrow, so a same-origin URL is logged as its path; a cross-origin one is not
+    // shortened, because which origin it went to is the point.
+    const where = context.url.startsWith(`${location.origin}/`)
+      ? context.url.slice(location.origin.length)
+      : context.url
+    report(`${transport} ${context.method} ${where} · ${kind}${detail ? ` · ${detail}` : ""}`)
     return entry
   }
 

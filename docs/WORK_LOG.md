@@ -30,6 +30,59 @@ when a later milestone lands.
 | M9 — Complete import support | CODE COMPLETE · all M9 acceptance gates PASS in Chrome (38 checks) · saved-bookmark and Edge checks NOT RUN |
 | M10 — Integrated release | NOT STARTED |
 
+## 2026-09-25 — The Activity card becomes a real request log (UX review 1.2)
+
+**Scope.** `UX_REVIEW.md` 1.2, all three bullets.
+
+**`settings.enabledModules` — no change, the finding is stale.** The review read it as written but
+never read. It is read now: `moduleEnabled()` in `src/core/model.ts` drives the tab strip
+(`shell.ts:268,270`), the Home module cards and quick actions (`screens.ts:573,578`) and the
+Settings toggles that write it (`screens.ts:926`). The module switches landed after the review was
+written. Removing it would delete a working feature, so it stays.
+
+**`replaceProfile()` — deleted.** `src/core/storage.ts`, zero callers, and it took a `config`
+argument it ignored while saving a config with no `savedProfiles` or `plan`. Its two now-unused type
+imports went with it.
+
+**The Home Activity card is now the request log.** It was a `<pre>` holding `"{n} observed"` and the
+single most recent message, overwritten by the next request.
+
+- `src/entry.ts` — `activity` is a bounded list (`ACTIVITY_LIMIT = 50`, newest first) instead of one
+  string. `report()` stamps each entry with `Date.now()`.
+- `src/ui/screens.ts` — `UIState.activity` is `ActivityEntry[]`; the card renders one `HH:MM:SS`
+  line per entry and the count moves to the caption (`Activity · N observed`), so the box is log and
+  nothing else. It stays a `<pre class="aw-code">`, which already scrolls past 160 px and carries the
+  platform resize handle, so no new markup or CSS.
+- `src/network/pipeline.ts` — the trace message now carries the URL, without which a log of
+  `fetch GET · request` repeated 50 times says nothing. A same-origin URL is logged as its path; a
+  cross-origin one is left whole, because the destination is the point.
+
+The pipeline's own 64-entry `trace` array is unchanged and still the structured record; this is the
+view of it the panel was missing.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0, no output. TypeScript 7.0.2.
+- `npm run build` → exit 0. raw 449,931 B, minified 256,059 B, encoded bookmark URL 369,081 characters.
+- `npx playwright test` → **212 passed in 1.7 min** (211 + one new), Chrome, macOS darwin 25.6.0,
+  Node v24.21.0. New test: `tests/ui.spec.mjs` "UI Home Activity lists the observed requests, newest
+  first" — three fetches produce three stamped lines, newest first, and the caption counts them.
+- Measured before the change, for comparison: three fetches left `3 observed` and the one line
+  `fetch GET · request`.
+
+**Fixture-server dependency found.** Two M8 tests (`a Flow iteration passes its own producer value`,
+`a setup step runs once for the run`) build request paths out of the fixture server's live hit
+counter — `/api/m8-child-{{seed.hit}}` — and then assert on `m8-child-1..3`. They pass only against a
+freshly started `tests/fixtures/server.mjs`; run against a server that already served that suite they
+hit `m8-child-4..6` and fail. Reproduced both ways. `server.mjs` has no reset endpoint (the separate
+`/api/test/reset` only clears `test-api.mjs` state). Not fixed here, not caused by this change.
+
+**Not run.** Saved-bookmark installation and all Edge checks, as for every milestone. The 50-entry cap
+is not covered by a test; it is a `.slice(0, 50)` on one line.
+
+**Next task.** UX review 1.3 — navigation: keep the tab strip mounted on every screen, give Back a
+truthful `aria-label`, make Escape consistent across the five editors, and guard unsaved edits.
+
 ## 2026-09-24 — The two dead header buttons are gone (UX review 1.1)
 
 **Scope.** `UX_REVIEW.md` 1.1: `Presets…` and `Promote common` sat under the global headers card

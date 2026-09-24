@@ -1,4 +1,4 @@
-import { defaultProfile, type Endpoint, type Profile, type WorkbenchConfig } from './model';
+import { defaultProfile, type WorkbenchConfig } from './model';
 
 const DB_NAME = 'api-workbench';
 const DB_VERSION = 1;
@@ -111,12 +111,6 @@ export async function saveConfig(config: WorkbenchConfig, durable = false): Prom
   if (durable) { await writeToIndexedDb(copy); memory.set(originKey(), copy); return; }
   memory.set(originKey(), copy);
   try { await writeToIndexedDb(copy); } catch { /* Export remains available when durable storage fails. */ }
-}
-
-export async function replaceProfile(config: WorkbenchConfig, profile: Profile, endpoints: Endpoint[]): Promise<WorkbenchConfig> {
-  const next = { profile: structuredClone(profile), endpoints: structuredClone(endpoints) };
-  await saveConfig(next);
-  return next;
 }
 
 export function exportConfig(config: WorkbenchConfig): string {

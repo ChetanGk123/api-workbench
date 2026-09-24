@@ -52,7 +52,7 @@ if (existing) {
     screen: "home",
     minimized: false,
     observed: 0,
-    activity: "",
+    activity: [],
     config: initialConfig,
     storageReady: false,
     testerHistory: [],
@@ -84,8 +84,13 @@ if (existing) {
     syncBodyCapture()
     syncRecorder()
   }
+  /** The Home Activity log keeps this many entries; older ones are dropped, not persisted. */
+  const ACTIVITY_LIMIT = 50
   const report = (message: string) =>
-    store.set({ observed: store.state.observed + 1, activity: message })
+    store.set({
+      observed: store.state.observed + 1,
+      activity: [{ at: Date.now(), message }, ...store.state.activity].slice(0, ACTIVITY_LIMIT),
+    })
   const breakpoints = createBreakpoints({ report })
   const pipeline = createPipeline(report, breakpoints)
   // A pause makes the page wait on the user, so restore a minimized panel's launcher visibly and

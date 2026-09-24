@@ -26,11 +26,14 @@ export type ScreenId =
   | "import"
   | "settings"
 
+export type ActivityEntry = { at: number; message: string }
+
 export type UIState = {
   screen: ScreenId
   minimized: boolean
   observed: number
-  activity: string
+  /** Newest first, bounded by ACTIVITY_LIMIT. Every observed request leaves one entry. */
+  activity: ActivityEntry[]
   config: WorkbenchConfig
   storageReady: boolean
   testerResult?: OnceResult
@@ -552,15 +555,22 @@ function runHistory(ctx: Ctx): HTMLElement {
 
 /** The last thing the interception layer reported, including the failures a rule cannot fix
  * (an opaque cross-origin response, a refused route) that the user would otherwise never see. */
+/** Local wall-clock `HH:MM:SS`; a log read beside the page's own network panel must match it. */
+const clock = (at: number) => new Date(at).toTimeString().slice(0, 8)
+
 function activityLog(ctx: Ctx): HTMLElement {
   const section = card()
+  const caption = el("span", "aw-cap", "Activity")
+  // `.aw-code` already scrolls past 160px and carries the platform resize handle, so the log needs
+  // no scroller of its own.
   const activity = el("pre", "aw-code aw-wrap", "No requests observed.")
   ctx.watch(state => {
-    activity.textContent = state.observed
-      ? `${state.observed} observed\n${state.activity}`
+    caption.textContent = state.observed ? `Activity · ${state.observed} observed` : "Activity"
+    activity.textContent = state.activity.length
+      ? state.activity.map(entry => `${clock(entry.at)}  ${entry.message}`).join("\n")
       : "No requests observed."
   })
-  section.append(el("span", "aw-cap", "Activity"), activity)
+  section.append(caption, activity)
   return section
 }
 
