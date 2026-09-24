@@ -30,6 +30,68 @@ when a later milestone lands.
 | M9 — Complete import support | CODE COMPLETE · all M9 acceptance gates PASS in Chrome (38 checks) · saved-bookmark and Edge checks NOT RUN |
 | M10 — Integrated release | NOT STARTED |
 
+## 2026-09-25 — Checks become editable, and the editor stops inferring (UX review 2.3)
+
+**Scope.** `UX_REVIEW.md` 2.3. Four of its five bullets; the query-parameter editor is not done, for
+the reason below.
+
+**Checks are editable.** The review called view-only assertions the biggest single gap on its list.
+`checkFields()` in `src/ui/dom.ts` is built like `headerFields()` — it edits a copy and hands the whole
+list back on every change — and covers all five kinds the evaluator supports:
+
+- **status**, as one exact code or, by filling the second field, an inclusive range. Emptying it turns
+  a range back into a single status.
+- **header**, name with an optional value; blank means "present with any value", which is what
+  `evaluateCheck` already did with `value: undefined`.
+- **body-contains**, one text field.
+- **json**, a path plus `exists` / `equals` / `type`. `type` offers the four `typeof` names, because the
+  evaluator compares `typeof actual === check.value` and a free-text field there is a silent failure.
+  `equals` compares with `Object.is`, so its field is read as JSON when it parses (`5` is the number 5,
+  `true` a boolean, `null` null) and literally when it does not; a string that would re-parse as
+  something else is written back quoted, so the field round-trips exactly.
+- **duration**, max milliseconds.
+
+Changing a row's kind replaces the whole check rather than keeping fields from the old shape. The
+disclosure's count follows the list as it is edited.
+
+**Body kind is chosen, not inferred.** The save path read
+`bodyKind: body.value ? (was === "none" ? "text" : was) : "none"`, so a JSON body typed into a new
+endpoint was silently stored as text. There is now a Body kind select, and picking JSON or
+form-urlencoded adds the matching `Content-Type` **only when the endpoint has not set one** — an
+existing header is the user's and is left alone.
+
+**The response sample is editable.** It was a `<pre>` with a Format JSON button that wrote into a draft
+you could not type into. It is a textarea now. Formatting an empty sample used to mint one with
+`status: 0`; emptying the field now removes the sample instead.
+
+**The sub-header follows the Name field** as it is typed, instead of keeping the name the editor was
+opened with.
+
+**Not done: the query-parameter editor.** A params table has to round-trip through the Path field, and
+that means re-encoding a path that may hold `{{alias.path}}` templates and hand-written escaping.
+Getting that wrong corrupts a working endpoint, and typing the query into the path works today. It
+stays an open item from 2.3 rather than a risky rewrite of the one field that currently cannot break.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0, no output. TypeScript 7.0.2.
+- `npm run build` → exit 0. raw 461,565 B, minified 262,202 B, encoded bookmark URL 378,294 characters.
+- `npx playwright test` → **221 passed in 1.8 min**, Chrome, macOS darwin 25.6.0, Node v24.21.0.
+  - New: checks load into fields, a range becomes an exact status, an added check fails the next run and
+    its failure is reported by name; body kind and its content type survive an export; a written sample
+    formats and saves, and an emptied one leaves no `sampleResponse` behind.
+  - Changed: `UI Format JSON is available on a recorded endpoint body and its response sample` reads the
+    sample as a textarea value rather than `pre.aw-code`.
+
+**Still open.** `tests/m2-core.spec.mjs` runs under `node:test`, so Playwright imports it, prints its
+results and ignores them — `M4 recorder subscribes to bounded, redacted traffic` has been failing since
+before this work and the suite still exits 0. Unchanged by this entry.
+
+**Not run.** Saved-bookmark installation and all Edge checks.
+
+**Next task.** UX review 2.4 — the run output: an unformatted body, and checks reported as a one-line
+summary.
+
 ## 2026-09-25 — Endpoints gets a filter, a Run button and a Delete that asks (UX review 2.2)
 
 **Scope.** `UX_REVIEW.md` 2.2. Four of its six bullets are addressed; two are deliberately not, with

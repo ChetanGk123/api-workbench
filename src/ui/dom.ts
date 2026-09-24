@@ -1,6 +1,6 @@
 // Runtime DOM is built with createElement/textContent only: no HTML parsing, no Trusted Types
 // policy and no interpolation of imported data into markup.
-import type { HeaderValue } from "../core/model"
+import type { Check, HeaderValue } from "../core/model"
 export function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
   className = "",
@@ -385,6 +385,173 @@ export function headerFields(signal: AbortSignal, values: HeaderValue[], save: (
     headers.push({ name: "", value: "" })
     render()
     rows.lastElementChild?.querySelector("input")?.focus()
+  }, signal)
+  add.prepend(icon("plus", "aw-i14"))
+  render()
+  section.append(rows, add)
+  return section
+}
+
+const CHECK_KINDS = [
+  ["status", "Status"],
+  ["header", "Header"],
+  ["body-contains", "Body contains"],
+  ["json", "JSON path"],
+  ["duration", "Max duration"],
+] as const
+
+/** A whole fresh check per kind, so switching kind never leaves a field from the old shape behind. */
+function blankCheck(kind: Check["kind"]): Check {
+  if (kind === "status") return { kind: "status", value: 200 }
+  if (kind === "header") return { kind: "header", name: "" }
+  if (kind === "body-contains") return { kind: "body-contains", value: "" }
+  if (kind === "json") return { kind: "json", path: "", mode: "exists" }
+  return { kind: "duration", maxMs: 1000 }
+}
+
+/**
+ * `equals` compares with `Object.is`, so a JSON number must arrive as a number. JSON syntax gives
+ * that; text that is not valid JSON is taken literally, so `abc` still means the string "abc".
+ */
+function parseCheckValue(raw: string): string | number | boolean | null {
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return parsed === null || ["string", "number", "boolean"].includes(typeof parsed)
+      ? (parsed as string | number | boolean | null)
+      : raw
+  } catch {
+    return raw
+  }
+}
+
+/** The inverse, exactly: a string that would parse as something else is shown quoted. */
+function showCheckValue(value: string | number | boolean | null | undefined): string {
+  if (value === undefined) return ""
+  if (typeof value !== "string") return JSON.stringify(value)
+  return parseCheckValue(value) === value ? value : JSON.stringify(value)
+}
+
+const numberInput = (label: string, value: number, placeholder = ""): HTMLInputElement => {
+  const input = el("input", "aw-in aw-mono") as HTMLInputElement
+  input.type = "number"
+  input.value = String(value)
+  input.placeholder = placeholder
+  input.setAttribute("aria-label", label)
+  return input
+}
+
+const textInput = (label: string, value: string, placeholder = ""): HTMLInputElement => {
+  const input = el("input", "aw-in aw-mono") as HTMLInputElement
+  input.value = value
+  input.placeholder = placeholder
+  input.setAttribute("aria-label", label)
+  return input
+}
+
+/** A `<select>` over fixed options, which several check fields need. */
+function optionSelect(label: string, options: readonly (readonly [string, string])[], selected: string): HTMLSelectElement {
+  const select = el("select", "aw-sel") as HTMLSelectElement
+  select.setAttribute("aria-label", label)
+  for (const [value, text] of options) {
+    const option = el("option", "", text)
+    option.value = value
+    option.selected = value === selected
+    select.append(option)
+  }
+  return select
+}
+
+/**
+ * The editor for an endpoint's assertions. Built like `headerFields`: a copy is edited and the
+ * whole list is handed back on every change, so the caller never shares an array with this list.
+ */
+export function checkFields(signal: AbortSignal, values: Check[], save: (checks: Check[]) => void): HTMLElement {
+  const section = el("div", "aw-col aw-gap10")
+  const rows = el("div", "aw-col aw-gap6")
+  let checks: Check[] = values.map(check => ({ ...check }))
+  const commit = () => save(checks.map(check => ({ ...check })))
+
+  const fieldsFor = (check: Check, index: number): HTMLElement => {
+    const fields = el("div", "aw-row aw-gap8 aw-grow")
+    const replace = (next: Check) => { checks[index] = next; commit() }
+    if (check.kind === "status") {
+      const current = check.value
+      const from = numberInput("Status", typeof current === "number" ? current : current.min)
+      const to = numberInput("Status range end", typeof current === "number" ? 0 : current.max, "to")
+      // Empty means "this exact status"; filling it turns the check into an inclusive range.
+      if (typeof current === "number") to.value = ""
+      const write = () => {
+        const min = Number(from.value)
+        const max = to.value.trim() ? Number(to.value) : undefined
+        replace({ kind: "status", value: max === undefined ? min : { min, max } })
+      }
+      from.addEventListener("change", write, { signal })
+      to.addEventListener("change", write, { signal })
+      fields.append(from, to)
+    } else if (check.kind === "header") {
+      const name = textInput("Check header name", check.name, "Header name")
+      const value = textInput("Check header value", check.value ?? "", "Any value")
+      const write = () =>
+        replace({ kind: "header", name: name.value.trim(), ...(value.value ? { value: value.value } : {}) })
+      name.addEventListener("change", write, { signal })
+      value.addEventListener("change", write, { signal })
+      fields.append(name, value)
+    } else if (check.kind === "body-contains") {
+      const value = textInput("Body contains", check.value, "Text the body must contain")
+      value.addEventListener("change", () => replace({ kind: "body-contains", value: value.value }), { signal })
+      fields.append(value)
+    } else if (check.kind === "json") {
+      const path = textInput("JSON path", check.path, "data.items.0.id")
+      const mode = optionSelect("Match mode", [["exists", "exists"], ["equals", "equals"], ["type", "type"]], check.mode)
+      const typeValue = optionSelect("Expected type", [["string", "string"], ["number", "number"], ["boolean", "boolean"], ["object", "object"]], String(check.value ?? "string"))
+      const value = textInput("Expected value", showCheckValue(check.value), '5, true, null or text')
+      const write = () => {
+        const next: Check =
+          mode.value === "exists"
+            ? { kind: "json", path: path.value.trim(), mode: "exists" }
+            : mode.value === "type"
+              ? { kind: "json", path: path.value.trim(), mode: "type", value: typeValue.value }
+              : { kind: "json", path: path.value.trim(), mode: "equals", value: parseCheckValue(value.value) }
+        replace(next)
+        render()
+      }
+      for (const control of [path, mode, typeValue, value]) control.addEventListener("change", write, { signal })
+      fields.append(path, mode)
+      if (check.mode === "type") fields.append(typeValue)
+      else if (check.mode === "equals") fields.append(value)
+    } else {
+      const maxMs = numberInput("Max duration in ms", check.maxMs)
+      maxMs.addEventListener("change", () => replace({ kind: "duration", maxMs: Number(maxMs.value) }), { signal })
+      fields.append(maxMs)
+    }
+    return fields
+  }
+
+  const render = () => {
+    rows.replaceChildren()
+    for (const [index, check] of checks.entries()) {
+      const kind = optionSelect("Check kind", CHECK_KINDS, check.kind)
+      kind.addEventListener("change", () => {
+        checks[index] = blankCheck(kind.value as Check["kind"])
+        commit()
+        render()
+      }, { signal })
+      rows.append(group("aw-col aw-gap6 aw-check-row",
+        group("aw-row aw-gap8", kind, el("span", "aw-grow"),
+          iconButton("aw-btn aw-gh aw-ic", "close", "Remove check", () => {
+            checks = checks.filter((_, position) => position !== index)
+            commit()
+            render()
+          }, signal)),
+        fieldsFor(check, index)))
+    }
+    if (!checks.length) rows.append(el("p", "aw-hint", "No checks. A run reports the response but asserts nothing about it."))
+  }
+  const add = button("aw-btn aw-out aw-sm aw-self", "Add check", () => {
+    checks.push(blankCheck("status"))
+    commit()
+    render()
+    rows.lastElementChild?.querySelector("select")?.focus()
   }, signal)
   add.prepend(icon("plus", "aw-i14"))
   render()

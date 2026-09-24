@@ -304,13 +304,13 @@ test('UI Format JSON is available on a recorded endpoint body and its response s
   const sample = panel(page).locator('details').filter({ hasText: 'Response sample' });
   await sample.locator('summary').click();
   await sample.getByRole('button', { name: 'Format JSON', exact: true }).click();
-  await expect(sample.locator('pre.aw-code')).toContainText('"method": "POST"');
+  await expect(sample.getByRole('textbox', { name: 'Response sample', exact: true })).toHaveValue(/"method": "POST"/);
   // The formatted sample is what Save keeps.
   await panel(page).getByRole('button', { name: 'Save endpoint', exact: true }).click();
   await panel(page).getByRole('button', { name: 'POST /api/echo' }).click();
   const reopened = panel(page).locator('details').filter({ hasText: 'Response sample' });
   await reopened.locator('summary').click();
-  await expect(reopened.locator('pre.aw-code')).toContainText('"method": "POST"');
+  await expect(reopened.getByRole('textbox', { name: 'Response sample', exact: true })).toHaveValue(/"method": "POST"/);
   await expect(reopened.getByRole('button', { name: 'Format JSON', exact: true })).toBeHidden();
 });
 
@@ -652,4 +652,90 @@ test('UI Run on an endpoint row sends it and opens Test on that endpoint', async
   // The selector names the endpoint whose result is shown, not whichever one is first.
   await expect(panel(page).getByRole('combobox', { name: 'Endpoint to run', exact: true }).locator('option:checked')).toHaveText(new RegExp(name));
   await expect(panel(page).locator('.aw-card [role=status]').first()).toContainText(/HTTP \d\d\d/);
+});
+
+test('UI checks are editable, and an edited check decides the run outcome', async ({ page }) => {
+  await importSample(page);
+  await panel(page).locator('.aw-endpoint-row').first().getByRole('button', { name: 'Edit', exact: true }).click();
+  const checks = panel(page).locator('details', { hasText: 'Checks' }).first();
+  await checks.locator('summary').click();
+
+  // The sample's first endpoint ships a 200-299 range check and a body-contains one; both load
+  // into their own fields rather than a block of JSON.
+  await expect(checks.getByRole('combobox', { name: 'Check kind', exact: true })).toHaveCount(2);
+  const status = checks.getByRole('spinbutton', { name: 'Status', exact: true });
+  const rangeEnd = checks.getByRole('spinbutton', { name: 'Status range end', exact: true });
+  await expect(status).toHaveValue('200');
+  await expect(rangeEnd).toHaveValue('299');
+  await expect(checks.getByRole('textbox', { name: 'Body contains', exact: true })).toHaveValue('fixture');
+
+  // Emptying the range end turns it back into one exact status, which this endpoint will not return.
+  await rangeEnd.fill('');
+  await status.fill('418');
+  await panel(page).getByRole('button', { name: 'Save endpoint', exact: true }).click();
+  expect((await exportConfig(page)).endpoints[0].checks[0]).toEqual({ kind: 'status', value: 418 });
+  await openEndpoints(page);
+  await panel(page).locator('.aw-endpoint-row').first().getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(panel(page).locator('.aw-card [role=status]').first()).toContainText('failed');
+
+  // A check added through the editor is evaluated on the next run, and its failure is reported.
+  await openEndpoints(page);
+  await panel(page).locator('.aw-endpoint-row').first().getByRole('button', { name: 'Edit', exact: true }).click();
+  await checks.locator('summary').click();
+  await checks.getByRole('spinbutton', { name: 'Status', exact: true }).fill('200');
+  await checks.getByRole('button', { name: 'Add check', exact: true }).click();
+  await checks.getByRole('combobox', { name: 'Check kind', exact: true }).last().selectOption('body-contains');
+  await checks.getByRole('textbox', { name: 'Body contains', exact: true }).last().fill('not-in-this-response');
+  await expect(checks.locator('summary')).toHaveText('Checks · 3');
+  await panel(page).getByRole('button', { name: 'Save endpoint', exact: true }).click();
+  await panel(page).locator('.aw-endpoint-row').first().getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(panel(page).locator('.aw-card [role=status]').first()).toContainText('failed');
+  await expect(panel(page).locator('.aw-hint.aw-rd').first()).toContainText('not-in-this-response');
+});
+
+test('UI the editor sets a body kind, its content type, and follows the name field', async ({ page }) => {
+  await openEndpoints(page);
+  await panel(page).getByRole('button', { name: 'Add endpoint', exact: true }).click();
+  await panel(page).locator('.aw-endpoint-row').last().getByRole('button', { name: 'Edit', exact: true }).click();
+  const subtitle = panel(page).locator('.aw-sub .aw-subtitle');
+
+  // The sub-header names what is being edited, while it is being edited.
+  await panel(page).getByRole('textbox', { name: 'Name', exact: true }).fill('Renamed while open');
+  await expect(subtitle).toHaveText('Renamed while open');
+
+  await panel(page).getByRole('textbox', { name: 'Alias', exact: true }).fill('renamed');
+  await panel(page).getByRole('textbox', { name: 'Path', exact: true }).fill('/api/echo');
+  await panel(page).getByRole('combobox', { name: 'Method', exact: true }).selectOption('POST');
+  await panel(page).getByRole('textbox', { name: 'Body', exact: true }).fill('{"hello":"world"}');
+  await panel(page).getByRole('combobox', { name: 'Body kind', exact: true }).selectOption('json');
+  // Choosing JSON names the content type, since the endpoint had not set one.
+  await expect(panel(page).getByRole('textbox', { name: 'Header name', exact: true }).last()).toHaveValue('Content-Type');
+  await expect(panel(page).getByRole('textbox', { name: 'Header value', exact: true }).last()).toHaveValue('application/json');
+  await panel(page).getByRole('button', { name: 'Save endpoint', exact: true }).click();
+
+  const config = await exportConfig(page);
+  const saved = config.endpoints.find(endpoint => endpoint.alias === 'renamed');
+  expect(saved.request.bodyKind).toBe('json');
+  expect(saved.request.headers).toContainEqual({ name: 'Content-Type', value: 'application/json' });
+});
+
+test('UI a response sample is written in the editor, and an empty one is not invented', async ({ page }) => {
+  await importSample(page);
+  await panel(page).locator('.aw-endpoint-row').first().getByRole('button', { name: 'Edit', exact: true }).click();
+  const response = panel(page).locator('details', { hasText: 'Response sample' }).first();
+  await response.locator('summary').click();
+  const sample = response.getByRole('textbox', { name: 'Response sample', exact: true });
+  await sample.fill('{"ok":true,  "n":1}');
+  await response.getByRole('button', { name: 'Format JSON', exact: true }).click();
+  await expect(sample).toHaveValue('{\n  "ok": true,\n  "n": 1\n}');
+  await panel(page).getByRole('button', { name: 'Save endpoint', exact: true }).click();
+  expect((await exportConfig(page)).endpoints[0].sampleResponse.body).toContain('"ok": true');
+
+  // Emptying it removes the sample rather than leaving a status: 0 shell behind.
+  await openEndpoints(page);
+  await panel(page).locator('.aw-endpoint-row').first().getByRole('button', { name: 'Edit', exact: true }).click();
+  await response.locator('summary').click();
+  await sample.fill('');
+  await panel(page).getByRole('button', { name: 'Save endpoint', exact: true }).click();
+  expect((await exportConfig(page)).endpoints[0].sampleResponse).toBeUndefined();
 });

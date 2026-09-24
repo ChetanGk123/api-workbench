@@ -1,4 +1,4 @@
-import { el, icon, button, confirmDialog, headerFields, iconButton, card, cardHeading, caption, group, labeled, labeledAction, formatJsonButton, disclosure, downloadJson, switchBox, toggleBox, type IconName } from "./dom"
+import { el, icon, button, checkFields, confirmDialog, headerFields, iconButton, card, cardHeading, caption, group, labeled, labeledAction, formatJsonButton, disclosure, downloadJson, switchBox, toggleBox, type IconName } from "./dom"
 import { DEFAULT_LOG_LIMIT, logLimit, mergeHeaders, moduleEnabled, nameFromHost, pageProfileName, type Endpoint, type HeaderValue, type Profile, type Rule, type RuleKind, type TestPlan, type WorkbenchConfig } from "../core/model"
 import type { RuleActivity } from "../network/rules"
 import type { PausedEntry } from "../breakpoints/registry"
@@ -641,6 +641,24 @@ function endpointEditor(ctx: Ctx, endpoint: Endpoint, options: EditorOptions = {
   body.value = endpoint.request.body
   body.setAttribute("aria-label", "Body")
   body.placeholder = "Request body"
+  const bodyKind = el("select", "aw-sel")
+  bodyKind.setAttribute("aria-label", "Body kind")
+  for (const [value, label] of [["none", "None"], ["text", "Text"], ["json", "JSON"], ["urlencoded", "Form URL-encoded"]] as const) {
+    const option = el("option", "", label)
+    option.value = value
+    option.selected = value === endpoint.request.bodyKind
+    bodyKind.append(option)
+  }
+  // The kind decides how the body is rendered before dispatch, so it also names the content type —
+  // but only when the endpoint has not set one itself, which is the user's to keep.
+  const CONTENT_TYPES: Record<string, string> = { json: "application/json", urlencoded: "application/x-www-form-urlencoded" }
+  bodyKind.addEventListener("change", () => {
+    const type = CONTENT_TYPES[bodyKind.value]
+    if (type && !draft.request.headers.some(header => header.name.trim().toLowerCase() === "content-type")) {
+      draft.request.headers = [...draft.request.headers, { name: "Content-Type", value: type }]
+      headers.replaceChildren(headerFields(ctx.signal, draft.request.headers, next => { draft.request.headers = next }))
+    }
+  }, { signal: ctx.signal })
   const notice = el("p", "aw-hint")
   notice.setAttribute("role", "status")
   const cancel = options.onClose ?? (() => ctx.go("endpoints"))
@@ -657,33 +675,51 @@ function endpointEditor(ctx: Ctx, endpoint: Endpoint, options: EditorOptions = {
     }
     ;(options.onSave ?? ctx.updateEndpoint)({ ...draft, name: name.value.trim(), alias: alias.value.trim(), hostKey: host.value.trim() || "default",
       request: { ...draft.request, method: method.value as Endpoint["request"]["method"], path: path.value.trim(), body: body.value,
-        bodyKind: body.value ? (endpoint.request.bodyKind === "none" ? "text" : endpoint.request.bodyKind) : "none",
+        bodyKind: bodyKind.value as Endpoint["request"]["bodyKind"],
         headers: draft.request.headers.filter(header => header.name.trim()) }, updatedAt: Date.now() })
     cancel()
   }
+  const headers = el("div", "aw-col")
+  headers.append(headerFields(ctx.signal, draft.request.headers, next => { draft.request.headers = next }))
   const request = card()
   request.append(caption("Request"), group("aw-g2", labeled("Method", method), labeled("Path", path)),
-    el("span", "aw-lbl", "Headers"), headerFields(ctx.signal, draft.request.headers, headers => { draft.request.headers = headers }),
+    el("span", "aw-lbl", "Headers"), headers,
     disclosure(`Inherited from global · ${ctx.state().config.profile.globalHeaders.length}`,
       el("pre", "aw-code aw-wrap", ctx.state().config.profile.globalHeaders.map(header => `${header.name}: ${header.value}`).join("\n") || "No global headers.")),
+    group("aw-g2", labeled("Body kind", bodyKind), el("span", "")),
     labeledAction("Body", body, formatJsonButton(body, ctx.signal)))
-  const sample = el("pre", "aw-code aw-wrap", endpoint.sampleResponse?.body ?? "No saved response sample. Record a request to capture one.")
-  // Formatting the sample edits the draft, so Save keeps the indented copy.
+  const sample = el("textarea", "aw-ta")
+  sample.value = endpoint.sampleResponse?.body ?? ""
+  sample.setAttribute("aria-label", "Response sample")
+  sample.placeholder = "No saved response sample. Record a request to capture one, or write one here."
+  /** A sample only exists once it has a body: formatting an empty one must not mint `status: 0`. */
+  const writeSample = (value: string) => {
+    draft.sampleResponse = value ? { status: 0, headers: [], ...draft.sampleResponse, body: value } : undefined
+  }
+  sample.addEventListener("input", () => writeSample(sample.value), { signal: ctx.signal })
   const formatSample = formatJsonButton({
     read: () => draft.sampleResponse?.body ?? "",
-    write: value => {
-      draft.sampleResponse = { status: 0, headers: [], ...draft.sampleResponse, body: value }
-      sample.textContent = value
-    },
+    write: value => { writeSample(value); sample.value = value },
   }, ctx.signal)
   const response = disclosure("Response sample",
     group("aw-row aw-actions", el("span", "aw-lbl aw-grow", "Body"), formatSample), sample)
-  const checks = disclosure(`Checks · ${endpoint.checks.length}`, el("pre", "aw-code aw-wrap", JSON.stringify(endpoint.checks, null, 2)))
+  const checksLabel = `Checks · ${endpoint.checks.length}`
+  const checks = disclosure(checksLabel,
+    el("p", "aw-hint", "Asserted after every run of this endpoint, in the tester and in a plan."),
+    checkFields(ctx.signal, draft.checks, next => {
+      draft.checks = next
+      const summary = checks.querySelector("summary")
+      if (summary) summary.textContent = `Checks · ${next.length}`
+    }))
   section.append(group("aw-row", el("span", "aw-h aw-grow", "Edit endpoint"), el("span", `aw-bd aw-m aw-${endpoint.request.method}`, endpoint.request.method)),
     group("aw-g2", labeled("Name", name), labeled("Alias", alias)), request, response, checks,
     labeled("Host key", host), notice)
-  ctx.chrome({ title: endpoint.name, onBack: cancel,
+  const setChrome = () => ctx.chrome({ title: name.value.trim() || "Edit endpoint", onBack: cancel,
     actions: [button("aw-btn aw-pri aw-grow", "Save endpoint", save, ctx.signal), button("aw-btn aw-out aw-grow", "Cancel", cancel, ctx.signal)] })
+  setChrome()
+  // The sub-header names the endpoint being edited, so it follows the field rather than the name it
+  // was opened with.
+  name.addEventListener("input", setChrome, { signal: ctx.signal })
   section.addEventListener("keydown", event => { if (event.key === "Escape") { event.preventDefault(); cancel() } }, { signal: ctx.signal })
   return section
 }

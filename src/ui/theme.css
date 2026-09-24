@@ -692,3 +692,11 @@ p {
 .aw-dlg::backdrop {
   background: rgba(0, 0, 0, 0.55);
 }
+
+/* A check is a kind, then that kind's own fields on the line below: five different shapes read as
+ * one list when the kind always sits in the same place. */
+.aw-check-row {
+  border: 1px solid var(--aw-zinc-800);
+  border-radius: 8px;
+  padding: 8px;
+}
