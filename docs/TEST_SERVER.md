@@ -27,7 +27,8 @@ under `style-src 'none'`; the collection is embedded in the same-origin script s
 it does not need a separate fetch that would fail under `connect-src 'none'`.
 
 If you need to generate the installer first, run `npm run build`, then open
-<http://127.0.0.1:4173/install.html>.
+<http://127.0.0.1:4173/index.html>. Both installation links in the playground open
+this landing page. The original `/install.html` remains available for size probes.
 
 Save <http://127.0.0.1:4173/openapi.json> and import the saved file through
 Workbench's Import screen (or paste its JSON). It includes methods, request

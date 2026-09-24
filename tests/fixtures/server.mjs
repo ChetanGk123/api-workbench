@@ -60,7 +60,7 @@ export async function startFixtures() {
           res.writeHead(200, { 'Content-Type': 'text/css; charset=utf-8' });
           res.end(await readFile(new URL('./page.css', import.meta.url))); return;
         }
-        const artifacts = ['install.html', 'bookmarklet.txt', 'bookmarklet-262144.txt', 'bookmarklet-1048576.txt'];
+        const artifacts = ['index.html', 'install.html', 'bookmarklet.txt', 'bookmarklet-262144.txt', 'bookmarklet-1048576.txt'];
         if (artifacts.includes(path.slice(1))) {
           res.writeHead(200, { 'Content-Type': path.endsWith('.html') ? 'text/html; charset=utf-8' : 'text/plain' });
           res.end(await readFile(new URL(`../../dist${path}`, import.meta.url))); return;

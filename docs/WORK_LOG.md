@@ -30,6 +30,70 @@ when a later milestone lands.
 | M9 — Complete import support | CODE COMPLETE · all M9 acceptance gates PASS in Chrome (38 checks) · saved-bookmark and Edge checks NOT RUN |
 | M10 — Integrated release | NOT STARTED |
 
+## 2026-09-24 — Playground links to the landing page
+
+Updated both installation links in `tests/fixtures/page.html` to `/index.html`.
+Added `index.html` to the explicit generated-artifact allowlist in
+`tests/fixtures/server.mjs`, serving `dist/index.html` with the existing HTML MIME
+type. Updated `docs/TEST_SERVER.md`. The older installer remains available for
+existing feasibility checks and size-probe links; generated files were not edited.
+
+Verification: `node --check tests/fixtures/server.mjs && git diff --check` passed
+(exit 0). `npm run server` could not start because another server already owns
+4173 (`EADDRINUSE`); the earlier agent-owned session had ended. Restart the current
+server to load the added route. No tests, build, or browser verification run for
+this small link change, per the user's preference. M10 remains the next milestone.
+
+## 2026-09-24 — Fixture page redesign
+
+**Scope.** Replaced the plain fixture page with a zinc-themed API playground.
+The sidebar lists all 29 operations from the server's OpenAPI definition plus
+10 original compatibility fixtures, grouped and searchable. Selecting a request
+fills editable method, URL, headers and example body without resetting sidebar
+scroll or keyboard focus. Includes origin/credentials selection, Fetch and native
+XHR dispatch, timeout/cancel controls, response body/headers/events views, JSON
+coloring, binary preview, timing/size, copy, and OpenAPI download. Original session,
+style-isolation and policy controls remain available in a disclosure section.
+
+**Changed files.** `tests/fixtures/page.html`, `page.js`, and new `page.css` implement
+the page; `tests/fixtures/server.mjs` serves the stylesheet and embeds the catalog
+into the existing same-origin script; `tests/fixtures/test-api.mjs` exports its
+existing OpenAPI generator for reuse. `docs/TEST_SERVER.md` documents the controls
+and limits. This work-log entry records the evidence. On resuming the task, the
+page implementation was already present in commit `2f72f0c`; it was preserved.
+
+**Commands and measured results.**
+
+- `node --check tests/fixtures/page.js && node --check tests/fixtures/server.mjs && node --check tests/fixtures/test-api.mjs && git diff --check`
+  — exit 0, including after the endpoint-selection fix.
+- `lsof -nP -iTCP:4173 -sTCP:LISTEN` identified the existing listener.
+  `ps -p 94010 -o pid=,ppid=,command=` required approved escalation and confirmed
+  `node tests/fixtures/server.mjs`. `kill -TERM 94010 && npm run server`, also
+  approved, restarted that fixture to load the new routes. Startup printed both
+  origins; the server was left available for the user's live playground session.
+- `/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --version`
+  — Google Chrome 153.0.8010.53.
+- Manual Chrome UI review at `/fixture`: 39 requests displayed; GET echo via Fetch
+  returned 200 (705 B, displayed 13 ms); selecting POST supplied JSON headers/body;
+  POST echo via XHR returned 200 (909 B, displayed 10 ms) with the submitted message.
+  Events showed native ready states and load/loadend. Endpoint search for `bearer`
+  reduced the sidebar to the authentication request. Desktop screenshots were
+  visually inspected before and after response delivery. These timings describe
+  individual local interactions, not benchmarks.
+
+**Limits and checks not run.** No automated tests added or run, following the
+user's instruction. No full endpoint sweep, mobile viewport, Edge, policy-page
+regression, bookmark installation, build, or full Workbench integration checks.
+Response display is capped at 64 KiB. Fetch captures at most 1 MiB before cancelling
+the remainder; XHR retains native arraybuffer buffering. XHR's credentials-omit
+choice is rejected explicitly because it cannot suppress same-origin cookies.
+Policy pages retain their CSP, so their stylesheet remains intentionally blocked.
+No external packages, fonts or runtime assets were added to the bookmarklet.
+
+**Next milestone.** M10 remains next; this is development infrastructure only.
+Use the already-running server at `http://127.0.0.1:4173/fixture`. When stopped,
+restart with `npm run server`; do not launch a second copy against occupied ports.
+
 ## 2026-09-24 — Importable local server file
 
 Created root `openapi.json` from the running local server's `/openapi.json`, then
