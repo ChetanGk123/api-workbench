@@ -30,6 +30,90 @@ when a later milestone lands.
 | M9 — Complete import support | CODE COMPLETE · all M9 acceptance gates PASS in Chrome (38 checks) · saved-bookmark and Edge checks NOT RUN |
 | M10 — Integrated release | NOT STARTED |
 
+## 2026-09-25 — The two Add header buttons say which list they add to
+
+**Reported from a screenshot.** Test → Once showed two identical **Add header** buttons and read as a
+duplicated control. They are two lists — the profile's globals and the selected endpoint's own — but
+nothing said so: `headerFields()` ends each list with its own button, so the second list's heading
+landed directly under the first list's button and read as a caption for it. Both buttons also carried
+the same accessible name in one region, so a screen reader announced one control twice.
+
+**Change.** `headerFields()` takes an `addLabel`, and every call site names its list: **Add global
+header** for the profile's, **Add endpoint header** for an endpoint's, on Test, on Endpoints and in the
+endpoint editor, so the same list is called the same thing everywhere. Each group on the Test card is
+boxed with the reference theme's existing `.aw-inset`, so a heading, its rows and the button that adds
+to them read as one block.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0. `npm run build` → exit 0, minified 264,048 B.
+- `npx playwright test` → **222 passed in 1.8 min**, Chrome, Node v24.21.0. Five existing assertions
+  now name the button they meant; one of them had been reaching for `.last()` to disambiguate, which
+  is the same defect showing up in the tests.
+- Measured at the 480 px default: the buttons are 147 px and 163 px wide, on their own rows, and the
+  card lays out without overflow. Screenshot taken and read back.
+
+**Note for 1.5.** This is one instance of the naming problem that section lists. The rest of it —
+`Add ad-hoc rule` versus `Add rule`, `Manage rules` versus `Configure`, `Echo GET` versus `get_echo` —
+is untouched.
+
+## 2026-09-25 — The Once result reports the whole response (UX review 2.4)
+
+**Scope.** `UX_REVIEW.md` 2.4, which asks for the run output to stop being worse than the fixture
+page's own viewer.
+
+**Already done, and not redone.** The review lists "pretty-printing of the JSON body" as missing. It
+landed on 2026-09-24 ("Read-only JSON bodies are shown indented"); `refresh()` already renders
+`prettyJson(body) ?? body`. Verified, not changed.
+
+**Response headers.** `OnceResult` never carried them, so the panel could not have shown them. They are
+captured in `src/tester/once.ts` as delivered and rendered in a **Response headers** disclosure under
+the body, hidden when a request produced no response at all.
+
+**Response size.** Also new on `OnceResult`: the decoded body's byte length, measured before the
+profile's display limit truncates it, and shown beside the duration as `B` / `KiB` / `MiB`. A body that
+was cut for display says so, so a size larger than the text on screen is explained rather than
+confusing.
+
+**Copy body.** Copies the indented text as shown, because that is what a reader means by "this
+response". A browser that refuses clipboard access says so and tells the user to select and copy —
+it never fails silently.
+
+**Save as response sample** writes the status, headers and body onto the endpoint, so the sample the
+2.3 editor shows is filled from a real run instead of typed. **Add status check** appends a check for
+the status just observed, and says so if that check already exists rather than adding a duplicate.
+
+**Not done: Re-run.** The review asks for it on the result. The **Run Once** button sits directly above
+the result with the same endpoint already selected, so a second button would be the same click one row
+lower. Left out deliberately.
+
+**Accessibility, incidentally.** The body box is now labelled `Response body`. It had no name, and with
+a second `pre.aw-code` in the same card the tests could no longer say which box they meant — which is
+exactly the ambiguity a screen-reader user had all along.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0, no output. TypeScript 7.0.2.
+- `npm run build` → exit 0. raw 463,232 B, minified 263,971 B, encoded bookmark URL 380,861 characters.
+- `npx playwright test` → **222 passed in 1.8 min**, Chrome, macOS darwin 25.6.0, Node v24.21.0.
+  - New: a run reports `HTTP 200` and a size, its headers list `content-type`, Copy body puts the body
+    on the clipboard (read back through `navigator.clipboard.readText` with granted permissions), and
+    Save as sample plus Add status check both land in an exported profile.
+  - Changed: two existing assertions that said `pre.aw-code` inside the result card now say
+    `Response body`; a second `pre` in that card made the old locator ambiguous.
+
+**Still open.** `tests/m2-core.spec.mjs` runs under `node:test`: Playwright imports it, prints its
+results and ignores them, and `M4 recorder subscribes to bounded, redacted traffic` has been failing
+since before this work while the suite exits 0.
+
+**Not run.** Saved-bookmark installation and all Edge checks. The clipboard path is verified in Chrome
+with permissions granted by the test; a real user's first copy may show a browser permission prompt,
+which was not exercised.
+
+**Next task.** UX review 2.5 — Test → Load: no filter or select-all over the phase list, ramp-up
+rendered as a sentence-shaped button, an indistinguishable Save/Save as pair, no way to delete a stored
+plan, and an unexplained green dot.
+
 ## 2026-09-25 — Checks become editable, and the editor stops inferring (UX review 2.3)
 
 **Scope.** `UX_REVIEW.md` 2.3. Four of its five bullets; the query-parameter editor is not done, for

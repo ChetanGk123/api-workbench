@@ -356,7 +356,17 @@ export function caption(text: string): HTMLElement {
 }
 
 /** The shared header-row editor: a name/value pair per row, committed on change. */
-export function headerFields(signal: AbortSignal, values: HeaderValue[], save: (headers: HeaderValue[]) => void): HTMLElement {
+/**
+ * @param addLabel names the list this button adds to. Two of these lists sit together on the Test
+ * screen — the profile's and the endpoint's — and two buttons called "Add header" are one control
+ * announced twice.
+ */
+export function headerFields(
+  signal: AbortSignal,
+  values: HeaderValue[],
+  save: (headers: HeaderValue[]) => void,
+  addLabel = "Add header",
+): HTMLElement {
   const section = el("div", "aw-col aw-gap10")
   const rows = el("div", "aw-col aw-gap6")
   let headers = values.map(header => ({ ...header }))
@@ -381,7 +391,7 @@ export function headerFields(signal: AbortSignal, values: HeaderValue[], save: (
       }, signal)))
     }
   }
-  const add = button("aw-btn aw-out aw-sm aw-self", "Add header", () => {
+  const add = button("aw-btn aw-out aw-sm aw-self", addLabel, () => {
     headers.push({ name: "", value: "" })
     render()
     rows.lastElementChild?.querySelector("input")?.focus()

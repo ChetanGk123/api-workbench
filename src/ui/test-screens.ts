@@ -244,8 +244,8 @@ function headersCard(ctx: Ctx, endpointId?: () => string): HTMLDetailsElement & 
   const box = disclosure("Headers")
   const count = el("span", "aw-bd aw-s")
   box.querySelector("summary")?.append(el("span", "aw-grow"), count)
-  const globals = el("div", "aw-col aw-gap6")
-  const local = el("div", "aw-col aw-gap6")
+  const globals = el("div", "aw-col aw-gap6 aw-inset")
+  const local = el("div", "aw-col aw-gap6 aw-inset")
   const localLabel = el("span", "aw-lbl")
   const effective = () => {
     const config = ctx.state().config
@@ -264,7 +264,7 @@ function headersCard(ctx: Ctx, endpointId?: () => string): HTMLDetailsElement & 
         ctx.updateProfile({ ...profile, globalHeaders, revision: profile.revision + 1, updatedAt: Date.now() })
         const { endpoint: current } = effective()
         retotal(current?.request.headers ?? [])
-      }),
+      }, "Add global header"),
     )
     local.replaceChildren()
     if (!endpointId) {
@@ -284,7 +284,7 @@ function headersCard(ctx: Ctx, endpointId?: () => string): HTMLDetailsElement & 
         if (!current) return
         ctx.updateEndpoint({ ...current, request: { ...current.request, headers }, updatedAt: Date.now() })
         retotal(headers)
-      }),
+      }, "Add endpoint header"),
     )
     retotal(endpoint.request.headers)
   }
@@ -297,6 +297,13 @@ function headersCard(ctx: Ctx, endpointId?: () => string): HTMLDetailsElement & 
       : "Sent with every request in the plan. An endpoint's own headers are edited on Endpoints."),
   )
   return Object.assign(box, { redraw: draw })
+}
+
+/** Response body size. Bytes below 1 KiB, one decimal above, so a size is readable at a glance. */
+function formatBytes(size: number): string {
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KiB`
+  return `${(size / (1024 * 1024)).toFixed(1)} MiB`
 }
 
 function oncePanel(ctx: Ctx): { panel: HTMLElement; actions: Node[] } {
@@ -323,9 +330,53 @@ function oncePanel(ctx: Ctx): { panel: HTMLElement; actions: Node[] } {
   run.disabled = !config.endpoints.length
   const result = card()
   const detail = el("pre", "aw-code aw-wrap", "No result yet.")
+  detail.setAttribute("aria-label", "Response body")
   // Failed checks only. A passing run already says so in the status line, and the body box holds
   // the response, not a report about it.
   const failures = el("div", "aw-col aw-gap2")
+  const headerList = el("pre", "aw-code aw-wrap", "")
+  const responseHeaders = disclosure("Response headers", headerList)
+  responseHeaders.hidden = true
+  const note = el("p", "aw-hint")
+  note.setAttribute("role", "status")
+  note.setAttribute("aria-label", "Result action status")
+  /** What the buttons below act on: the result now on screen, not whatever runs next. */
+  let shown: OnceResult | undefined
+  const endpointOf = (item: OnceResult) => ctx.state().config.endpoints.find((endpoint) => endpoint.id === item.endpointId)
+  // The body box is what a reader means by "this response", so its indented text is what is copied.
+  const copy = button("aw-btn aw-out aw-sm", "Copy body", () => {
+    if (!shown?.body) return
+    void navigator.clipboard.writeText(detail.textContent ?? "").then(
+      () => { note.textContent = "Response body copied." },
+      () => { note.textContent = "The browser refused clipboard access. Select the body and copy it." },
+    )
+  }, ctx.signal)
+  const saveSample = button("aw-btn aw-out aw-sm", "Save as response sample", () => {
+    const endpoint = shown && endpointOf(shown)
+    if (!shown || !endpoint) return
+    ctx.updateEndpoint({
+      ...endpoint,
+      sampleResponse: {
+        status: shown.status ?? 0,
+        headers: Object.entries(shown.headers ?? {}).map(([name, value]) => ({ name, value })),
+        body: shown.body,
+      },
+      updatedAt: Date.now(),
+    })
+    note.textContent = `Saved as the response sample for ${endpoint.name}.`
+  }, ctx.signal)
+  const addCheck = button("aw-btn aw-out aw-sm", "Add status check", () => {
+    const endpoint = shown && endpointOf(shown)
+    if (!shown?.status || !endpoint) return
+    const status = shown.status
+    if (endpoint.checks.some((check) => check.kind === "status" && check.value === status)) {
+      note.textContent = `${endpoint.name} already checks for status ${status}.`
+      return
+    }
+    ctx.updateEndpoint({ ...endpoint, checks: [...endpoint.checks, { kind: "status", value: status }], updatedAt: Date.now() })
+    note.textContent = `${endpoint.name} now checks for status ${status}.`
+  }, ctx.signal)
+  const resultActions = group("aw-row aw-actions", copy, saveSample, addCheck)
   let previous = ctx.state().testerResult
   /** Set once the headers card exists, which is built after the first refresh. */
   let onSelected = () => {}
@@ -336,7 +387,18 @@ function oncePanel(ctx: Ctx): { panel: HTMLElement; actions: Node[] } {
       selector.value = current.endpointId
       onSelected()
     }
-    status.textContent = `${current.outcome}${current.status ? ` · HTTP ${current.status}` : ""} · ${current.durationMs} ms${current.error ? ` · ${current.error}` : ""}`
+    shown = current
+    note.textContent = ""
+    status.textContent =
+      `${current.outcome}${current.status ? ` · HTTP ${current.status}` : ""} · ${current.durationMs} ms` +
+      `${current.size === undefined ? "" : ` · ${formatBytes(current.size)}${current.truncated ? " (truncated for display)" : ""}`}` +
+      `${current.error ? ` · ${current.error}` : ""}`
+    const entries = Object.entries(current.headers ?? {})
+    responseHeaders.hidden = !entries.length
+    headerList.textContent = entries.map(([name, value]) => `${name}: ${value}`).join("\n")
+    copy.disabled = !current.body
+    saveSample.disabled = !current.body || !endpointOf(current)
+    addCheck.disabled = !current.status || !endpointOf(current)
     // A response body is read here, not edited, so a JSON one is shown indented; anything else is
     // shown exactly as it arrived.
     detail.textContent = current.body ? (prettyJson(current.body) ?? current.body) : current.error || "No response body."
@@ -354,7 +416,7 @@ function oncePanel(ctx: Ctx): { panel: HTMLElement; actions: Node[] } {
       run.disabled = !config.endpoints.length
     }
   })
-  result.append(caption("Result"), status, detail, failures)
+  result.append(caption("Result"), status, detail, failures, responseHeaders, resultActions, note)
   const headers = headersCard(ctx, () => selector.value)
   onSelected = () => headers.redraw()
   selector.addEventListener("change", () => headers.redraw(), { signal: ctx.signal })

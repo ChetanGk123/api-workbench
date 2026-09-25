@@ -21,6 +21,10 @@ export type OnceResult = {
   headersMs?: number
   body: string
   truncated: boolean
+  /** Response headers as delivered. Absent when the request never produced a response. */
+  headers?: Record<string, string>
+  /** Decoded body size in bytes, before any truncation to the profile's limit. */
+  size?: number
   checks: Array<{ check: Check; state: "passed" | "failed" | "not-evaluated"; detail: string }>
   error?: string
   /** The decoded response, for `{{alias.path}}` references by later steps. */
@@ -140,7 +144,11 @@ export async function executeRequest(
     } catch {
       /* A non-JSON body is still referenceable as text. */
     }
-    return { endpointId: endpoint.id, outcome, status: response.status, durationMs, headersMs, body, truncated: raw.length > body.length, checks, value }
+    return {
+      endpointId: endpoint.id, outcome, status: response.status, durationMs, headersMs, body,
+      truncated: raw.length > body.length, headers: Object.fromEntries(response.headers.entries()),
+      size: new TextEncoder().encode(raw).length, checks, value,
+    }
   } catch (error) {
     const name = error instanceof Error ? error.name : ""
     const outcome: RequestOutcome = name === "AbortError" ? "aborted" : name === "TimeoutError" ? "timeout" : "network-error"

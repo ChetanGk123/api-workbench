@@ -71,9 +71,9 @@ test('M3 direct Once uses the page session and reports checks', async ({ page })
   await page.getByRole('button', { name: 'Test', exact: true }).click();
   await page.getByRole('button', { name: 'Run Once', exact: true }).click();
   await expect(page.getByText(/passed · HTTP 200/)).toBeVisible();
-  await expect(page.locator(`${panel} .aw-code`)).toContainText('authenticated');
+  await expect(page.locator(panel).getByLabel('Response body')).toContainText('authenticated');
   // The checks are reported by the outcome above the body, not appended to the response.
-  await expect(page.locator(`${panel} .aw-code`)).not.toContainText('Checks');
+  await expect(page.locator(panel).getByLabel('Response body')).not.toContainText('Checks');
   await expect(page.locator(`${panel} .aw-body p.aw-rd`)).toHaveCount(0);
   await expect(page.getByText('Run history', { exact: true })).toBeVisible();
 });

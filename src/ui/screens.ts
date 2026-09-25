@@ -656,7 +656,7 @@ function endpointEditor(ctx: Ctx, endpoint: Endpoint, options: EditorOptions = {
     const type = CONTENT_TYPES[bodyKind.value]
     if (type && !draft.request.headers.some(header => header.name.trim().toLowerCase() === "content-type")) {
       draft.request.headers = [...draft.request.headers, { name: "Content-Type", value: type }]
-      headers.replaceChildren(headerFields(ctx.signal, draft.request.headers, next => { draft.request.headers = next }))
+      headers.replaceChildren(headerFields(ctx.signal, draft.request.headers, next => { draft.request.headers = next }, "Add endpoint header"))
     }
   }, { signal: ctx.signal })
   const notice = el("p", "aw-hint")
@@ -680,7 +680,7 @@ function endpointEditor(ctx: Ctx, endpoint: Endpoint, options: EditorOptions = {
     cancel()
   }
   const headers = el("div", "aw-col")
-  headers.append(headerFields(ctx.signal, draft.request.headers, next => { draft.request.headers = next }))
+  headers.append(headerFields(ctx.signal, draft.request.headers, next => { draft.request.headers = next }, "Add endpoint header"))
   const request = card()
   request.append(caption("Request"), group("aw-g2", labeled("Method", method), labeled("Path", path)),
     el("span", "aw-lbl", "Headers"), headers,
@@ -735,7 +735,7 @@ function endpoints(ctx: Ctx): HTMLElement {
   const config = ctx.state().config
   const headers = disclosure(`Global headers · ${config.profile.globalHeaders.length}`,
     el("p", "aw-hint", "Applied to all requests. Changes are saved automatically."),
-    headerFields(ctx.signal, config.profile.globalHeaders, globalHeaders => updateProfile(ctx, { globalHeaders })))
+    headerFields(ctx.signal, config.profile.globalHeaders, globalHeaders => updateProfile(ctx, { globalHeaders }), "Add global header"))
   headers.classList.add("aw-card", "aw-cp")
   headers.open = true
   const count = el("span", "aw-bd aw-s", String(config.endpoints.length))

@@ -45,14 +45,14 @@ test.beforeEach(async ({ page }) => {
 
 test('UI global headers add editable rows and preserve consecutive edits', async ({ page }) => {
   await openEndpoints(page);
-  await panel(page).getByRole('button', { name: 'Add header', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Add global header', exact: true }).click();
   const names = panel(page).getByRole('textbox', { name: 'Header name', exact: true });
   const values = panel(page).getByRole('textbox', { name: 'Header value', exact: true });
   await expect(names).toHaveCount(1);
   await expect(names.first()).toBeVisible();
   await names.first().fill('X-First');
   await values.first().fill('first');
-  await panel(page).getByRole('button', { name: 'Add header', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Add global header', exact: true }).click();
   await expect(names).toHaveCount(2);
   await names.last().fill('X-Second');
   await values.last().fill('second');
@@ -77,7 +77,7 @@ test('UI endpoint editor focuses the draft and Cancel keeps saved values intact'
   await expect(panel(page).getByRole('textbox', { name: 'Name', exact: true })).toBeFocused();
   await panel(page).getByRole('textbox', { name: 'Name', exact: true }).fill('Unsaved name');
   await panel(page).getByRole('textbox', { name: 'Header value', exact: true }).fill('unsaved');
-  await panel(page).getByRole('button', { name: 'Add header', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Add endpoint header', exact: true }).click();
   await panel(page).getByRole('textbox', { name: 'Header name', exact: true }).last().fill('X-Unsaved');
   await panel(page).getByRole('textbox', { name: 'Header value', exact: true }).last().fill('unsaved');
   await panel(page).getByRole('button', { name: 'Cancel', exact: true }).click();
@@ -93,7 +93,7 @@ test('UI endpoint save commits request and header edits together, and reordering
   await panel(page).getByRole('textbox', { name: 'Name', exact: true }).fill('Edited fixture');
   await panel(page).getByRole('textbox', { name: 'Path', exact: true }).fill('/api/echo');
   for (const [name, value] of [['X-One', 'one'], ['X-Two', 'two']]) {
-    await panel(page).getByRole('button', { name: 'Add header', exact: true }).click();
+    await panel(page).getByRole('button', { name: 'Add endpoint header', exact: true }).click();
     await panel(page).getByRole('textbox', { name: 'Header name', exact: true }).last().fill(name);
     await panel(page).getByRole('textbox', { name: 'Header value', exact: true }).last().fill(value);
   }
@@ -164,7 +164,7 @@ test('Once headers are visible on the Test screen and reach the request', async 
   await expect(headers.getByText('Imported echo payload · replaces a global of the same name')).toBeVisible();
 
   // The endpoint's own header, added from the Test screen, is what the server receives.
-  await headers.getByRole('button', { name: 'Add header', exact: true }).last().click();
+  await headers.getByRole('button', { name: 'Add endpoint header', exact: true }).click();
   await headers.getByRole('textbox', { name: 'Header name', exact: true }).last().fill('X-Fixture');
   await headers.getByRole('textbox', { name: 'Header value', exact: true }).last().fill('from-test-screen');
   // The badge counts what the request will carry: the global one plus the endpoint's two.
@@ -244,7 +244,7 @@ test('a failed check is reported under the result instead of inside the body', a
   const result = panel(page).locator('.aw-card', { hasText: 'RESULT' }).first();
   await expect(result.getByText(/failed-check/)).toBeVisible();
   await expect(result.locator('p.aw-rd')).toHaveCount(1);
-  await expect(result.locator('pre.aw-code')).not.toContainText('status 200');
+  await expect(result.getByLabel('Response body')).not.toContainText('status 200');
 });
 
 test('a result box can be dragged taller than its resting height', async ({ page }) => {
@@ -738,4 +738,39 @@ test('UI a response sample is written in the editor, and an empty one is not inv
   await sample.fill('');
   await panel(page).getByRole('button', { name: 'Save endpoint', exact: true }).click();
   expect((await exportConfig(page)).endpoints[0].sampleResponse).toBeUndefined();
+});
+
+test('UI a Once result shows its headers and size, and can be copied or kept', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await importSample(page);
+  await panel(page).locator('.aw-endpoint-row').first().getByRole('button', { name: 'Run', exact: true }).click();
+  const status = panel(page).locator('.aw-card [role=status]').first();
+  await expect(status).toContainText(/HTTP 200/);
+  // Size of the decoded body, beside the duration it already reported.
+  await expect(status).toContainText(/· \d+(\.\d)? (B|KiB|MiB)/);
+
+  const headers = panel(page).locator('details', { hasText: 'Response headers' }).first();
+  await headers.locator('summary').click();
+  await expect(headers.locator('pre')).toContainText('content-type:');
+
+  await panel(page).getByRole('button', { name: 'Copy body', exact: true }).click();
+  const note = panel(page).getByRole('status', { name: 'Result action status' });
+  await expect(note).toHaveText('Response body copied.');
+  const clipboard = await page.evaluate(() => navigator.clipboard.readText());
+  expect(clipboard).toContain('fixture');
+
+  // The response becomes the endpoint's sample, and its status becomes a check, without hand-typing.
+  await panel(page).getByRole('button', { name: 'Save as response sample', exact: true }).click();
+  await expect(note).toContainText('Saved as the response sample for');
+  await panel(page).getByRole('button', { name: 'Add status check', exact: true }).click();
+  await expect(note).toContainText('now checks for status 200');
+  await panel(page).getByRole('button', { name: 'Add status check', exact: true }).click();
+  await expect(note).toContainText('already checks for status 200');
+
+  const config = await exportConfig(page);
+  const endpoint = config.endpoints.find(item => item.request.path === '/api/fixture');
+  expect(endpoint.sampleResponse.status).toBe(200);
+  expect(endpoint.sampleResponse.body).toContain('fixture');
+  expect(endpoint.sampleResponse.headers.some(header => header.name === 'content-type')).toBe(true);
+  expect(endpoint.checks).toContainEqual({ kind: 'status', value: 200 });
 });
