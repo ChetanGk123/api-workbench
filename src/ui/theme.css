@@ -711,3 +711,19 @@ p {
   color: var(--aw-zinc-50);
   flex-shrink: 0;
 }
+
+/* Relaunching the bookmark on an already-open panel: a brief outline, so the click is not silent.
+ * Reduced motion keeps the outline and drops the pulse. */
+@keyframes aw-attn {
+  0%, 100% { box-shadow: 0 12px 40px #0006; }
+  50% { box-shadow: 0 12px 40px #0006, 0 0 0 3px var(--aw-zinc-50); }
+}
+.aw-root.aw-attn {
+  animation: aw-attn 0.5s ease-in-out 2;
+}
+@media (prefers-reduced-motion: reduce) {
+  .aw-root.aw-attn {
+    animation: none;
+    box-shadow: 0 12px 40px #0006, 0 0 0 3px var(--aw-zinc-50);
+  }
+}

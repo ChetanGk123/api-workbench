@@ -30,6 +30,48 @@ when a later milestone lands.
 | M9 — Complete import support | CODE COMPLETE · all M9 acceptance gates PASS in Chrome (38 checks) · saved-bookmark and Edge checks NOT RUN |
 | M10 — Integrated release | NOT STARTED |
 
+## 2026-09-25 — Closing, relaunching and version skew stop being silent (UX review 2.8)
+
+**Scope.** `UX_REVIEW.md` 2.8, all three bullets. This completes Part 2 of the review.
+
+**Close asks when there is something to lose.** The `×` stopped a run in flight and released every
+request held at a breakpoint, both correctly and both without a word. It now confirms when
+`run.state === "running"` or anything is paused, and the dialog names what will happen — how far the
+run got, and how many held requests go back to the page. With nothing in flight it still closes on one
+click, so the guard costs nothing in the ordinary case.
+
+**Relaunching an open panel is visible.** Re-clicking the bookmark called `restore()`, which only
+un-minimises: on an already-open panel nothing happened. `restore()` now also re-clamps the panel into
+the viewport (`place`) and pulses its outline through an `aw-attn` class, dropped to a static outline
+under `prefers-reduced-motion`.
+
+**The version-mismatch alert is gone.** A tool that avoids touching the host page everywhere else
+finished on a browser-modal `alert()`. The running instance now carries an optional `notify(title,
+message)` that shows it in the panel's own dialog. Optional deliberately: a new build launched over an
+older one finds no `notify` there and falls back to `alert`, which is the only thing that can work
+against a build that shipped before this change.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0. `npm run build` → exit 0, minified 272,569 B.
+- `npx playwright test` → **232 passed in 1.9 min**, Chrome, macOS darwin 25.6.0, Node v24.21.0.
+  Three new tests: closing over a held request asks, Cancel leaves both the panel and the request
+  alone, and confirming still releases it so the page's fetch settles at 200; closing with nothing in
+  flight does not ask; relaunching adds `aw-attn` and a different version announces itself in the panel
+  with `window.alert` never called. Two existing M7 close tests now confirm the dialog — they cover what
+  happens after the yes, which is unchanged.
+
+**Still open.** The `node:test` file whose failures the suite ignores, and its pre-existing recorder
+failure.
+
+**Not run.** Saved-bookmark installation and all Edge checks. The reduced-motion fallback is written
+against `prefers-reduced-motion` but was not exercised with the setting on.
+
+**Next task.** Part 2 is complete. What remains from the review is Part 1: 1.3 navigation (the tab strip
+hidden on five screens, a Back button whose `aria-label` always says "Back to Home", inconsistent
+Escape, no unsaved-edit guard), 1.5 naming, and 1.6 accessibility — plus the deferred items: endpoint
+grouping, bulk delete, the query-parameter editor, and making the `node:test` files fail the run.
+
 ## 2026-09-25 — A refused write is no longer silent, and a backup carries everything (UX review 2.7)
 
 **Scope.** `UX_REVIEW.md` 2.7, the section the review calls its most serious. Four of its seven bullets

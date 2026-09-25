@@ -196,3 +196,26 @@ test('policy operation checks under injected launch (not bookmark CSP proof)', a
   expect(await page.evaluate(async () => { try { await fetch('/api/session'); } catch (e) { return e.name; } })).toBe('TypeError');
   await mock(page); expect(await page.evaluate(async () => (await (await fetch('/api/mock-target')).json()).source)).toBe('workbench');
 });
+
+test('relaunching an open panel is visible, and a different version says so in the panel', async ({ page }) => {
+  await launch(page);
+  const root = page.locator('#api-workbench .aw-root:not(.aw-min)');
+  await expect(root).not.toHaveClass(/aw-attn/);
+
+  // Re-clicking the bookmark on an already-open panel used to do nothing visible.
+  await launch(page);
+  await expect(root).toHaveClass(/aw-attn/);
+  expect(await page.locator('#api-workbench').count()).toBe(1);
+
+  // A second, different build announces itself in the running panel, not through window.alert.
+  const alerts = [];
+  page.on('dialog', async dialog => { alerts.push(dialog.message()); await dialog.dismiss(); });
+  await page.evaluate(() => {
+    const key = '__api_workbench_7f49a1_v1__';
+    window[key] = { ...window[key], version: '0.0.1', restore: window[key].restore, notify: window[key].notify };
+  });
+  await launch(page);
+  const dialog = root.locator('dialog.aw-dlg');
+  await expect(dialog).toContainText('Version 0.0.1 is already running');
+  expect(alerts).toEqual([]);
+});

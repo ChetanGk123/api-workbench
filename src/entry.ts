@@ -32,15 +32,19 @@ import { createBreakpoints } from "./breakpoints/registry"
 
 const version = __AW_VERSION__
 const key = "__api_workbench_7f49a1_v1__"
-type Instance = { version: string; restore: () => void }
+/** `notify` is optional: a build launched over an older one has to cope with it being absent. */
+type Instance = { version: string; restore: () => void; notify?: (title: string, message: string) => void }
 const registry = window as unknown as Record<string, Instance | undefined>
 const existing = registry[key]
 if (existing) {
   existing.restore()
-  if (existing.version !== version)
-    alert(
-      "Another API Workbench version is running. Close it or reload before launching this version.",
-    )
+  if (existing.version !== version) {
+    const message = `Version ${existing.version} is already running on this page. Close it or reload before launching ${version}.`
+    // The panel avoids touching the host page everywhere else; a browser-modal alert is the one
+    // place it did. The running instance says it in its own panel when it knows how.
+    if (existing.notify) existing.notify("Another version is running", message)
+    else alert(message)
+  }
 } else {
   const initialProfile = defaultProfile()
   const initialConfig: WorkbenchConfig = {
@@ -613,7 +617,11 @@ if (existing) {
   const xhrDescriptor = Object.getOwnPropertyDescriptor(window, "XMLHttpRequest")
   const wrappedFetch = fetchAdapter(capturedFetch, pipeline)
   const wrappedXHR = xhrAdapter(capturedXHR, pipeline)
-  const instance: Instance = { version, restore: () => shell.restore() }
+  const instance: Instance = {
+    version,
+    restore: () => shell.restore(),
+    notify: (title, message) => shell.notify(title, message),
+  }
   const close = () => {
     stopRun()
     pipeline.close()

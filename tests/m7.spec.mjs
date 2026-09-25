@@ -261,6 +261,8 @@ test('M7 closing the workbench continues a paused request instead of leaving it 
   await startFetch(page, '/api/m7-close');
   await expect(queue(page)).toHaveCount(1);
   await headerButton(page, 'Close').click();
+  // Closing releases what is held, so it asks; this test is about what happens after the yes.
+  await panel(page).locator('dialog.aw-dlg').getByRole('button', { name: 'Close', exact: true }).click();
   await expect(page.locator('#api-workbench')).toHaveCount(0);
 
   // The page's own request completes on the captured transport, exactly once.
@@ -277,6 +279,7 @@ test('M7 closing the workbench also releases a paused XHR, with no duplicate dis
   await startXHR(page, '/api/m7-close-xhr');
   await expect(queue(page)).toHaveCount(1);
   await headerButton(page, 'Close').click();
+  await panel(page).locator('dialog.aw-dlg').getByRole('button', { name: 'Close', exact: true }).click();
 
   const result = await settle(page);
   expect(result.status).toBe(200);
@@ -346,4 +349,32 @@ test('M7 a breakpoint authored through the editor pauses live traffic', async ({
   await queue(page).getByRole('button', { name: 'Continue', exact: true }).click();
   expect((await settle(page)).status).toBe(200);
   expect(await hits(request, '/api/m7-authored')).toBe(before + 1);
+});
+
+test('M7 closing while a request is held at a breakpoint asks before releasing it', async ({ page }) => {
+  await install(page, [interceptRule('Pause requests', '/api/echo-headers', { request: true, response: false })]);
+  await activateIntercept(page);
+  await startFetch(page, '/api/echo-headers', { method: 'POST', body: '{"n":1}' });
+  await expect(queue(page)).toHaveCount(1);
+
+  await headerButton(page, 'Close').click();
+  const dialog = panel(page).locator('dialog.aw-dlg');
+  await expect(dialog).toContainText('1 request held at a breakpoint is released to the page');
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  // Cancelling leaves the panel and the held request exactly as they were.
+  await expect(panel(page)).toBeVisible();
+  await expect(queue(page)).toHaveCount(1);
+
+  await headerButton(page, 'Close').click();
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(page.locator('#api-workbench')).toHaveCount(0);
+  // The held request was released rather than abandoned, so the page's fetch settles.
+  expect(await page.evaluate(() => window.__pending)).toMatchObject({ status: 200 });
+});
+
+test('M7 closing with nothing in flight does not ask', async ({ page }) => {
+  await install(page, [interceptRule('Pause requests', '/api/echo-headers', { request: true, response: false })]);
+  await activateIntercept(page);
+  await headerButton(page, 'Close').click();
+  await expect(page.locator('#api-workbench')).toHaveCount(0);
 });

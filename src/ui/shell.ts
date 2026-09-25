@@ -84,7 +84,22 @@ export function createShell(options: ShellOptions) {
     apply()
     ;(panelFocus?.isConnected ? panelFocus : body).focus({ preventScroll: true })
   }
-  const close = () => options.onClose()
+  /**
+   * Closing releases every request held at a breakpoint and stops a run mid-flight. Both are
+   * correct, and neither is something to discover afterwards, so the panel asks when either is true.
+   */
+  const close = () => {
+    const state = store.state
+    const running = state.run?.state === "running"
+    const paused = state.paused.length
+    if (!running && !paused) return options.onClose()
+    const consequences = [
+      running ? `the run in progress (${state.run?.completed ?? 0} of ${state.run?.planned ?? 0} requests) is stopped` : "",
+      paused ? `${paused} request${paused === 1 ? "" : "s"} held at a breakpoint ${paused === 1 ? "is" : "are"} released to the page` : "",
+    ].filter(Boolean)
+    void confirmDialog(panel, "Close API Workbench", `Closing means ${consequences.join(", and ")}.`, "Close", signal)
+      .then((confirmed) => { if (confirmed) options.onClose() })
+  }
 
   const logo = () => {
     const badge = el("div", "aw-logo")
@@ -577,6 +592,17 @@ export function createShell(options: ShellOptions) {
     restore() {
       restore()
       place(position.x, position.y)
+      // Re-clicking the bookmark on an open panel restored nothing visible. The panel is clamped
+      // back into the viewport by `place` above, and says so.
+      panel.classList.remove("aw-attn")
+      // Reading offsetWidth restarts the animation when the class is re-added in the same frame.
+      void panel.offsetWidth
+      panel.classList.add("aw-attn")
+    },
+    /** A message from outside this instance — a second, different build being launched over it. */
+    notify(title: string, message: string) {
+      if (store.state.minimized) restore()
+      void confirmDialog(body, title, message, "Close", signal, { cancelLabel: null, tone: "notice" })
     },
     destroy() {
       listeners.abort()
