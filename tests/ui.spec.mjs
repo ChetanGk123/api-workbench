@@ -141,6 +141,7 @@ test('a failed run wears a badge, not the radio dot aw-rd also names', async ({ 
   });
   await goHome(page);
   await panel(page).getByRole('button', { name: 'Test', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Once', exact: true }).click();
   await panel(page).getByRole('button', { name: 'Run Once', exact: true }).click();
   const badge = panel(page).locator('.aw-li .aw-bd.aw-rd').first();
   await expect(badge).toHaveText('network-error');
@@ -155,6 +156,7 @@ test('Once headers are visible on the Test screen and reach the request', async 
   await importSample(page);
   await goHome(page);
   await panel(page).getByRole('button', { name: 'Test', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Once', exact: true }).click();
   await panel(page).getByRole('combobox', { name: 'Endpoint to run' }).selectOption({ label: 'POST · Imported echo payload' });
   // Once and Load each carry a Headers card, and the hidden one is still in the DOM.
   const headers = panel(page).locator('details:visible', { hasText: 'Headers' }).first();
@@ -182,6 +184,7 @@ test('Load headers edit the profile headers every planned request carries', asyn
   await importSample(page);
   await goHome(page);
   await panel(page).getByRole('button', { name: 'Test', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Once', exact: true }).click();
   await panel(page).getByRole('button', { name: 'Load', exact: true }).click();
   const headers = panel(page).locator('details:visible', { hasText: 'Headers' }).first();
   await headers.locator('summary').click();
@@ -198,6 +201,7 @@ test('UI tester history updates while the screen stays open', async ({ page }) =
   await importSample(page);
   await goHome(page);
   await panel(page).getByRole('button', { name: 'Test', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Once', exact: true }).click();
   await expect(panel(page).getByText(/^No runs yet\./)).toBeVisible();
   for (let count = 1; count <= 2; count++) {
     await panel(page).getByRole('button', { name: 'Run Once', exact: true }).click();
@@ -224,6 +228,7 @@ test('the Once result shows a JSON response indented, and only the response', as
   await importSample(page);
   await goHome(page);
   await panel(page).getByRole('button', { name: 'Test', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Once', exact: true }).click();
   await panel(page).getByRole('button', { name: 'Run Once', exact: true }).click();
   const detail = panel(page).locator('pre.aw-code').first();
   await expect(detail).toContainText('"source": "network"');
@@ -242,6 +247,7 @@ test('a failed check is reported under the result instead of inside the body', a
   await importSample(page, impossible);
   await goHome(page);
   await panel(page).getByRole('button', { name: 'Test', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Once', exact: true }).click();
   await panel(page).getByRole('button', { name: 'Run Once', exact: true }).click();
   const result = panel(page).locator('.aw-card', { hasText: 'RESULT' }).first();
   await expect(result.getByText(/failed-check/)).toBeVisible();
@@ -253,6 +259,7 @@ test('a result box can be dragged taller than its resting height', async ({ page
   await importSample(page);
   await goHome(page);
   await panel(page).getByRole('button', { name: 'Test', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Once', exact: true }).click();
   await panel(page).getByRole('button', { name: 'Run Once', exact: true }).click();
   const detail = panel(page).locator('pre.aw-code').first();
   await expect(detail).toContainText('"source"');
@@ -775,4 +782,63 @@ test('UI a Once result shows its headers and size, and can be copied or kept', a
   expect(endpoint.sampleResponse.body).toContain('fixture');
   expect(endpoint.sampleResponse.headers.some(header => header.name === 'content-type')).toBe(true);
   expect(endpoint.checks).toContainEqual({ kind: 'status', value: 200 });
+});
+
+test('UI the Test screen introduces itself, and its result actions wait for a result', async ({ page }) => {
+  await goHome(page);
+  await panel(page).getByRole('button', { name: 'Test', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Once', exact: true }).click();
+  // The same shape every rule module screen opens with: a tile, the name, and what it does.
+  await expect(panel(page).locator('.aw-body .aw-h').first()).toHaveText('API Tester');
+  await expect(panel(page).getByText(/Once for a single request, Load for a plan of many/)).toBeVisible();
+
+  // With no result yet, nothing that acts on one is offered as if it worked.
+  for (const name of ['Copy body', 'Save as response sample', 'Add status check'])
+    await expect(panel(page).getByRole('button', { name, exact: true })).toBeDisabled();
+
+  await importSample(page);
+  await goHome(page);
+  await panel(page).getByRole('button', { name: 'Test', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Once', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Run Once', exact: true }).click();
+  await expect(panel(page).getByRole('button', { name: 'Copy body', exact: true })).toBeEnabled();
+});
+
+test('UI Test opens on Load, except when a result is the reason for the visit', async ({ page }) => {
+  await importSample(page);
+  await goHome(page);
+  await panel(page).getByRole('button', { name: 'Test', exact: true }).click();
+  // The plan is the screen's work, so it is what the screen opens on.
+  await expect(panel(page).getByRole('button', { name: 'Run Load', exact: true })).toBeVisible();
+  await expect(panel(page).getByRole('button', { name: 'Run Once', exact: true })).toBeHidden();
+
+  // Run on an endpoint row has already sent the request, so it lands where the result is.
+  await openEndpoints(page);
+  await panel(page).locator('.aw-endpoint-row').first().getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(panel(page).getByRole('button', { name: 'Run Once', exact: true })).toBeVisible();
+  await expect(panel(page).locator('.aw-card [role=status]').first()).toContainText(/HTTP \d\d\d/);
+
+  // Leaving and coming back is an ordinary visit again.
+  await goHome(page);
+  await panel(page).getByRole('button', { name: 'Test', exact: true }).click();
+  await expect(panel(page).getByRole('button', { name: 'Run Load', exact: true })).toBeVisible();
+});
+
+test('UI every tab screen says what it is for', async ({ page }) => {
+  const expected = {
+    Home: /Every module for http:\/\/127\.0\.0\.1:4173/,
+    Test: /Once for a single request, Load for a plan of many/,
+    Mock: /Answers matching requests from the panel instead of the server/,
+    Intercept: /Edits matching requests and responses in flight/,
+    Route: /Sends matching requests to a different origin or path/,
+    Chaos: /Adds latency, failures and error statuses/,
+  };
+  for (const [tab, description] of Object.entries(expected)) {
+    await panel(page).locator('.aw-tabs').getByRole('button', { name: tab, exact: true }).click();
+    // The first hint on the screen, so the description leads rather than trailing the controls.
+    await expect(panel(page).locator('.aw-body .aw-hint').first()).toHaveText(description);
+  }
+  // A module screen keeps both: what it is for, then what it is doing right now.
+  await panel(page).locator('.aw-tabs').getByRole('button', { name: 'Mock', exact: true }).click();
+  await expect(panel(page).locator('.aw-body .aw-hint[role=status]')).toContainText('Module inactive');
 });

@@ -225,6 +225,7 @@ test('M8 the Once view still sends one direct request', async ({ page }) => {
   const back = panel(page).locator('.aw-sub').getByRole('button', { name: 'Back to Home' });
   if (await back.isVisible()) await back.click();
   await panel(page).getByRole('button', { name: 'Test', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Once', exact: true }).click();
   await panel(page).getByRole('button', { name: 'Run Once' }).click();
   await expect(panel(page).locator('[aria-label="Once history"]')).toContainText('passed', { timeout: 15000 });
 });
@@ -320,7 +321,6 @@ test('M8 a notified run restores a minimized panel to show the dialog', async ({
   await expect(dialog).toHaveCount(0);
   await expect(panel(page)).toBeVisible();
 });
-});
 
 test('M8 a load run keeps one response per endpoint, and Results saves them one or all at once', async ({ page }) => {
   await install(page, [endpoint('echo_once', 'GET', '/api/fixture'), endpoint('echo_post', 'POST', '/api/echo')], { iterations: 2 });
@@ -381,6 +381,7 @@ test('M8 a load run keeps one response per endpoint, and Results saves them one 
   expect(saved.sampleResponse.headers.some(header => header.name === 'content-type')).toBe(true);
   expect(config.endpoints.every(item => item.sampleResponse)).toBe(true);
 });
+
 test('M8 latency is banded by colour and stated in words, and P95 says what it means', async ({ page }) => {
   await install(page, [endpoint('fast_one', 'GET', '/api/fixture'), endpoint('slow_one', 'GET', '/api/test/delay?ms=1200')], { iterations: 1 });
   await openLoad(page);

@@ -69,6 +69,7 @@ test('M3 direct Once uses the page session and reports checks', async ({ page })
   await page.getByLabel('Path').fill('/api/session');
   await page.getByRole('button', { name: 'Save endpoint', exact: true }).click();
   await page.getByRole('button', { name: 'Test', exact: true }).click();
+  await page.getByRole('button', { name: 'Once', exact: true }).click();
   await page.getByRole('button', { name: 'Run Once', exact: true }).click();
   await expect(page.getByText(/passed · HTTP 200/)).toBeVisible();
   await expect(page.locator(panel).getByLabel('Response body')).toContainText('authenticated');

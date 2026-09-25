@@ -5,7 +5,7 @@ import type { PausedEntry } from "../breakpoints/registry"
 import { chaosScreen, interceptScreen, mockScreen, routeScreen } from "./rule-screens"
 import type { OnceResult } from "../tester/once"
 import type { RunState } from "../tester/run"
-import { onceRow, resultsScreen, runRow, testScreen } from "./test-screens"
+import { onceRow, openTestOn, resultsScreen, runRow, testScreen } from "./test-screens"
 import type { Recording } from "../recorder/recorder"
 import { candidatesFrom, type Candidate } from "../recorder/promote"
 import { DEFAULT_RECORD_LIMIT } from "../recorder/recorder"
@@ -626,7 +626,11 @@ function home(ctx: Ctx): HTMLElement {
   const quick = el("div", "aw-g3")
   for (const id of ["endpoints", "record", "import", "settings"] as const)
     if (moduleEnabled(profile, id)) quick.append(quickAction(ctx, id))
-  screen.append(modules, caption("Quick actions"), quick, caption("Run history"), runHistory(ctx), activityLog(ctx))
+  // Home is the index, not a tool, so it carries the description every other tab now has without a
+  // title block repeating the tab the user just pressed.
+  screen.append(
+    el("p", "aw-hint", `Every module for ${location.origin}, what each one is doing, and the ways into endpoints, recording and import.`),
+    modules, caption("Quick actions"), quick, caption("Run history"), runHistory(ctx), activityLog(ctx))
   return screen
 }
 
@@ -803,7 +807,8 @@ function endpoints(ctx: Ctx): HTMLElement {
       }
       const name = button("aw-endpoint-name aw-grow aw-tr", endpoint.name, editEndpoint, ctx.signal)
       name.title = endpoint.name
-      const run = iconButton("aw-btn aw-gh aw-ic aw-xs2", "play", "Run", () => { ctx.runOnce(endpoint.id); ctx.go("test") }, ctx.signal)
+      // The result is the reason for the trip, so this one lands on Once rather than the plan.
+      const run = iconButton("aw-btn aw-gh aw-ic aw-xs2", "play", "Run", () => { ctx.runOnce(endpoint.id); openTestOn("once"); ctx.go("test") }, ctx.signal)
       const move = (direction: "up" | "down") => { ctx.reorderEndpoint(endpoint.id, direction); drawList() }
       const up = iconButton("aw-btn aw-gh aw-ic aw-xs2", "up", "Move up", () => move("up"), ctx.signal)
       const down = iconButton("aw-btn aw-gh aw-ic aw-xs2", "down", "Move down", () => move("down"), ctx.signal)

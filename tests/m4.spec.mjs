@@ -92,6 +92,7 @@ test('M4 a recorded credential replays from the page, and is never stored', asyn
   await page.getByRole('button', { name: 'Create profile', exact: true }).click();
   await page.getByRole('button', { name: 'Back to Home' }).click();
   await page.locator(panel).getByRole('button', { name: 'Test', exact: true }).click();
+  await page.locator(panel).getByRole('button', { name: 'Once', exact: true }).click();
   await page.getByRole('button', { name: 'Run Once', exact: true }).click();
   // The replay is the recorded request: the endpoint the page reached, authenticated.
   await expect(page.getByText(/passed · HTTP 200/)).toBeVisible();

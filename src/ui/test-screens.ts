@@ -422,6 +422,9 @@ function oncePanel(ctx: Ctx): { panel: HTMLElement; actions: Node[] } {
     ctx.updateEndpoint({ ...endpoint, checks: [...endpoint.checks, { kind: "status", value: status }], updatedAt: Date.now() })
     note.textContent = `${endpoint.name} now checks for status ${status}.`
   }, ctx.signal)
+  // Nothing to copy, keep or assert until a run has produced a result: these are enabled by the
+  // first refresh, not before it. Buttons that look live and do nothing are the defect 1.1 removed.
+  for (const control of [copy, saveSample, addCheck]) control.disabled = true
   const resultActions = group("aw-row aw-actions", copy, saveSample, addCheck)
   let previous = ctx.state().testerResult
   /** Set once the headers card exists, which is built after the first refresh. */
@@ -502,6 +505,16 @@ function onceHistory(ctx: Ctx): HTMLElement {
   return history
 }
 
+
+/**
+ * Which view the next visit to Test opens on. The screen opens on Load, except where something else
+ * has already sent a single request and the result is the reason for the visit — Run on an Endpoints
+ * row. Consumed once, so it never outlives the navigation that set it.
+ */
+let openTestView: "once" | "load" | undefined
+export function openTestOn(view: "once" | "load") {
+  openTestView = view
+}
 
 export function testScreen(ctx: Ctx): HTMLElement {
   const screen = el("div", "aw-col aw-gap12")
@@ -748,14 +761,27 @@ export function testScreen(ctx: Ctx): HTMLElement {
   segment.setAttribute("role", "group")
   segment.setAttribute("aria-label", "Run mode")
 
+  // Every rule module screen opens with a tile, its name and a line saying what it does. Test is
+  // not a rule module — it has nothing to activate, so it carries no status chip — but arriving on
+  // a bare plan picker made it the one screen that never introduced itself.
+  const tile = el("div", "aw-tile")
+  tile.append(icon("flask"))
+  const heading = group("aw-col aw-gap6",
+    group("aw-row aw-gap10", tile, el("span", "aw-h", "API Tester")),
+    el("p", "aw-hint", "Sends requests yourself and checks what comes back: Once for a single request, Load for a plan of many."))
+
   screen.append(
+    heading,
     group("aw-row", planPicker, rename, savePlan, deletePlan),
     planName,
     segment,
     direct.panel,
     loadPanel,
   )
-  showView(ctx.state().run ? "load" : "once")
+  // Load is where the screen's work is: the plan, its phases and the run. Once is the quick single
+  // send beside it, chosen rather than landed on.
+  showView(openTestView ?? "load")
+  openTestView = undefined
   return screen
 }
 

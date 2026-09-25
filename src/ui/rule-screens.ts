@@ -71,6 +71,14 @@ function radioCard(
 
 const MODULE_ICON = { mock: "server", chaos: "flame", intercept: "shuffle", route: "route" } as const
 
+/** What each module does, as opposed to the hint below it, which says what it is doing right now. */
+const MODULE_DESCRIPTION = {
+  mock: "Answers matching requests from the panel instead of the server, with a status, headers and body you set.",
+  intercept: "Edits matching requests and responses in flight, and can pause one at a breakpoint to inspect it.",
+  route: "Sends matching requests to a different origin or path, without touching the page\u2019s own code.",
+  chaos: "Adds latency, failures and error statuses to matching traffic, to see how the page copes.",
+} as const
+
 function moduleHeader(ctx: Ctx, kind: RuleKind, title: string, onToggle: () => void): HTMLElement {
   const head = el("div", "aw-row aw-gap10")
   const tile = el("div", "aw-tile")
@@ -96,7 +104,9 @@ function moduleHeader(ctx: Ctx, kind: RuleKind, title: string, onToggle: () => v
       ? `${enabled} enabled rule${enabled === 1 ? "" : "s"} apply to this frame's fetch and XHR traffic.`
       : `Module inactive. ${enabled} enabled rule${enabled === 1 ? "" : "s"} will apply once activated.`
   })
-  return group("aw-col aw-gap12", head, activate, hint)
+  // Name, then what it is for, then the control, then what it is doing: the same order on every
+  // module screen, and the same one the Test screen opens with.
+  return group("aw-col aw-gap12", group("aw-col aw-gap6", head, el("p", "aw-hint", MODULE_DESCRIPTION[kind])), activate, hint)
 }
 
 function matcherFields(matcher: RuleMatcher, ctx: Ctx, onDetach: () => void): HTMLElement[] {
