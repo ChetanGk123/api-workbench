@@ -294,3 +294,48 @@ test('a backup carries every stored profile, and restoring one replaces the lot'
   await openSettings(page);
   await expect(panel(page).getByRole('combobox', { name: 'Active profile' }).locator('option')).toHaveCount(2);
 });
+
+/** The build under test, so a version bump in package.json does not have to be repeated here. */
+const buildVersion = JSON.parse(await readFile('package.json', 'utf8')).version;
+
+const storedVersion = page => page.evaluate(() => new Promise(resolve => {
+  const request = indexedDB.open('api-workbench');
+  request.onsuccess = () => {
+    const database = request.result;
+    const read = database.transaction('configs', 'readonly').objectStore('configs').get(`version:${location.origin}`);
+    read.onsuccess = () => { database.close(); resolve(read.result ?? null); };
+  };
+}));
+
+test('a newer bookmark launched over a running one is recorded, so the check can report it', async ({ page }) => {
+  await launch(page);
+  await expect(panel(page)).toBeVisible();
+
+  // Wind the origin's note back, and make the running instance claim to be the older build: the
+  // next launch is then a newer bookmark meeting an older one, which is the reported case.
+  await page.evaluate(() => new Promise(resolve => {
+    const request = indexedDB.open('api-workbench');
+    request.onsuccess = () => {
+      const database = request.result;
+      const write = database.transaction('configs', 'readwrite');
+      write.objectStore('configs').put('0.9.0', `version:${location.origin}`);
+      write.oncomplete = () => { database.close(); resolve(); };
+    };
+  }));
+  expect(await storedVersion(page)).toBe('0.9.0');
+  await page.evaluate(() => {
+    const key = '__api_workbench_7f49a1_v1__';
+    const running = window[key];
+    window[key] = { ...running, version: '0.9.0', restore: running.restore, notify: running.notify };
+  });
+
+  // The launch does not take over — but it ran here, and that is the only thing this origin can
+  // know about a newer build, so it is recorded rather than lost.
+  await launch(page);
+  await panel(page).locator('dialog.aw-dlg').getByRole('button', { name: 'Close', exact: true }).click();
+  await expect.poll(() => storedVersion(page)).toBe(buildVersion);
+
+  // And the button says what it compares, rather than implying it asks a server.
+  await openSettings(page);
+  await expect(body(page).getByText(/Nothing is requested from the network/)).toBeVisible();
+});

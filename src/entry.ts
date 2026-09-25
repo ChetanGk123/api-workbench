@@ -32,6 +32,17 @@ import { createBreakpoints } from "./breakpoints/registry"
 
 const version = __AW_VERSION__
 const key = "__api_workbench_7f49a1_v1__"
+/** Dotted numeric compare, so 1.10.0 sorts above 1.9.0; unparsable parts compare as 0. */
+const compareVersions = (left: string, right: string) => {
+  const parts = (value: string) => value.split(".").map((part) => Number.parseInt(part, 10) || 0)
+  const [a, b] = [parts(left), parts(right)]
+  for (let index = 0; index < Math.max(a.length, b.length); index++) {
+    const difference = (a[index] ?? 0) - (b[index] ?? 0)
+    if (difference) return difference
+  }
+  return 0
+}
+
 /** `notify` is optional: a build launched over an older one has to cope with it being absent. */
 type Instance = { version: string; restore: () => void; notify?: (title: string, message: string) => void }
 const registry = window as unknown as Record<string, Instance | undefined>
@@ -39,6 +50,10 @@ const existing = registry[key]
 if (existing) {
   existing.restore()
   if (existing.version !== version) {
+    // This build just ran on this origin, even though the instance already here kept the page. The
+    // note is what "Check for update" reads, so recording it is what lets the running panel say a
+    // newer bookmark exists — otherwise a new bookmark is invisible until it takes over a reload.
+    if (compareVersions(version, existing.version) > 0) void recordLaunchVersion(version)
     const message = `Version ${existing.version} is already running on this page. Close it or reload before launching ${version}.`
     // The panel avoids touching the host page everywhere else; a browser-modal alert is the one
     // place it did. The running instance says it in its own panel when it knows how.
@@ -112,15 +127,6 @@ if (existing) {
     recorder.setLimit(store.state.config.profile.settings?.recorderLimit ?? DEFAULT_RECORD_LIMIT)
 
   /** Dotted numeric compare, so 1.10.0 sorts above 1.9.0; unparsable parts compare as 0. */
-  const compareVersions = (left: string, right: string) => {
-    const parts = (value: string) => value.split(".").map((part) => Number.parseInt(part, 10) || 0)
-    const [a, b] = [parts(left), parts(right)]
-    for (let index = 0; index < Math.max(a.length, b.length); index++) {
-      const difference = (a[index] ?? 0) - (b[index] ?? 0)
-      if (difference) return difference
-    }
-    return 0
-  }
 
   const rulesOf = (config: WorkbenchConfig) => config.rules ?? []
   // Making a profile live swaps the rule set and drops every cursor, budget and sample stream.

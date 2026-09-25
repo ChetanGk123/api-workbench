@@ -1228,6 +1228,7 @@ function aboutCard(ctx: Ctx): HTMLElement {
       el("span", "aw-mu", newest ? (newest === ctx.version ? "this build" : `${newest} has run on this origin`) : "not recorded yet")),
     group("aw-row aw-xs", el("span", "aw-mu aw-w64", "Storage"), usage),
     group("aw-row aw-gap6", check, clear),
+    el("p", "aw-hint", "Compares this bookmark against the newest build that has launched on this origin. Nothing is requested from the network: launch the new bookmarklet here once, then check again."),
     group("aw-row aw-gap6", backup, restore),
     el("p", "aw-hint", "A backup carries every profile, plan and rule this origin holds. Export profile + endpoints above carries the active profile alone, for sharing it."),
     status,
