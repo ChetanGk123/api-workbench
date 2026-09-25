@@ -202,6 +202,15 @@ export function showcasePage({ bookmark, sizes, formats, version }) {
   .fact b { display: block; font-size: 22px; letter-spacing: -.02em; }
   .fact span { font-size: 12.5px; color: var(--z500); }
   .note { border-left: 2px solid var(--z700); padding: 2px 0 2px 16px; }
+  .guide-nav { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 24px 0; }
+  .guide { display: grid; gap: 16px; }
+  .guide article { scroll-margin-top: 20px; overflow-wrap: anywhere; }
+  .guide h3 { font-size: 18px; margin-bottom: 8px; }
+  .guide ol { padding-left: 24px; color: var(--z400); font-size: 14px; }
+  .guide li + li { margin-top: 8px; }
+  .guide strong { color: var(--z200); }
+  .guide pre { white-space: pre-wrap; padding: 12px; background: var(--z950); border-radius: 8px; }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--z50); outline-offset: 4px; }
   footer { padding: 40px 0 64px; color: var(--z500); font-size: 13px; }
   footer p { color: var(--z500); }
 </style>
@@ -222,6 +231,7 @@ export function showcasePage({ bookmark, sizes, formats, version }) {
       <button class="ghost" type="button" data-copy>${icon('import', 16)} Copy the bookmarklet</button>
     </div>
     <p class="hint">Drag the button to your bookmarks bar — clicking it here only runs it on this page. Desktop Chrome and Edge.</p>
+    <p><a href="#usage">Learn how to use each section ↓</a></p>
     ${panelArt()}
   </div>
 </section>
@@ -249,6 +259,144 @@ export function showcasePage({ bookmark, sizes, formats, version }) {
       ${STEPS.map(([title, text]) => `<li><h3>${title}</h3><p>${text}</p></li>`).join('')}
     </ol>
     ${dragArt()}
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2 id="usage">How to use API Workbench</h2>
+    <p>Open your application, sign in normally, then launch the bookmark. Start by adding, importing or recording an endpoint. Use Test to send it yourself, or activate a rule module and repeat an action in your application.</p>
+    <nav class="guide-nav" aria-label="Usage sections">
+      <a href="#use-home">Home</a><a href="#use-endpoints">Endpoints</a><a href="#use-test">Test</a>
+      <a href="#use-mock">Mock</a><a href="#use-intercept">Intercept</a><a href="#use-breakpoints">Breakpoints</a>
+      <a href="#use-route">Route</a><a href="#use-chaos">Chaos</a><a href="#use-results">Results</a>
+      <a href="#use-record">Record</a><a href="#use-import">Import</a><a href="#use-settings">Settings</a>
+    </nav>
+    <p class="note">For Mock, Intercept, Route and Chaos, both the rule and its module must be enabled. Saving a rule alone does not activate the module. Rules affect future supported fetch/XHR calls in this frame; reloads require launching the bookmark again.</p>
+    <div class="guide">
+      <article class="card" id="use-home" aria-labelledby="guide-home">
+        <h3 id="guide-home">Home — choose your workflow</h3>
+        <ol>
+          <li>Check the current origin and profile so you know which application and configuration you are using.</li>
+          <li>Open a module card, or use the quick actions for Endpoints, Record and Import. Check module status and hit counts as you work.</li>
+          <li>Minimize to keep the tool running while using the application. Restore it to inspect activity; use Close when finished to shut down the tool.</li>
+        </ol>
+        <p><strong>First exercise:</strong> add a GET endpoint, run it once, then create a mock for that same path and trigger it from your application.</p>
+      </article>
+      <article class="card" id="use-endpoints" aria-labelledby="guide-endpoints">
+        <h3 id="guide-endpoints">Endpoints — define reusable requests</h3>
+        <ol>
+          <li>Open Endpoints and choose <strong>Add endpoint</strong>. Enter a name, alias, method and path, such as GET <code>/api/orders</code>.</li>
+          <li>Choose the body kind and add headers or a body if needed. Configure the host key and environment mapping when the API uses another origin.</li>
+          <li>Add checks, such as an expected status or body content. A response sample is reference data for editing and mocking; it does not send a request.</li>
+          <li>Choose <strong>Save endpoint</strong>. Open the endpoint name again to edit it, or select it in Test.</li>
+        </ol>
+        <p>Eligible cookies come from the browser session. Configure application-specific authorization or CSRF headers yourself; cross-origin requests still follow browser policy.</p>
+      </article>
+      <article class="card" id="use-test" aria-labelledby="guide-test">
+        <h3 id="guide-test">Test — send one request or run a plan</h3>
+        <ol>
+          <li>For one request, choose <strong>Once</strong>, select an endpoint and click <strong>Run Once</strong>. Inspect the body, headers and checks, or use <strong>Save as response sample</strong>. Once uses Direct execution and bypasses active rules.</li>
+          <li>For repeated requests, choose <strong>Load</strong> and select the endpoints to include. Move preparation requests to setup with <strong>To setup</strong>.</li>
+          <li>Choose <strong>Flow</strong> for an ordered sequence per iteration, including dependencies such as <code>{{create_order.id}}</code>. Choose <strong>Independent</strong> to repeat endpoints independently; load endpoints cannot depend on each other in this strategy.</li>
+          <li>Set iterations, concurrency, batch delay and optional ramp-up. Flow concurrency counts simultaneous iterations; Independent concurrency limits the shared pool of request jobs.</li>
+          <li>Choose <strong>Direct</strong> to bypass rules or <strong>Apply active rules</strong> to exercise your mocks, transforms or faults. Review destinations and preflight errors, then choose <strong>Run Load</strong>. Use <strong>Stop</strong> to cancel remaining work.</li>
+        </ol>
+        <p><strong>Try it:</strong> select one GET endpoint, 3 iterations and concurrency 1. To test a mock, activate Mock and use Load with Apply active rules. These are browser-local measurements using one browser session.</p>
+      </article>
+      <article class="card" id="use-mock" aria-labelledby="guide-mock">
+        <h3 id="guide-mock">Mock — return a response without calling the server</h3>
+        <ol>
+          <li>Choose <strong>Add rule from endpoint</strong> or <strong>Add ad-hoc rule</strong>. Match a method and URL, for example GET <code>/api/orders</code>.</li>
+          <li>Set a static response: status <code>200</code>, header <code>Content-Type: application/json</code> and body <code>{"orders":[]}</code>. Add a delay if you want to inspect a loading state, or use <strong>Use recorded response</strong> for a linked endpoint with a sample.</li>
+          <li>For changing responses, select <strong>Response sequence</strong>, add responses such as 503 then 200, and choose whether exhaustion repeats the last response, loops or fails. <strong>Reset position</strong> restarts the sequence.</li>
+          <li>Check <strong>Rule enabled</strong>, save, then <strong>Activate</strong> Mock. Trigger the matching application action and inspect the hit count and Matched traffic.</li>
+        </ol>
+        <p>A selected mock makes no upstream request. Sequence slots are consumed in request-arrival order, including requests that are later aborted. Deactivate Mock to return to normal traffic.</p>
+      </article>
+      <article class="card" id="use-intercept" aria-labelledby="guide-intercept">
+        <h3 id="guide-intercept">Intercept — edit requests and responses</h3>
+        <ol>
+          <li>Choose <strong>Add rule</strong>, link an endpoint or enter a method and URL matcher.</li>
+          <li>In Request, set or remove headers or edit the supported body. In Response, edit headers, replace the body, apply JSON Patch or set a status override; a blank override preserves the original status.</li>
+          <li>For a JSON response containing an <code>available</code> field, use this patch in the response Raw JSON editor:</li>
+        </ol>
+        <pre><code>[{"op":"replace","path":"/available","value":false}]</code></pre>
+        <ol start="4">
+          <li>Enable the rule, save and <strong>Activate</strong> Intercept. Repeat the application action and inspect the Traffic log for the delivered result and any skipped-transform reason.</li>
+        </ol>
+        <p>JSON Patch paths must match the actual body. Unsupported or unreadable bodies can skip transformation. Response edits change what the application receives after dispatch; they do not undo server-side effects.</p>
+      </article>
+      <article class="card" id="use-breakpoints" aria-labelledby="guide-breakpoints">
+        <h3 id="guide-breakpoints">Breakpoints — pause and inspect a matching call</h3>
+        <ol>
+          <li>In an Intercept rule, enable a request or response breakpoint, save the enabled rule and activate Intercept.</li>
+          <li>Trigger the matching call. Open the paused-request queue in Intercept and select the paused entry to inspect or edit its supported fields.</li>
+          <li>Choose <strong>Continue</strong> to release that call or <strong>Abort</strong> to cancel it. Use <strong>Continue all</strong> to release the queue.</li>
+        </ol>
+        <p>A request breakpoint pauses before dispatch; a response breakpoint pauses after the server may already have acted. Pauses have deadlines and queue limits, so they do not wait indefinitely.</p>
+      </article>
+      <article class="card" id="use-route" aria-labelledby="guide-route">
+        <h3 id="guide-route">Route — send matched calls to another destination</h3>
+        <ol>
+          <li>Choose <strong>New page rule</strong>. Set the method, path matcher and optional match origin.</li>
+          <li>Enter the <strong>Destination origin</strong>. Preserve the path or set a <strong>Path rewrite</strong>, and choose destination credentials deliberately.</li>
+          <li>For example, matching <code>/api/**</code> and rewriting to <code>/sandbox/**</code> sends <code>/api/orders?limit=5</code> to <code>/sandbox/orders?limit=5</code> on the destination origin.</li>
+          <li>Enable the rule, save and <strong>Activate</strong> Route. Trigger the request and inspect Routed traffic.</li>
+        </ol>
+        <p>Routing changes real network destinations. CORS, CSP, cookies and mixed-content restrictions still apply. A request served by a mock does not reach the routed server.</p>
+      </article>
+      <article class="card" id="use-chaos" aria-labelledby="guide-chaos">
+        <h3 id="guide-chaos">Chaos — exercise failure and recovery states</h3>
+        <ol>
+          <li>Choose a preset or <strong>Add rule</strong>, then match the endpoint you want to affect.</li>
+          <li>Select a fault, such as latency, error status, network failure, timeout or malformed JSON. Choose synthetic mode for a fault without upstream dispatch, or real-traffic mode to affect a real call.</li>
+          <li>Set probability and the relevant delay or timeout, seed and hit budget. For a first exercise, use a GET endpoint with 100% probability and a short latency.</li>
+          <li>Enable and save the rule, then <strong>Activate</strong> Chaos. Repeat the application action, inspect its recovery state and the Fault log, then deactivate the module.</li>
+        </ol>
+        <p><strong>Request replay</strong> sends real additional copies; it can repeat writes. Real-traffic faults cannot undo a request already received by the server. Synthetic chaos takes precedence over a matching mock.</p>
+      </article>
+      <article class="card" id="use-results" aria-labelledby="guide-results">
+        <h3 id="guide-results">Results — understand and export a run</h3>
+        <ol>
+          <li>Open Results for the current load run, or open a previous run from run history.</li>
+          <li>Review progress, passed and failed outcomes, latency statistics and the per-endpoint breakdown. Inspect errors and checks before interpreting a failed run.</li>
+          <li>Choose <strong>JSON</strong> or <strong>CSV</strong> to export the run. To repeat it with changes, return to Test and review the plan before running again.</li>
+        </ol>
+        <p>Mock responses, injected delays and breakpoints affect observed timings. Use Direct execution when you want measurements without active rule effects; browser-local runs are not server-capacity benchmarks.</p>
+      </article>
+      <article class="card" id="use-record" aria-labelledby="guide-record">
+        <h3 id="guide-record">Record — capture calls from your application</h3>
+        <ol>
+          <li>Open Record and choose <strong>Start recording</strong> before interacting with the application.</li>
+          <li>Perform the action you want to capture, then choose <strong>Stop recording</strong>. Only supported calls made after capture starts are available.</li>
+          <li>Review the captured endpoint candidates, select the calls to keep and click a candidate name to edit it.</li>
+          <li>Choose <strong>Add to this profile</strong>, or name a new profile and choose <strong>Create profile</strong>. The saved endpoints are now available in Test.</li>
+        </ol>
+        <p>Repeated calls can collapse into one candidate. Body previews are bounded; the recorder does not capture all browser traffic or browser-owned Cookie headers.</p>
+      </article>
+      <article class="card" id="use-import" aria-labelledby="guide-import">
+        <h3 id="guide-import">Import — turn existing definitions into endpoints</h3>
+        <ol>
+          <li>Paste JSON, a cURL command or a copied fetch call, or choose a local file. Check the detected format and use the format override if needed.</li>
+          <li>Choose <strong>Apply</strong> to parse the draft and open Import review.</li>
+          <li>Read warnings, resolve conflicts, select candidates and review the destination profile. Unsupported scripts and unresolved variables need attention before testing.</li>
+          <li>Choose <strong>Import selected</strong>, then inspect the endpoints and supply required values before running them. <strong>Use recorded calls</strong> brings captured traffic into this review flow.</li>
+        </ol>
+        <p>Importing neither sends the imported requests nor executes pasted code. Supported format versions and limitations are listed below.</p>
+      </article>
+      <article class="card" id="use-settings" aria-labelledby="guide-settings">
+        <h3 id="guide-settings">Settings — manage profiles and local data</h3>
+        <ol>
+          <li>Name and <strong>Save</strong> the current profile, use <strong>Save as copy</strong> for a separate scenario, or select a saved profile and choose <strong>Load</strong>.</li>
+          <li>Configure module visibility, traffic-log and recorder limits. Configure page-context sources only when your request templates need them.</li>
+          <li>Use <strong>Export profile + endpoints</strong> for a portable profile or <strong>Export all data</strong> for a backup. Review any storage-failure message rather than assuming changes were saved.</li>
+          <li>Replace the saved bookmark to update the bundled code. Launch it again after a page reload.</li>
+        </ol>
+        <p>Saved data belongs to the current origin. Export and import it to move between origins; clearing stored data removes locally saved configuration.</p>
+      </article>
+    </div>
+    <p class="note" style="margin-top:24px"><strong>No rule hits?</strong> Check the method, URL and conditions, the rule’s enabled state and the module’s activation. Higher-priority matches win within a module. Once bypasses rules; use a page action or Load with Apply active rules. Calls from workers, other frames or previously cached transport references can bypass capture.</p>
   </div>
 </section>
 
