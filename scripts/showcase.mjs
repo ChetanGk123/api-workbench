@@ -23,7 +23,7 @@ const FEATURES = [
 const STEPS = [
   ['Show the bookmarks bar', 'In Chrome or Edge press ⌘⇧B (macOS) or Ctrl+Shift+B (Windows, Linux).'],
   ['Drag the button up', 'Drag "API Workbench" onto the bar. It becomes an ordinary bookmark — no extension, no install prompt, no permissions.'],
-  ['Click it on any page', 'The panel opens in a shadow root over that page and wraps fetch and XHR for that frame. Click Close and the page is left as it was.'],
+  ['Launch it in your application', 'Open your development application, sign in, then click the saved bookmark. Close stops Workbench; actions already sent to a server cannot be undone.'],
 ];
 
 const ICONS = {
@@ -141,7 +141,7 @@ export function showcasePage({ bookmark, sizes, formats, version }) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>API Workbench — a whole API workbench in one bookmark</title>
-<meta name="description" content="Mock, intercept, route, pause, load-test and import API traffic on any page you can open — a single self-contained bookmarklet for desktop Chrome and Edge. No extension, no backend, no packages.">
+<meta name="description" content="Mock, intercept, route, pause, load-test and import API traffic in your application — a single self-contained bookmarklet for desktop Chrome and Edge. No extension, no backend, no packages.">
 <style>
   :root {
     --z50:#fafafa; --z200:#e4e4e7; --z400:#a1a1aa; --z500:#71717a; --z700:#3f3f46;
@@ -154,7 +154,7 @@ export function showcasePage({ bookmark, sizes, formats, version }) {
   }
   a { color: inherit; }
   code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; color: var(--z200); }
-  .wrap { max-width: 980px; margin: 0 auto; padding: 0 20px; }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 0 32px; }
   header { border-bottom: 1px solid var(--z800); }
   .bar { display: flex; align-items: center; gap: 10px; height: 60px; }
   .logo { width: 26px; height: 26px; border-radius: 7px; background: var(--z50); color: var(--z950); display: grid; place-items: center; }
@@ -213,39 +213,125 @@ export function showcasePage({ bookmark, sizes, formats, version }) {
   a:focus-visible, button:focus-visible { outline: 2px solid var(--z50); outline-offset: 4px; }
   footer { padding: 40px 0 64px; color: var(--z500); font-size: 13px; }
   footer p { color: var(--z500); }
+
+  html { scroll-behavior: smooth; scroll-padding-top: 32px; }
+  .skip { position: absolute; left: 16px; top: -80px; padding: 12px; background: var(--z50); color: var(--z950); z-index: 10; }
+  .skip:focus { top: 8px; }
+  .bar { height: 80px; }
+  .top-nav { display: flex; gap: 28px; margin-left: auto; font-size: 13px; }
+  .top-nav a, .guide-nav a { text-decoration: none; color: var(--z400); }
+  .top-nav a:hover, .guide-nav a:hover { color: var(--z50); }
+  .ver { margin-left: 20px; border: 1px solid var(--z800); padding: 4px 8px; border-radius: 6px; color: var(--z400); }
+  section { padding: 80px 0; }
+  .eyebrow { display: block; margin-bottom: 20px; font: 11px ui-monospace, monospace; letter-spacing: .14em; text-transform: uppercase; color: var(--z400); }
+  .hero { padding: 96px 0 64px; }
+  .hero-grid { display: grid; grid-template-columns: 1fr 1.1fr; gap: 48px; align-items: center; }
+  h1 { font-size: clamp(40px, 4.7vw, 64px); letter-spacing: -.055em; line-height: 1.04; }
+  h1 span { color: var(--z400); }
+  h2 { font-size: clamp(28px, 3vw, 40px); line-height: 1.15; letter-spacing: -.04em; margin-bottom: 16px; }
+  .lead { font-size: 16px; line-height: 1.8; max-width: 48ch; }
+  figure { margin: 0; min-width: 0; }
+  .hero .art { margin: 0; }
+  figcaption { margin-top: 16px; font: 11px ui-monospace, monospace; color: var(--z400); }
+  .install { gap: 12px; }
+  .drag, .ghost { border-radius: 8px; padding: 12px 16px; font-size: 13px; }
+  .hint { color: var(--z400); max-width: 58ch; }
+  .trust { display: flex; flex-wrap: wrap; gap: 12px 32px; margin-top: 56px; padding-top: 24px; border-top: 1px solid var(--z800); color: var(--z400); font-size: 12px; }
+  .trust span::before { content: '✓'; margin-right: 8px; color: var(--z200); }
+  .section-heading { display: flex; align-items: end; justify-content: space-between; gap: 48px; margin-bottom: 32px; }
+  .section-heading p { max-width: 42ch; margin: 0; font-size: 14px; }
+  .section-heading h2 { margin: 0; }
+  .grid { grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .card { padding: 24px; border-radius: 8px; }
+  .card h3 { font-size: 17px; margin-bottom: 8px; }
+  .card .ic { display: flex; align-items: center; justify-content: space-between; margin-bottom: 28px; }
+  .card .ic span { font: 11px ui-monospace, monospace; color: var(--z500); }
+  .card a { display: inline-block; margin-top: 20px; text-underline-offset: 5px; font-size: 12px; }
+  .install-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: start; }
+  .install-layout .art { margin-top: 32px; }
+  .workflow { background: var(--z925); }
+  .flow { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; align-items: center; gap: 20px; margin-top: 32px; }
+  .flow-box { border: 1px solid var(--z700); padding: 24px; border-radius: 8px; background: var(--z950); }
+  .flow-box small { display: block; color: var(--z400); margin: 8px 0 0; }
+  .flow-box code { display: block; margin-bottom: 16px; font-size: 11px; color: var(--z400); }
+  .flow-arrow { color: var(--z400); }
+  .guide { gap: 0; }
+  .guide article { border: 0; border-top: 1px solid var(--z800); border-radius: 0; background: transparent; padding: 28px 0; display: grid; grid-template-columns: 280px 1fr; column-gap: 48px; }
+  .guide article h3 { grid-column: 1; grid-row: 1 / span 4; font-size: 18px; }
+  .guide article > :not(h3) { grid-column: 2; margin-top: 0; }
+  .guide article p { font-size: 13px; }
+  .guide-nav a { border: 1px solid var(--z800); padding: 6px 12px; border-radius: 6px; font-size: 12px; }
+  .guide-nav { gap: 8px; }
+  .table-scroll { overflow-x: auto; margin: 32px 0; }
+  th { color: var(--z400); }
+  .fact span, footer, footer p { color: var(--z400); }
+  details { padding: 20px 0; border-bottom: 1px solid var(--z800); }
+  summary { cursor: pointer; font-weight: 500; }
+  details p { margin: 16px 0 0; max-width: 80ch; font-size: 14px; }
+  .footer-row { display: flex; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
+  @media (max-width: 900px) {
+    .hero-grid, .install-layout { grid-template-columns: 1fr; gap: 32px; }
+    .hero figure { max-width: 680px; }
+    .hero { padding-top: 64px; }
+    .grid { grid-template-columns: repeat(2, 1fr); }
+    .guide article { grid-template-columns: 200px 1fr; gap: 24px; }
+  }
+  @media (max-width: 600px) {
+    .wrap { padding: 0 20px; }
+    .top-nav { gap: 16px; }
+    .top-nav a:first-child, .ver { display: none; }
+    .brand { font-size: 13px; }
+    section { padding: 48px 0; }
+    .grid, .flow { grid-template-columns: 1fr; }
+    .flow-arrow { transform: rotate(90deg); justify-self: center; }
+    .section-heading { display: block; }
+    .section-heading p { margin-top: 16px; }
+    .guide article { display: block; }
+    .guide article h3 { margin-bottom: 20px; }
+    .facts { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 </style>
+<body>
+<a class="skip" href="#main">Skip to content</a>
 <header>
   <div class="wrap bar">
     <span class="logo">${icon('code', 16)}</span>
     <span class="brand">API Workbench</span>
+    <nav class="top-nav" aria-label="Main navigation"><a href="#features">Features</a><a href="#usage">Guide</a><a href="#install">Install ↗</a></nav>
     <span class="ver">${escapeHTML(version)}</span>
   </div>
 </header>
 
-<section>
+<main id="main">
+<section class="hero">
   <div class="wrap">
-    <h1>A whole API workbench<br>in one bookmark.</h1>
-    <p class="lead">Mock responses, inject faults, rewrite or reroute calls, pause a request mid-flight, run a flow under load and import the endpoints you already have — on any page you can open, without installing anything.</p>
-    <div class="install">
-      <a class="drag" href="${href}" title="Drag this to your bookmarks bar">${icon('box', 18)} API Workbench</a>
-      <button class="ghost" type="button" data-copy>${icon('import', 16)} Copy the bookmarklet</button>
+    <div class="hero-grid">
+      <div>
+        <span class="eyebrow">Your browser. Your APIs. Your rules.</span>
+        <h1>A whole API workbench.<br><span>One bookmark.</span></h1>
+        <p class="lead">Build the response you need. Reproduce the failure you can’t catch. Test your APIs right inside the application you’re working on.</p>
+        <div class="install">
+          <a class="drag" href="${href}" title="Drag this to your bookmarks bar">${icon('box', 18)} API Workbench</a>
+          <button class="ghost" type="button" data-copy>${icon('import', 16)} Copy the bookmarklet</button>
+        </div>
+        <p class="hint" role="status" data-copy-status>Drag the button to your bookmarks bar. <a href="#install">Installation guide ↗</a></p>
+      </div>
+      <figure>${panelArt()}<figcaption>01 / Illustrated workflow · example requests and results</figcaption></figure>
     </div>
-    <p class="hint">Drag the button to your bookmarks bar — clicking it here only runs it on this page. Desktop Chrome and Edge.</p>
-    <p><a href="#usage">Learn how to use each section ↓</a></p>
-    ${panelArt()}
+    <div class="trust"><span>No extension required</span><span>Self-contained bookmarklet</span><span>Desktop Chrome &amp; Edge</span><span>No backend or telemetry</span></div>
   </div>
 </section>
 
 <section>
   <div class="wrap">
-    <h2>What it does</h2>
-    <p>Six modules over one interception layer, so every rule sees the same request.</p>
+    <span class="eyebrow" id="features">A toolkit for the what-ifs</span><div class="section-heading"><h2>Make every response<br>part of your test.</h2><p>From a missing backend to a hard-to-reproduce error, choose the tool that fits the question.</p></div>
     <div class="grid">
-      ${FEATURES.map(([name, title, text]) => `
+      ${FEATURES.map(([name, title, text], index) => `
       <div class="card">
-        <div class="ic">${icon(name)}</div>
+        <div class="ic">${icon(name)}<span>0${index + 1}</span></div>
         <h3>${title}</h3>
-        <p>${text}</p>
+        <p>${text}</p><a href="#use-${({pause: 'breakpoints', run: 'test'})[name] || name}">Explore ${title.toLowerCase()} ↗</a>
       </div>`).join('')}
     </div>
   </div>
@@ -253,12 +339,31 @@ export function showcasePage({ bookmark, sizes, formats, version }) {
 
 <section>
   <div class="wrap">
-    <h2>Install in three steps</h2>
-    <p>It is a bookmark. There is nothing to approve, update or uninstall.</p>
+    <div class="install-layout" id="install"><div><span class="eyebrow">From bookmark bar to workbench</span>
+    <h2>Small setup.<br>A full toolkit.</h2>
+    <p>Save the complete tool as a bookmark, then launch it where you work. No account or extension to install.</p>
+    ${dragArt()}
+    <p class="hint">Prefer a manual setup? <a href="bookmarklet.txt">Open the bookmarklet text</a> and paste its entire contents into a new bookmark’s URL field.</p></div>
     <ol class="steps">
       ${STEPS.map(([title, text]) => `<li><h3>${title}</h3><p>${text}</p></li>`).join('')}
-    </ol>
-    ${dragArt()}
+    </ol></div>
+  </div>
+</section>
+
+<section class="workflow">
+  <div class="wrap">
+    <span class="eyebrow">A first experiment</span>
+    <div class="section-heading"><h2>Test the empty state.<br>Without emptying the database.</h2><p>Create an enabled mock for GET /api/orders, set its JSON body to [], activate Mock, then refresh the orders list in your application.</p></div>
+    <figure aria-label="Example mock flow: the application requests orders, Workbench responds with an empty JSON array without contacting the server, and the application displays its empty state.">
+      <div class="flow">
+        <div class="flow-box"><code>01 / YOUR APPLICATION</code><strong>GET /api/orders</strong><small>A normal fetch or XHR request</small></div>
+        <span class="flow-arrow" aria-hidden="true">→</span>
+        <div class="flow-box"><code>02 / WORKBENCH MOCK</code><strong>200 OK · []</strong><small>Matched call served locally</small></div>
+        <span class="flow-arrow" aria-hidden="true">→</span>
+        <div class="flow-box"><code>03 / YOUR INTERFACE</code><strong>“No orders yet”</strong><small>Inspect the empty-state experience</small></div>
+      </div>
+      <figcaption>02 / Example only · use your endpoint’s actual response shape. Deactivate Mock to return to real responses.</figcaption>
+    </figure>
   </div>
 </section>
 
@@ -404,33 +509,42 @@ export function showcasePage({ bookmark, sizes, formats, version }) {
   <div class="wrap">
     <h2>Import what you already have</h2>
     <p>Paste it, load the file, or record the page — every source goes through the same review before anything is saved, and importing never sends a request or runs pasted code.</p>
-    <table>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Supported import formats"><table>
       <thead><tr><th>Format</th><th>Spec version read</th><th>Notes</th></tr></thead>
       <tbody>
         ${formats.map(format => `<tr><td>${escapeHTML(format.label)}</td><td><span>${escapeHTML(format.version)}</span></td><td><span>${escapeHTML(format.note)}</span></td></tr>`).join('')}
       </tbody>
-    </table>
+    </table></div>
     <p class="note">These are each format's own spec version — the Swagger, OpenAPI, HAR and Postman specs — not API Workbench's version, which is shown at the top of this page. They name the readers the build has. A document declaring a newer version — OpenAPI 3.1, HAR 1.3, a newer Workbench export — is read with the reader listed here and told so, or refused; the newer version itself is not supported. YAML, remote <code>$ref</code> and schema execution are not supported at all.</p>
   </div>
 </section>
 
 <section>
   <div class="wrap">
-    <h2>Nothing leaves your browser</h2>
-    <p class="note">The bookmarklet is the whole product: one bundle inside the bookmark URL. It has no backend, no telemetry, no CDN and no packages to fetch at runtime, so a page with a strict CSP or an offline laptop is not a special case. The panel lives in its own shadow root, and closing it restores the transport it wrapped.</p>
+    <span class="eyebrow">Built to stay self-contained</span><h2>Your tools, in your tab.</h2>
+    <p>The bookmark contains the code, styles and illustrations it needs. There is no hosted loader, product backend or telemetry. Real API calls still go to their configured servers; an explicit update check contacts the published site.</p>
+    <p class="note">Browser rules still apply: CSP can restrict operations, CORS governs cross-origin responses, and cookies follow browser policy. Profiles are saved per origin; export them to move between applications.</p>
     <div class="facts">
-      <div class="fact"><b>0</b><span>network requests to run it</span></div>
+      <div class="fact"><b>0</b><span>runtime asset downloads</span></div>
       <div class="fact"><b>${kb(sizes.minifiedBytes)}</b><span>minified bundle</span></div>
       <div class="fact"><b>${sizes.encodedURLLength.toLocaleString('en-US')}</b><span>characters in the bookmark URL</span></div>
-      <div class="fact"><b>${icon('shield', 22)}</b><span>your traffic stays in the tab</span></div>
+      <div class="fact"><b>${icon('shield', 22)}</b><span>no product backend</span></div>
     </div>
   </div>
 </section>
 
+<section><div class="wrap"><span class="eyebrow">Before you get started</span><h2>A few useful details.</h2>
+<details><summary>Why isn’t my rule matching?</summary><p>Check the method, URL, conditions and priority. Both the rule and its module must be enabled. Trigger a new page request after activation; Once runs bypass rules. Calls from workers, other frames or cached transport references may bypass Workbench.</p></details>
+<details><summary>Does it use my application’s session?</summary><p>The browser attaches eligible cookies. Workbench does not read HttpOnly cookies. Bearer tokens and CSRF headers may need explicit configuration; routing to another origin does not transfer your session.</p></details>
+<details><summary>How do I update a saved bookmark?</summary><p>Use Check for updates in Settings. If a newer build is available, Copy new bookmarklet copies its code for you to paste into the saved bookmark’s URL. Or replace the bookmark using this page. Reload your application before launching the updated version; saved bookmarks do not update automatically.</p></details>
+<details><summary>What happens when I minimize or close it?</summary><p>Minimize keeps active tools running. Close disables Workbench and removes its panel, restoring transport references it still owns. Reloading the page requires launching the bookmark again. Closing cannot undo changes already made on a server.</p></details>
+</div></section>
+</main>
 <footer>
   <div class="wrap">
-    <p><strong style="color:var(--z200)">Pre-release.</strong> Verified by automated checks in desktop Chrome; Edge and saved-bookmark installation checks are still outstanding. The panel wraps <code>fetch</code> and <code>XMLHttpRequest</code> in the top frame only — not iframes, workers, <code>sendBeacon</code>, EventSource or WebSocket.</p>
-    <p>Rebuild it yourself with <code>npm run build</code>; <code>install.html</code> beside this page carries the raw link and the payload probes.</p>
+    <div class="footer-row"><strong>API Workbench</strong><a href="#install">Add to your bookmarks ↗</a></div>
+    <p><strong style="color:var(--z200)">Verification status.</strong> Verified by automated checks in desktop Chrome; Edge and saved-bookmark installation checks are still outstanding. The panel wraps <code>fetch</code> and <code>XMLHttpRequest</code> in the top frame only — not iframes, workers, <code>sendBeacon</code>, EventSource or WebSocket.</p>
+    <p>Rebuild it yourself with <code>npm run build</code>; <a href="install.html">the manual installer</a> beside this page carries the installation link. Payload probes are available only in the local development build.</p>
   </div>
 </footer>
 
@@ -442,12 +556,14 @@ export function showcasePage({ bookmark, sizes, formats, version }) {
     const label = button.lastChild;
     try {
       await navigator.clipboard.writeText(url);
-      label.textContent = ' Copied — paste it into a new bookmark';
+      label.textContent = ' Copied';
+      document.querySelector('[data-copy-status]').textContent = 'Copied — paste into a new bookmark’s URL field, including javascript:.';
     } catch {
-      label.textContent = ' Copy blocked — use the drag button instead';
+      document.querySelector('[data-copy-status]').textContent = 'Copy blocked — drag API Workbench to your bookmarks bar, or use the manual installer below.';
     }
     setTimeout(() => { label.textContent = ' Copy the bookmarklet'; }, 4000);
   });
 </script>
+</body>
 </html>`;
 }

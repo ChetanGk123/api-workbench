@@ -3537,3 +3537,14 @@ Do not mark a milestone complete solely because its source files exist or its UI
 - Version bumped to 1.0.8.
 - Not run: the full 242-test suite, and any pass in Edge.
 - Next: unchanged — install the published build by hand in Chrome and Edge.
+
+## 2026-09-25 — Public index redesign
+
+- Scope: user-requested redesign of the generated public `dist/index.html`; its maintained source is `scripts/showcase.mjs`. The reference-screen index and runtime were left intact. No milestone completion is claimed.
+- Redesigned the zinc landing page with a split hero, section navigation, feature links, illustrated installation, an empty-state mock workflow, editorial usage rows, responsive import table, and native FAQ disclosures. Retained self-contained SVG illustrations and labeled example data; added keyboard skip navigation and copy feedback in a live status region.
+- Corrected outdated claims about unrestricted page support, zero update work, no outgoing traffic, unconditional cleanup, and public payload probes. Browser limitations, origin-scoped storage and explicit update requests are now described accurately.
+- Changed files: `scripts/showcase.mjs`, `docs/WORK_LOG.md`; regenerated ignored build artifacts including `dist/index.html`. No dependencies, external assets, or runtime changes.
+- Commands: `npm run build` PASS (450,979-byte landing page; runtime unchanged at 279,493 minified bytes / 403,269 bookmark characters). `npx playwright test tests/showcase.spec.mjs` initially could not bind inside the sandbox (EPERM); retry outside hit an existing server (EADDRINUSE). `npx playwright test tests/showcase.spec.mjs --config playwright.showcase-review.config.mjs` PASS 2/2 using a temporary config pointing to the existing fixture with `reuseExistingServer: true`; removed that temporary file after verification. The checks prove zero external page assets, the real generated install URL, the format registry table, and injected launch, not genuine bookmark installation.
+- A one-off `node --input-type=module` Playwright script opened `dist/index.html` at 1440×1000 and 390×1000, asserted no document horizontal overflow and no missing fragment targets, and captured full-page screenshots to `/tmp/workbench-landing-{1440,390}.png`; PASS. Screenshots reviewed for page structure. `git diff --check` PASS. `node --version`: v24.21.0; `npx playwright --version`: 1.63.0; Chrome 153.0.8010.53.
+- Not run: full runtime suite (runtime unchanged), clipboard permissions across browsers, Edge, genuine saved-bookmark installation, live deployment. The narrow format table intentionally scrolls horizontally. Illustrations depict examples, not measured traffic.
+- Next: publish the redesigned landing page when requested; outstanding release verification remains real saved-bookmark installation/update in Chrome and Edge. This page-only task does not advance a product milestone.
