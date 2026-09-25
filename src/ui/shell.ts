@@ -1,6 +1,6 @@
 import theme from "../../design/reference/aw-theme.css"
 import additions from "./theme.css"
-import { el, icon, button, iconButton, dropdown, confirmDialog } from "./dom"
+import { el, icon, button, iconButton, dropdown, confirmDialog, downloadJson } from "./dom"
 import type { Store } from "../core/store"
 import { RULE_MODULES, SCREENS, TABS, moduleState, renderScreen, type Ctx, type ScreenId, type UIState } from "./screens"
 import { moduleEnabled } from "../core/model"
@@ -37,6 +37,8 @@ export type ShellOptions = {
   continueAllPaused: Ctx["continueAllPaused"]
   checkForUpdate: Ctx["checkForUpdate"]
   clearStoredData: Ctx["clearStoredData"]
+  exportAllData: Ctx["exportAllData"]
+  restoreAllData: Ctx["restoreAllData"]
   plan: Ctx["plan"]
   updatePlan: Ctx["updatePlan"]
   savePlanAs: Ctx["savePlanAs"]
@@ -183,6 +185,21 @@ export function createShell(options: ShellOptions) {
   const subTest = iconButton("aw-btn aw-gh aw-ic aw-sm", "flask", "Test", () => go("test"), signal)
   subheader.append(back, subTitle, subTest)
 
+  /**
+   * A refused write leaves the session working and the configuration only in this tab. That is the
+   * one state the panel must never render as normal, so the warning sits above every screen with
+   * the way out beside it, and stays until a write lands.
+   */
+  const persistence = el("div", "aw-row aw-gap8 aw-banner")
+  persistence.setAttribute("role", "alert")
+  const persistenceText = el("span", "aw-xs aw-grow", "")
+  const persistenceExport = button("aw-btn aw-out aw-sm", "Export now", () => {
+    downloadJson(options.exportConfig(), store.state.config.profile.name)
+  }, signal)
+  persistenceExport.prepend(icon("upload", "aw-i14"))
+  persistence.append(icon("info", "aw-i14"), persistenceText, persistenceExport)
+  persistence.hidden = true
+
   const body = el("main", "aw-body")
   body.tabIndex = -1
   // The reference footer is the screen's action bar; it falls back to build and traffic status.
@@ -191,7 +208,7 @@ export function createShell(options: ShellOptions) {
   const counter = el("span", "aw-xs aw-mu aw-grow aw-tr")
   status.append(el("span", "aw-bd aw-s", options.version), counter)
   footer.append(status)
-  panel.append(header, nav, subheader, body, footer)
+  panel.append(header, nav, subheader, persistence, body, footer)
 
   // Minimized launcher
   const launcherState = el("span", "aw-bd")
@@ -260,6 +277,8 @@ export function createShell(options: ShellOptions) {
     continueAllPaused: options.continueAllPaused,
     checkForUpdate: options.checkForUpdate,
     clearStoredData: options.clearStoredData,
+    exportAllData: options.exportAllData,
+    restoreAllData: options.restoreAllData,
     plan: options.plan,
     updatePlan: options.updatePlan,
     savePlanAs: options.savePlanAs,
@@ -473,6 +492,9 @@ export function createShell(options: ShellOptions) {
   }
 
   const unsubscribe = store.subscribe((state) => {
+    persistence.hidden = !state.persistenceError
+    if (state.persistenceError)
+      persistenceText.textContent = `Changes are not being saved: ${state.persistenceError}. Your work is only in this tab until a write succeeds.`
     const states = RULE_MODULES.map((kind) => [kind, moduleState(state, kind)] as const)
     for (const [kind, module] of states) {
       const entry = moduleIndicators.get(kind)

@@ -700,3 +700,14 @@ p {
   border-radius: 8px;
   padding: 8px;
 }
+
+/* Sits between the sub-header and the body, so it is on every screen and scrolls with none of them.
+ * Amber rather than red: the session still works, the configuration is just not durable. */
+.aw-banner {
+  align-items: center;
+  padding: 8px 12px;
+  background: #78350f33;
+  border-bottom: 1px solid #b45309;
+  color: var(--aw-zinc-50);
+  flex-shrink: 0;
+}

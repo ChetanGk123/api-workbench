@@ -126,7 +126,24 @@ export async function saveConfig(config: WorkbenchConfig, durable = false): Prom
   const copy = normalizeConfig(structuredClone(config));
   if (durable) { await writeToIndexedDb(copy); memory.set(originKey(), copy); return; }
   memory.set(originKey(), copy);
-  try { await writeToIndexedDb(copy); } catch { /* Export remains available when durable storage fails. */ }
+  // The in-memory copy is already updated, so the session stays usable — but the caller has to be
+  // told, or a context where IndexedDB refuses every write looks exactly like one where it works
+  // and the whole configuration disappears on reload.
+  await writeToIndexedDb(copy);
+}
+
+/**
+ * Everything this origin holds, for backup and restore: the live profile and its endpoints, plus
+ * every stored profile and plan. `exportConfig` deliberately carries one profile, for sharing it;
+ * this carries the lot, because a user with five profiles could otherwise back up one.
+ */
+export function exportAll(config: WorkbenchConfig): string {
+  const { profile, endpoints, rules, plan, savedProfiles, savedPlans } = config;
+  return JSON.stringify(
+    { schemaVersion: 1, profile, endpoints, rules: rules ?? [], plan, savedProfiles: savedProfiles ?? [], savedPlans: savedPlans ?? [] },
+    null,
+    2,
+  );
 }
 
 export function exportConfig(config: WorkbenchConfig): string {

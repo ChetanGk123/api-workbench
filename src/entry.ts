@@ -20,7 +20,7 @@ import {
   type TestPlan,
   type WorkbenchConfig,
 } from "./core/model"
-import { clearStoredConfig, loadConfig, readLaunchVersion, readPanelGeometry, recordLaunchVersion, recordPanelGeometry, saveConfig, exportConfig } from "./core/storage"
+import { clearStoredConfig, exportAll, loadConfig, readLaunchVersion, readPanelGeometry, recordLaunchVersion, recordPanelGeometry, saveConfig, validateConfig, exportConfig } from "./core/storage"
 import { executeOnce } from "./tester/once"
 import { startRun, type RunState } from "./tester/run"
 import { failedCount, runToCsv, runToJson } from "./tester/results"
@@ -77,11 +77,15 @@ if (existing) {
   const withPlan = (config: WorkbenchConfig): WorkbenchConfig =>
     config.plan ? config : { ...config, plan: defaultTestPlan(config.profile.id) }
 
+  /** Every edit goes through here, so this is where a refused write has to become visible. */
   const persist = (config: WorkbenchConfig) => {
     configDirty = true
     const next = withPlan(config)
     store.set({ config: next })
-    void saveConfig(next)
+    void saveConfig(next).then(
+      () => { if (store.state.persistenceError) store.set({ persistenceError: undefined }) },
+      (error: unknown) => store.set({ persistenceError: error instanceof Error ? error.message : String(error) }),
+    )
     syncBodyCapture()
     syncRecorder()
   }
@@ -463,6 +467,25 @@ if (existing) {
       // What is on screen has to match what is stored, so the panel restarts on an empty profile.
       activate(defaultProfile(), [], [], [])
       store.set({ testerHistory: [], runs: [], openRun: undefined, newestVersion: undefined })
+    },
+    exportAllData: () => exportAll(store.state.config),
+    restoreAllData: async (json: string) => {
+      const parsed: unknown = JSON.parse(json)
+      if (!validateConfig(parsed))
+        throw new Error("Not an API Workbench backup: it needs a profile object and an endpoints array.")
+      const next = withPlan(parsed)
+      stopRun()
+      // Durable: a restore that reports success must have been written, not just held in memory.
+      await saveConfig(next, true)
+      store.set({ config: next, persistenceError: undefined, testerHistory: [], runs: [], openRun: undefined })
+      pipeline.setRules(next.rules ?? [])
+      pipeline.engine.resetAll()
+      syncRuleStats()
+      syncBodyCapture()
+      syncRecorder()
+      return `Restored ${next.endpoints.length} endpoint${next.endpoints.length === 1 ? "" : "s"}, ` +
+        `${next.savedProfiles?.length ?? 0} stored profile${(next.savedProfiles?.length ?? 0) === 1 ? "" : "s"} and ` +
+        `${next.savedPlans?.length ?? 0} stored plan${(next.savedPlans?.length ?? 0) === 1 ? "" : "s"}.`
     },
     plan: () => planOf(store.state.config),
     updatePlan: (plan: TestPlan) => persist({ ...store.state.config, plan }),

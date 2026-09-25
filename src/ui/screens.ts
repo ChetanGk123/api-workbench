@@ -36,6 +36,8 @@ export type UIState = {
   activity: ActivityEntry[]
   config: WorkbenchConfig
   storageReady: boolean
+  /** The last write's failure, if the newest one failed. Absent while writes are landing. */
+  persistenceError?: string
   testerResult?: OnceResult
   testerHistory: OnceResult[]
   recording: boolean
@@ -109,6 +111,10 @@ export type Ctx = {
   checkForUpdate: () => Promise<string>
   /** Deletes this origin's saved configuration and restarts the panel on an empty profile. */
   clearStoredData: () => Promise<void>
+  /** Every profile, plan, rule and endpoint this origin holds, as one backup document. */
+  exportAllData: () => string
+  /** Replaces everything this origin holds with a backup. Rejects rather than half-applying. */
+  restoreAllData: (json: string) => Promise<string>
   /** The live test plan of the active profile. */
   plan: () => TestPlan
   updatePlan: (plan: TestPlan) => void
@@ -1132,10 +1138,23 @@ function globalsCard(ctx: Ctx): HTMLElement {
   return box
 }
 
+/** Survives the re-render a restore triggers, so its outcome is not wiped by its own refresh. */
+let restoreSummary = ""
+
+/** Bytes as the browser reports them: B, KB, MB, GB, one decimal above a kilobyte. */
+function formatSize(bytes: number): string {
+  const units = ["B", "KB", "MB", "GB", "TB"]
+  let value = bytes
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++ }
+  return `${unit === 0 ? value : value.toFixed(1)} ${units[unit]}`
+}
+
 function aboutCard(ctx: Ctx): HTMLElement {
   const section = card()
-  const status = el("p", "aw-hint")
+  const status = el("p", "aw-hint", restoreSummary)
   status.setAttribute("role", "status")
+  restoreSummary = ""
   const newest = ctx.state().newestVersion
   const check = button("aw-btn aw-out aw-sm", "Check for update", () => {
     check.disabled = true
@@ -1152,6 +1171,49 @@ function aboutCard(ctx: Ctx): HTMLElement {
       })
   }, ctx.signal)
   clear.prepend(icon("trash", "aw-i14"))
+
+  const backup = button("aw-btn aw-out aw-sm", "Export all data", () => {
+    status.textContent = `Exported ${downloadJson(ctx.exportAllData(), `${location.hostname}-workbench-backup`)}.`
+  }, ctx.signal)
+  backup.prepend(icon("upload", "aw-i14"))
+  const file = el("input") as HTMLInputElement
+  file.type = "file"
+  file.accept = "application/json,.json"
+  file.hidden = true
+  const restore = el("label", "aw-btn aw-out aw-sm")
+  restore.append(icon("download", "aw-i14"), document.createTextNode("Restore all data"), file)
+  const apply = (selected: File) => {
+    const reader = new FileReader()
+    reader.addEventListener("load", () => {
+      status.textContent = `Restoring ${selected.name}…`
+      void ctx.restoreAllData(String(reader.result ?? ""))
+        .then(summary => { restoreSummary = summary; ctx.go("settings") },
+              (error: unknown) => { status.textContent = `Restore failed: ${error instanceof Error ? error.message : String(error)}. Nothing was changed.` })
+    }, { signal: ctx.signal })
+    reader.addEventListener("error", () => { status.textContent = `Could not read ${selected.name}. Nothing was changed.` }, { signal: ctx.signal })
+    reader.readAsText(selected)
+  }
+  file.addEventListener("change", () => {
+    const selected = file.files?.[0]
+    file.value = ""
+    if (!selected) return
+    void confirmDialog(restore, "Restore all data",
+      `Replace every profile, endpoint, rule and plan stored for this origin with the contents of ${selected.name}?`,
+      "Restore", ctx.signal).then(confirmed => { if (confirmed) apply(selected); else status.textContent = "Restore cancelled. Nothing was changed." })
+  }, { signal: ctx.signal })
+
+  // What the browser says this origin is using, which is the only honest source for it.
+  const usage = el("span", "aw-mu", "measuring…")
+  const estimate = navigator.storage?.estimate?.()
+  if (!estimate) usage.textContent = "not reported by this browser"
+  else
+    void estimate.then(
+      ({ usage: used = 0, quota = 0 }) => {
+        usage.textContent = quota ? `${formatSize(used)} of ${formatSize(quota)} available` : formatSize(used)
+      },
+      () => { usage.textContent = "not reported by this browser" },
+    )
+
   section.append(
     group("aw-row aw-gap8", icon("info"), cardHeading("About API Workbench")),
     group("aw-row aw-xs", el("span", "aw-mu aw-w64", "Version"), el("span", "aw-bd aw-s aw-mono", ctx.version)),
@@ -1159,7 +1221,10 @@ function aboutCard(ctx: Ctx): HTMLElement {
       group("aw-row aw-gap6", document.createTextNode("Not cached"), el("span", "aw-mu", "(inline bookmarklet)"))),
     group("aw-row aw-xs", el("span", "aw-mu aw-w64", "Newest"),
       el("span", "aw-mu", newest ? (newest === ctx.version ? "this build" : `${newest} has run on this origin`) : "not recorded yet")),
+    group("aw-row aw-xs", el("span", "aw-mu aw-w64", "Storage"), usage),
     group("aw-row aw-gap6", check, clear),
+    group("aw-row aw-gap6", backup, restore),
+    el("p", "aw-hint", "A backup carries every profile, plan and rule this origin holds. Export profile + endpoints above carries the active profile alone, for sharing it."),
     status,
   )
   return section
@@ -1182,6 +1247,7 @@ function settings(ctx: Ctx): HTMLElement {
   core.append(
     group("aw-row aw-gap8", icon("cpu"), cardHeading("Core")),
     inlineField("Body-check size limit (KB)", limit),
+    el("p", "aw-hint", `Stored on the active profile, "${config.profile.name}", not on this browser: switching profiles switches this limit with them.`),
   )
   const environments = disclosure("Environments", environmentFields(ctx, "settings"))
   environments.classList.add("aw-card", "aw-cp")

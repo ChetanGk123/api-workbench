@@ -185,7 +185,8 @@ test('Check for update compares this build against the one recorded for the orig
   await launch(page);
   await openSettings(page);
   await body(page).getByRole('button', { name: 'Check for update', exact: true }).click();
-  await expect(body(page).getByText(/this origin/)).toBeVisible();
+  // The About card's own status line, not any prose on the screen that mentions the origin.
+  await expect(body(page).locator('.aw-card', { hasText: 'About API Workbench' }).locator('[role=status]')).toContainText(/this origin/);
   // A newer build recorded here means the running bookmark is the stale copy.
   await page.evaluate(async () => {
     const database = await new Promise(resolve => { const request = indexedDB.open('api-workbench', 1); request.onsuccess = () => resolve(request.result); });
@@ -236,4 +237,60 @@ test('Page context globals lists what the named root holds', async ({ page }) =>
   await panel(page).getByRole('button', { name: 'Load', exact: true }).click();
   await panel(page).locator('details', { hasText: 'Page context' }).first().locator('summary').click();
   await expect(panel(page).getByRole('textbox', { name: 'Global roots (comma separated)' })).toHaveValue('__awDemo');
+});
+
+test('a refused write is reported on every screen, with the way out beside it', async ({ page }) => {
+  await launch(page);
+  const banner = panel(page).locator('.aw-banner');
+  await expect(banner).toBeHidden();
+
+  // Every IndexedDB write refuses, the way a blocked-site-data or out-of-quota context does.
+  await page.evaluate(() => { IDBObjectStore.prototype.put = function put() { throw new DOMException('Quota exceeded', 'QuotaExceededError'); }; });
+  await panel(page).getByRole('button', { name: /^Endpoints/ }).click();
+  await panel(page).getByRole('button', { name: 'Add endpoint', exact: true }).click();
+  await expect(banner).toBeVisible();
+  await expect(banner).toContainText('Changes are not being saved: Quota exceeded');
+  await expect(banner).toContainText('only in this tab');
+  // It is chrome, not screen content: it survives navigation.
+  await panel(page).locator('.aw-sub').getByRole('button', { name: 'Back to Home' }).click();
+  await expect(banner).toBeVisible();
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    banner.getByRole('button', { name: 'Export now', exact: true }).click(),
+  ]);
+  expect(await download.suggestedFilename()).toMatch(/\.json$/);
+
+  // A write that lands clears it again, rather than leaving a warning that outlives the problem.
+  await page.evaluate(() => { IDBObjectStore.prototype.put = IDBObjectStore.prototype.__original ?? IDBObjectStore.prototype.put; });
+  await page.reload();
+  await launch(page);
+  await expect(panel(page).locator('.aw-banner')).toBeHidden();
+});
+
+test('a backup carries every stored profile, and restoring one replaces the lot', async ({ page }) => {
+  await launch(page);
+  // Two profiles, so the backup has something the single-profile export would drop.
+  await openSettings(page);
+  await panel(page).locator('.aw-body').getByRole('textbox', { name: 'Name', exact: true }).fill('Second');
+  await panel(page).getByRole('button', { name: 'Save as copy', exact: true }).click();
+
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    panel(page).getByRole('button', { name: 'Export all data', exact: true }).click(),
+  ]);
+  const backup = JSON.parse(await readFile(await download.path(), 'utf8'));
+  expect(backup.savedProfiles.length).toBeGreaterThan(0);
+  expect(backup).toHaveProperty('savedPlans');
+
+  // Wipe everything, then restore the backup over the empty state.
+  await panel(page).getByRole('button', { name: 'Clear stored data', exact: true }).click();
+  await panel(page).locator('dialog.aw-dlg').getByRole('button', { name: 'Clear', exact: true }).click();
+  await openSettings(page);
+  await expect(panel(page).getByRole('combobox', { name: 'Active profile' }).locator('option')).toHaveCount(1);
+
+  await panel(page).locator('input[type=file]').setInputFiles({ name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(backup)) });
+  await panel(page).locator('dialog.aw-dlg').getByRole('button', { name: 'Restore', exact: true }).click();
+  await expect(panel(page).locator('.aw-card [role=status]').last()).toContainText('stored profile');
+  await openSettings(page);
+  await expect(panel(page).getByRole('combobox', { name: 'Active profile' }).locator('option')).toHaveCount(2);
 });

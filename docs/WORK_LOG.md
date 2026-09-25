@@ -30,6 +30,68 @@ when a later milestone lands.
 | M9 — Complete import support | CODE COMPLETE · all M9 acceptance gates PASS in Chrome (38 checks) · saved-bookmark and Edge checks NOT RUN |
 | M10 — Integrated release | NOT STARTED |
 
+## 2026-09-25 — A refused write is no longer silent, and a backup carries everything (UX review 2.7)
+
+**Scope.** `UX_REVIEW.md` 2.7, the section the review calls its most serious. Four of its seven bullets
+were real; three had already been fixed since the review was written.
+
+**Writes no longer fail silently.** `saveConfig`'s non-durable path updated memory and then swallowed
+the IndexedDB error, so in a private window, with site data blocked, or out of quota, every edit looked
+saved, and the whole configuration vanished on reload. It now propagates: `persist()` in `entry.ts`
+records the outcome as `UIState.persistenceError`, cleared by the next write that lands. A banner
+between the sub-header and the body — chrome, so it is on every screen and scrolls with none of them —
+says what failed and that the work is only in this tab, with **Export now** beside it. Amber, not red:
+the session still works, it is just not durable.
+
+**A bug of my own on the way there.** The banner was first updated from `apply()`, which only runs on
+minimize and restore, not on store changes. Injecting a failing write showed the handler running and
+the banner staying hidden; three probes chased the wrong layer before instrumenting `persist()` proved
+the error path fired. The update belongs in the store subscriber, where it is now.
+
+**A backup carries everything.** `exportConfig` serialises one profile, which is right for sharing and
+wrong for backup: a user with five profiles could back up one. `exportAll` in `src/core/storage.ts`
+carries the live profile, its endpoints, rules and plan, plus every `savedProfiles` and `savedPlans`
+entry, behind **Export all data** in Settings. **Restore all data** reads one back through
+`restoreAllData`, which validates before it writes, writes **durably** so a reported success is a
+written one, and replaces the live configuration, the rule engine and the tester state together. It
+confirms first, naming the file and what it replaces.
+
+**Storage usage** is reported from `navigator.storage.estimate()`, the only honest source for it, and
+says so plainly when the browser does not provide it.
+
+**The body-check limit says whose it is.** It sits under a card headed Core but lives at
+`profile.settings.bodyLimitKb`; the card now names the active profile and says switching profiles
+switches the limit.
+
+**Already fixed, verified not redone.** The storage status line the review quotes
+(`Origin-scoped storage · IndexedDB available`) no longer exists. `Clear stored data` exists and
+confirms. The body limit is already clamped at 1,000,000 in both the input and the handler. Destructive
+actions now confirm across the panel — Clear draft, endpoint delete, plan delete, Reset recorder and
+Clear stored data — which was one bullet's complaint.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0. `npm run build` → exit 0, minified 270,810 B.
+- `npx playwright test` → **229 passed in 1.8 min**, Chrome, macOS darwin 25.6.0, Node v24.21.0.
+  Two new tests in `tests/settings.spec.mjs`: with every IndexedDB write refused, the banner appears,
+  names the error, survives navigation and downloads an export from its own button, and a fresh launch
+  with writes working shows no banner; a backup exports with `savedProfiles` and `savedPlans`, and after
+  Clear stored data a restore brings the second profile back. One existing assertion was reaching for
+  any text matching `this origin` and now names the About card's status line.
+
+**Not done.** The review's note that there is "no import path that restores saved profiles" is answered
+by Restore all data, not by teaching the Import review to take many profiles: the review screen is built
+around one profile and its conflict resolution, and a backup restore is a replace, not a merge.
+
+**Still open.** The `node:test` file whose failures the suite ignores, and its pre-existing recorder
+failure.
+
+**Not run.** Saved-bookmark installation and all Edge checks. The banner is verified with injected write
+failures, not in a real private window or a browser with site data blocked.
+
+**Next task.** UX review 2.8 — lifecycle: Close is unguarded while a run is in flight and while
+breakpoints hold paused requests.
+
 ## 2026-09-25 — The recorder keeps what you choose, where you choose it (UX review 2.6)
 
 **Scope.** `UX_REVIEW.md` 2.6, all three bullets.
