@@ -141,6 +141,7 @@ export function showcasePage({ bookmark, sizes, formats, version }) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>API Workbench — a whole API workbench in one bookmark</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#fafafa"/><g transform="translate(4 4)" fill="none" stroke="#09090b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS.code}</g></svg>`)}">
 <meta name="description" content="Mock, intercept, route, pause, load-test and import API traffic in your application — a single self-contained bookmarklet for desktop Chrome and Edge. No extension, no backend, no packages.">
 <style>
   :root {

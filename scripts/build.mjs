@@ -60,7 +60,8 @@ const page = showcasePage({
 // Self-contained or it is not hostable the way the product is distributed: no asset may be fetched.
 // The install link holds the bundle, which was already checked above; the page around it must not
 // pull in anything. `url(#id)` is an internal SVG reference, anything else would be a fetch.
-const pageShell = page.replace(escapeHTML(bookmark), '');
+const pageShell = page.replace(escapeHTML(bookmark), '')
+  .replace(/<link rel="icon" type="image\/svg\+xml" href="data:image\/svg\+xml,[^"]*">/g, '');
 // The CSS check is case-sensitive on purpose: `cURL (bash)` and `new URL(` are prose, not a fetch.
 const externalAsset = [/<img/i, /<link/i, /<iframe/i, /<script[^>]+\bsrc=/i, /@import/i, /url\s*\(\s*['"]?(?!#)/,
   /https?:\/\/(?!www\.w3\.org|app\.example\.com)/i];
