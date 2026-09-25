@@ -44,23 +44,43 @@ const compareVersions = (left: string, right: string) => {
 }
 
 /**
- * The published version, read from `package.json` on the public repository. raw.githubusercontent
- * answers with `Access-Control-Allow-Origin: *`, so the read works from any page, but a host page's
- * `connect-src` can still refuse it and the request is cross-origin over a network the user did not
- * ask about. Every failure resolves to `undefined` so the caller falls back to what this origin has
- * recorded locally, and the pristine `fetch` captured at launch is used so the check cannot be
- * mocked, delayed or recorded by the workbench's own rules.
+ * The deployed installer, not the repository: `version.json` and `bookmarklet.txt` are uploaded by
+ * the same deployment, so the version reported here is always the one the copy below hands over —
+ * a repository branch can be ahead of what is installable. GitHub Pages answers with
+ * `Access-Control-Allow-Origin: *`, so the read works from any page, but a host page's
+ * `connect-src` can still refuse it. The pristine `fetch` captured at launch is used, so neither
+ * read can be mocked, delayed or recorded by the workbench's own rules.
  */
-const PUBLISHED_VERSION_URL = "https://raw.githubusercontent.com/ChetanGk123/api-workbench/main/package.json"
+const PUBLISHED_SITE = "https://chetangk123.github.io/api-workbench/"
+const readPublished = async (fetcher: typeof window.fetch, file: string): Promise<Response> => {
+  const response = await fetcher(PUBLISHED_SITE + file, { cache: "no-store", signal: AbortSignal.timeout(5000) })
+  if (!response.ok) throw new Error(`the published site answered ${response.status} for ${file}`)
+  return response
+}
+
+/** Resolves `undefined` on every failure, so the caller falls back to what this origin recorded. */
 const publishedVersion = async (fetcher: typeof window.fetch): Promise<string | undefined> => {
   try {
-    const response = await fetcher(PUBLISHED_VERSION_URL, { cache: "no-store", signal: AbortSignal.timeout(5000) })
-    if (!response.ok) return undefined
-    const manifest = (await response.json()) as { version?: unknown }
+    const manifest = (await (await readPublished(fetcher, "version.json")).json()) as { version?: unknown }
     return typeof manifest.version === "string" && /^\d+(\.\d+)*$/.test(manifest.version) ? manifest.version : undefined
   } catch {
     return undefined
   }
+}
+
+/**
+ * The published bookmarklet, put on the clipboard. Page script cannot reach the bookmarks bar, so
+ * there is no such thing as an automatic update: handing over the new text for the user to paste
+ * into the bookmark's URL field is the whole of it. The text is never executed — this build keeps
+ * running until the user launches the replaced bookmark — and it is rejected unless it is a
+ * bookmarklet carrying the version that was promised, which a half-finished deployment is not.
+ */
+const copyPublishedBookmarklet = async (fetcher: typeof window.fetch, expected: string): Promise<number> => {
+  const text = (await (await readPublished(fetcher, "bookmarklet.txt")).text()).trim()
+  if (!text.startsWith("javascript:")) throw new Error("the published site did not return a bookmarklet")
+  if (!text.includes(expected)) throw new Error(`the published bookmarklet is not ${expected}; the site may still be deploying`)
+  await navigator.clipboard.writeText(text)
+  return text.length
 }
 
 /** `notify` is optional: a build launched over an older one has to cope with it being absent. */
@@ -481,21 +501,26 @@ if (existing) {
     checkForUpdate: async () => {
       const published = await publishedVersion(directFetch)
       if (published && compareVersions(published, version) > 0)
-        return `Version ${published} has been published; this bookmark runs ${version}. Re-install the bookmarklet from the landing page to replace it.`
-      if (published === version) return `Up to date: ${version} is the published version.`
+        return { message: `Version ${published} has been published; this bookmark runs ${version}.`, update: published }
+      if (published === version) return { message: `Up to date: ${version} is the published version.` }
       const seen = await readLaunchVersion()
       if (!seen) {
         void recordLaunchVersion(version)
         store.set({ newestVersion: version })
-        return `No earlier build is recorded for this origin. ${version} is noted as the newest.`
+        return { message: `No earlier build is recorded for this origin. ${version} is noted as the newest.` }
       }
-      if (seen === version) return `Up to date: no build newer than ${version} has run on this origin.`
+      if (seen === version) return { message: `Up to date: no build newer than ${version} has run on this origin.` }
       if (compareVersions(seen, version) < 0) {
         void recordLaunchVersion(version)
         store.set({ newestVersion: version })
-        return `${version} is newer than the ${seen} recorded here; this origin now expects ${version}.`
+        return { message: `${version} is newer than the ${seen} recorded here; this origin now expects ${version}.` }
       }
-      return `A newer build (${seen}) has run on this origin. Re-install the bookmarklet from the landing page to replace this ${version} bookmark.`
+      return { message: `A newer build (${seen}) has run on this origin. Re-install the bookmarklet from the landing page to replace this ${version} bookmark.` }
+    },
+    /** Rejects with the reason, which the caller shows: nothing about the running build changes. */
+    copyUpdate: async (published: string) => {
+      const length = await copyPublishedBookmarklet(directFetch, published)
+      return `Version ${published} is on the clipboard (${length} characters). Right-click the saved bookmark, choose Edit, replace its URL with the clipboard contents, then reload this page before launching it.`
     },
     clearStoredData: async () => {
       await clearStoredConfig()

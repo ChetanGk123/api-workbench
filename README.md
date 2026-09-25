@@ -40,7 +40,7 @@ The repository is public; cloning needs no access grant.
 
 You can also open `dist/install.html` directly without starting the local server. For manual installation, copy the entire contents of `dist/bookmarklet.txt`, including `javascript:`, into a bookmark's URL field.
 
-**Updates:** **Check for update** in Settings reads the published version from `package.json` on the public repository and reports when a newer one exists. The check needs the host page's content security policy to permit the request; when it cannot be read, the panel falls back to comparing against the newest build that has launched on this origin. A bookmarklet cannot rewrite a saved bookmark, so updating is still manual: rebuild or open the install page, replace the bookmark with the new link, and reload the application before launching it.
+**Updates:** **Check for update** in Settings reads the version published by the deployed installer and reports when a newer one exists. **Copy new bookmarklet** then puts that build's bookmarklet on the clipboard, for pasting into the saved bookmark's URL field — page script cannot reach the bookmarks bar, so no bookmarklet can replace itself, and the copied text is never executed. Reload the application before launching the replaced bookmark. The checks need the host page's content security policy to permit the request; when it is refused, the panel falls back to comparing against the newest build that has launched on this origin.
 
 ## Try it locally
 

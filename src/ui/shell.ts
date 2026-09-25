@@ -36,6 +36,7 @@ export type ShellOptions = {
   nextRuleSeq: Ctx["nextRuleSeq"]
   continueAllPaused: Ctx["continueAllPaused"]
   checkForUpdate: Ctx["checkForUpdate"]
+  copyUpdate: Ctx["copyUpdate"]
   clearStoredData: Ctx["clearStoredData"]
   exportAllData: Ctx["exportAllData"]
   restoreAllData: Ctx["restoreAllData"]
@@ -291,6 +292,7 @@ export function createShell(options: ShellOptions) {
     nextRuleSeq: options.nextRuleSeq,
     continueAllPaused: options.continueAllPaused,
     checkForUpdate: options.checkForUpdate,
+    copyUpdate: options.copyUpdate,
     clearStoredData: options.clearStoredData,
     exportAllData: options.exportAllData,
     restoreAllData: options.restoreAllData,

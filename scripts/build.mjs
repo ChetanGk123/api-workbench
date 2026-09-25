@@ -13,12 +13,13 @@ const raw = await build(options);
 const min = await build({ ...options, minify: true });
 const code = min.outputFiles[0].text;
 for (const output of Object.values(min.metafile.outputs)) assert.equal(output.imports.length, 0);
-// The SVG namespace is an XML identifier, never fetched. The published-version manifest is the one
-// URL the bundle may request: it is read as data for the update check, never loaded as code, and a
-// failed read falls back to the origin-recorded comparison. No other absolute URL may survive.
-const VERSION_MANIFEST_URL = 'https://raw.githubusercontent.com/ChetanGk123/api-workbench/main/package.json';
-assert(code.includes(VERSION_MANIFEST_URL), 'The published-version manifest URL is missing from the bundle');
-const withoutKnownURLs = code.replaceAll('http://www.w3.org/2000/svg', '').replaceAll(VERSION_MANIFEST_URL, '');
+// The SVG namespace is an XML identifier, never fetched. The deployed site is the one origin the
+// bundle may request: `version.json` is read as data for the update check, and `bookmarklet.txt` is
+// fetched only to be put on the clipboard. Neither is loaded as code, and a failed read falls back
+// to the origin-recorded comparison. No other absolute URL may survive.
+const PUBLISHED_SITE = 'https://chetangk123.github.io/api-workbench/';
+assert(code.includes(PUBLISHED_SITE), 'The published-site URL is missing from the bundle');
+const withoutKnownURLs = code.replaceAll('http://www.w3.org/2000/svg', '').replaceAll(PUBLISHED_SITE, '');
 assert(!/\bimport\s*\(|\beval\s*\(|new Function\b|https?:\/\//.test(withoutKnownURLs), 'Unexpected runtime loader, executable evaluator or external URL');
 for (const path of ['design/reference/aw-theme.css', 'src/ui/theme.css'])
   assert(!/url\s*\(|@import/i.test(await readFile(path, 'utf8')), 'External CSS asset');
@@ -27,6 +28,8 @@ export const escapeHTML = text => text.replaceAll('&', '&amp;').replaceAll('"', 
 const bookmark = encode(code);
 const unusual = `const sample = 'café ✓ <>&"'; // % # ? \u2028\n`;
 assert.equal(decodeURIComponent(encode(unusual).slice(11)), 'void function(){\n' + unusual + '\n}()');
+// Deployed beside the bookmarklet it describes, so the update check and the copy always agree.
+await writeFile('dist/version.json', JSON.stringify({ version }) + '\n');
 await writeFile('dist/api-workbench.js', raw.outputFiles[0].text);
 await writeFile('dist/api-workbench.min.js', code);
 await writeFile('dist/bookmarklet.txt', bookmark);

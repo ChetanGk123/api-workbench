@@ -107,8 +107,10 @@ export type Ctx = {
   /** Next creation sequence for a new rule; ties on priority resolve by it. */
   nextRuleSeq: () => number
   continueAllPaused: () => void
-  /** Compares this build against the newest one recorded for the origin; resolves with the note. */
-  checkForUpdate: () => Promise<string>
+  /** Asks the deployed site, then the origin's own note; `update` carries a newer published version. */
+  checkForUpdate: () => Promise<{ message: string; update?: string }>
+  /** Puts the published bookmarklet on the clipboard; rejects with the reason it could not. */
+  copyUpdate: (published: string) => Promise<string>
   /** Deletes this origin's saved configuration and restarts the panel on an empty profile. */
   clearStoredData: () => Promise<void>
   /** Every profile, plan, rule and endpoint this origin holds, as one backup document. */
@@ -1161,10 +1163,28 @@ function aboutCard(ctx: Ctx): HTMLElement {
   status.setAttribute("role", "status")
   restoreSummary = ""
   const newest = ctx.state().newestVersion
+  // A bookmarklet cannot rewrite the bookmark that started it, so the closest thing to an update is
+  // the new text on the clipboard. The button appears only once a newer version is known to exist.
+  let available = ""
+  const copy = button("aw-btn aw-pri aw-sm", "Copy new bookmarklet", () => {
+    copy.disabled = true
+    status.textContent = `Fetching ${available} from the published site…`
+    void ctx.copyUpdate(available).then(
+      message => { status.textContent = message },
+      (error: unknown) => { status.textContent = `Could not copy ${available}: ${error instanceof Error ? error.message : String(error)}. This bookmark is unchanged.` },
+    ).finally(() => { copy.disabled = false })
+  }, ctx.signal)
+  copy.prepend(icon("download", "aw-i14"))
+  copy.hidden = true
   const check = button("aw-btn aw-out aw-sm", "Check for update", () => {
     check.disabled = true
     status.textContent = "Checking the published version…"
-    void ctx.checkForUpdate().then(message => { status.textContent = message; check.disabled = false })
+    void ctx.checkForUpdate().then(({ message, update }) => {
+      status.textContent = message
+      check.disabled = false
+      available = update ?? ""
+      copy.hidden = !update
+    })
   }, ctx.signal)
   check.prepend(icon("refresh", "aw-i14"))
   const clear = button("aw-btn aw-dst aw-sm", "Clear stored data", () => {
@@ -1227,8 +1247,8 @@ function aboutCard(ctx: Ctx): HTMLElement {
     group("aw-row aw-xs", el("span", "aw-mu aw-w64", "Newest"),
       el("span", "aw-mu", newest ? (newest === ctx.version ? "this build" : `${newest} has run on this origin`) : "not recorded yet")),
     group("aw-row aw-xs", el("span", "aw-mu aw-w64", "Storage"), usage),
-    group("aw-row aw-gap6", check, clear),
-    el("p", "aw-hint", "Reads the published version from the public repository. If that request is blocked — offline, or the page's content security policy refuses it — this falls back to comparing against the newest build that has launched on this origin."),
+    group("aw-row aw-gap6", check, copy, clear),
+    el("p", "aw-hint", "Reads the published version from the deployed installer. If that request is blocked — offline, or the page's content security policy refuses it — this falls back to comparing against the newest build that has launched on this origin. An update is copied, never applied: paste it into the saved bookmark's URL field."),
     group("aw-row aw-gap6", backup, restore),
     el("p", "aw-hint", "A backup carries every profile, plan and rule this origin holds. Export profile + endpoints above carries the active profile alone, for sharing it."),
     status,

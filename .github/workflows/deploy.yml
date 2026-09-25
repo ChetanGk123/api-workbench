@@ -22,7 +22,7 @@ jobs:
       - name: Stage public files
         run: |
           mkdir public-site
-          cp dist/index.html dist/install.html dist/bookmarklet.txt dist/api-workbench.js dist/api-workbench.min.js dist/sizes.json public-site/
+          cp dist/index.html dist/install.html dist/bookmarklet.txt dist/api-workbench.js dist/api-workbench.min.js dist/sizes.json dist/version.json public-site/
       - uses: actions/upload-pages-artifact@v4
         with:
           path: public-site

@@ -17,32 +17,39 @@ application before launching a new version.
 
 ## The update check
 
-Settings → **Check for update** reads
-`https://raw.githubusercontent.com/ChetanGk123/api-workbench/main/package.json`
-and compares its `version` against the version compiled into the bookmark. It
-reports a newer published version and points at the install page; it cannot
-replace the bookmark, because page script has no access to the bookmark bar.
+Settings → **Check for update** reads `version.json` from
+`https://chetangk123.github.io/api-workbench/` and compares it against the
+version compiled into the bookmark. When a newer version is published, **Copy
+new bookmarklet** fetches `bookmarklet.txt` from the same deployment and puts
+it on the clipboard.
 
-The read is the one network request the bundle makes, and `scripts/build.mjs`
-asserts that this URL is the only absolute URL that survives bundling. It is
-read as data and never evaluated. Three conditions govern it:
+Both files are uploaded by the same Pages deployment, so the version reported
+and the bookmarklet handed over always match. The build emits `version.json`
+from `package.json`, and `deploy.yml` stages it with the rest. Reading the
+repository instead would report versions that are on `main` but not yet
+installable.
 
-- **The repository must stay public.** raw.githubusercontent returns 404 for a
-  private repository without a token, and a token cannot be embedded in a
-  bookmarklet — its text is readable, and it would be exposed to every page the
-  bookmarklet runs on. Making the repository private again disables the check;
-  it does not break the panel, which falls back.
-- **CORS.** raw.githubusercontent answers with `Access-Control-Allow-Origin: *`
-  and caches for 300 seconds. GitHub Pages sends no CORS headers, so the
-  deployed site cannot serve this manifest.
+These two reads are the only network requests the bundle makes, and
+`scripts/build.mjs` asserts that this site is the only absolute URL surviving
+bundling. Neither response is evaluated:
+
+- **The copy is not an install.** Page script cannot reach the bookmarks bar,
+  so nothing can replace a saved bookmark. The user pastes the copied text into
+  the bookmark's URL field and reloads before launching it. The running build
+  is untouched either way.
+- **The copied text is verified first.** It must start with `javascript:` and
+  contain the version that was promised, so a deployment caught midway between
+  uploading `version.json` and `bookmarklet.txt` is refused rather than copied.
 - **The host page's CSP.** The bookmarklet runs in the page's origin, so a
-  `connect-src` that excludes raw.githubusercontent blocks the request. This is
-  not detectable in advance, so the failure is silent and falls back.
+  `connect-src` that excludes the Pages site blocks both reads. This is not
+  detectable in advance, so the check falls back to the newest build recorded
+  in this origin's IndexedDB at launch, and the copy reports why it failed.
+- **The repository must stay public**, since making it private takes the Pages
+  site down with it. The panel falls back; it does not break.
 
-The fallback is the previous behavior: the newest build recorded in this
-origin's IndexedDB at launch. `main` can be ahead of what is published on the
-install page; the check reports what the repository holds, not what Pages last
-deployed.
+Releasing an update is therefore: bump `package.json`, push to `main`, and let
+the workflow deploy. Anyone who presses **Check for update** afterwards is
+offered the new bookmarklet.
 
 ## Hosting
 

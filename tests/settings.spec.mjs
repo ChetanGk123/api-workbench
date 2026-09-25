@@ -6,13 +6,18 @@ const source = decodeURIComponent(bookmark.slice(11));
 const sample = JSON.parse(await readFile('tests/fixtures/import-sample.json', 'utf8'));
 const panel = page => page.locator('#api-workbench .aw-root:not(.aw-min)');
 const body = page => panel(page).locator('.aw-body');
+const context = page => page.context();
 const launch = page => page.evaluate(source); // UI checks only, not saved-bookmark installation evidence.
 const headerButton = (page, name) => panel(page).locator('.aw-tb').getByRole('button', { name, exact: true });
-// The update check reads the published package.json. Every test that presses the button decides
-// what that read returns, so no test depends on the repository's real contents or on being online.
-const MANIFEST = 'https://raw.githubusercontent.com/ChetanGk123/api-workbench/main/package.json';
-const publishes = (page, version) => page.route(MANIFEST, route =>
-  version === null ? route.abort('failed') : route.fulfill({ contentType: 'application/json', body: JSON.stringify({ version }) }));
+// The update check reads the deployed site. Every test that presses the button decides what that
+// site returns, so no test depends on what is really deployed or on being online.
+const SITE = 'https://chetangk123.github.io/api-workbench/';
+const publishes = (page, version, bookmarklet) => Promise.all([
+  page.route(`${SITE}version.json`, route =>
+    version === null ? route.abort('failed') : route.fulfill({ contentType: 'application/json', body: JSON.stringify({ version }) })),
+  page.route(`${SITE}bookmarklet.txt`, route =>
+    bookmarklet === undefined ? route.abort('failed') : route.fulfill({ contentType: 'text/plain', body: bookmarklet })),
+]);
 const buildVersion = JSON.parse(await readFile('package.json', 'utf8')).version;
 
 let seq = 0;
@@ -187,18 +192,43 @@ test('Save stores the live profile so a switch away and back returns to it', asy
   await expect(panel(page).locator('.aw-endpoint-row')).toHaveCount(sample.endpoints.length);
 });
 
-test('Check for update reports a newer published version, and where to get it', async ({ page }) => {
-  await publishes(page, '99.9.9');
+const copyButton = page => body(page).getByRole('button', { name: 'Copy new bookmarklet', exact: true });
+
+test('Check for update reports a newer published version, and offers its bookmarklet', async ({ page }) => {
+  await publishes(page, '99.9.9', 'javascript:void%20function()%7B/*99.9.9*/%7D()');
+  await context(page).grantPermissions(['clipboard-read', 'clipboard-write']);
   await launch(page);
   await openSettings(page);
+  await expect(copyButton(page)).toBeHidden();
   await body(page).getByRole('button', { name: 'Check for update', exact: true }).click();
   await expect(body(page).getByText(/Version 99\.9\.9 has been published/)).toBeVisible();
-  await expect(body(page).getByText(/Re-install the bookmarklet from the landing page/)).toBeVisible();
+
+  // Copied, never applied: the clipboard carries the new text and this build keeps running.
+  await copyButton(page).click();
+  await expect(body(page).getByText(/Version 99\.9\.9 is on the clipboard/)).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('javascript:void%20function()%7B/*99.9.9*/%7D()');
+  await expect(body(page).locator('.aw-card', { hasText: 'About API Workbench' })).toContainText(buildVersion);
 
   // The published version matching this build is the one answer the origin note cannot give.
   await publishes(page, buildVersion);
   await body(page).getByRole('button', { name: 'Check for update', exact: true }).click();
   await expect(body(page).getByText(`Up to date: ${buildVersion} is the published version.`)).toBeVisible();
+  await expect(copyButton(page)).toBeHidden();
+});
+
+test('a published bookmarklet that is not what was promised is refused, not copied', async ({ page }) => {
+  // A deployment that has uploaded version.json but not yet the bookmarklet would otherwise hand
+  // over the build the user is already running, reported as the update.
+  await publishes(page, '99.9.9', 'javascript:void%20function()%7B/*1.0.0*/%7D()');
+  await context(page).grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.evaluate(() => navigator.clipboard.writeText('untouched'));
+  await launch(page);
+  await openSettings(page);
+  await body(page).getByRole('button', { name: 'Check for update', exact: true }).click();
+  await copyButton(page).click();
+  await expect(body(page).getByText(/the published bookmarklet is not 99\.9\.9/)).toBeVisible();
+  await expect(body(page).getByText(/This bookmark is unchanged/)).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('untouched');
 });
 
 test("Check for update survives a page whose CSP refuses the manifest", async ({ page }) => {
@@ -368,5 +398,5 @@ test('a newer bookmark launched over a running one is recorded, so the check can
 
   // And the button says what it compares, rather than implying it asks a server.
   await openSettings(page);
-  await expect(body(page).getByText(/Reads the published version from the public repository/)).toBeVisible();
+  await expect(body(page).getByText(/Reads the published version from the deployed installer/)).toBeVisible();
 });
