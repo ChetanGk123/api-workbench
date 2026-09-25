@@ -1,5 +1,220 @@
 # API Workbench work log
 
+## 2026-09-25 — Check for update can see a new bookmark that never took over
+
+**Reported.** package.json bumped to 1.0.1, rebuilt, the new bookmarklet saved as a bookmark — and the
+1.0.0 panel already open on the page still answered *"Up to date: no build newer than 1.0.0 has run on
+this origin."*
+
+**That was correct, and useless.** The check is not a network request and cannot be: the product ships
+as a self-contained bookmarklet with no loader or backend, and a build gate asserts zero runtime
+downloads. It compares this build against `version:<origin>` in IndexedDB — the newest build that has
+**launched** here — and 1.0.1 had never launched, so there was nothing to find. Worse, the one action
+the user takes to make it known, clicking the new bookmark on that page, hit the already-running guard,
+showed the version dialog and recorded nothing: the newer build ran on this origin and left no trace.
+
+**Change.** The launch guard in `src/entry.ts` now records the launching build when it is newer than the
+instance already running, before showing the dialog. `compareVersions` moves to module scope so the
+guard can use the same ordering the check does. The running panel's next **Check for update** then reads
+1.0.1 and says a newer build has run here.
+
+**And the button stops implying a network call.** A line under it: *"Compares this bookmark against the
+newest build that has launched on this origin. Nothing is requested from the network: launch the new
+bookmarklet here once, then check again."* — which is also the instruction that makes it work.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0. `npm run build` → exit 0 at version **1.0.1**, minified 277,833 B.
+- `npx playwright test` → **239 passed in 2.1 min**, Chrome, macOS darwin 25.6.0, Node v24.21.0. One new
+  test in `tests/settings.spec.mjs` winds the origin's note back to 0.9.0, makes the running instance
+  claim that version, launches the real build over it, dismisses the dialog and asserts the stored note
+  is now the build under test — read from `package.json`, so the next version bump does not break it.
+
+**Still not possible, stated.** A build that has never launched on an origin cannot be discovered from
+that origin. This detects a stale bookmark once the new one has been clicked here, which is the case
+that was reported; it is not an update feed.
+
+## 2026-09-25 — Results hides Stop once there is nothing to stop, and Test opens on Load
+
+**Two reports.**
+
+**Stop outlived the run.** The Results footer carried a static Stop button, so a completed run — and
+any run reopened from history — still offered to stop something. It is now hidden unless
+`run.state === "running"`, updated from the store rather than built once. Hidden rather than disabled:
+the Load view disables its Stop because a run is about to start there, but on a finished result the
+control does not apply at all, and a permanently dead button is the defect 1.1 removed.
+
+**Test opens on Load.** It opened on Once unless a run happened to be in flight. Load is where the
+screen's work is — the plan, its phases, the preflight and the run — and Once is the quick single send
+beside it, chosen rather than landed on.
+
+**One exception, because the change would otherwise break something I built.** Run on an Endpoints row
+sends the request and navigates to Test to show its result; opening on Load would have left the user on
+a plan with their result out of sight. `openTestOn("once")` is set by that row and consumed by the next
+render, so the view follows the reason for the visit and every other arrival opens on Load.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0. `npm run build` → exit 0, minified 277,637 B.
+- `npx playwright test` → **238 passed in 2.0 min**, Chrome, macOS darwin 25.6.0, Node v24.21.0.
+  - New: Stop is visible mid-run, stops the run, and is hidden on both the stopped run and the
+    completed one after Run again; Test opens on Load, a row's Run lands on Once with its result, and
+    the next ordinary visit is back on Load.
+  - **Eleven existing tests changed.** They reached the Once view by opening Test, which used to land
+    there; each now selects Once first. The failures were the change working, not breaking: every one
+    was a test asserting the old default.
+
+## 2026-09-25 — Latency is banded, and P95 explains itself
+
+**Reported from a screenshot of a 29-endpoint breakdown.** Two problems in one table: **P95** was an
+unexplained column heading, and 1 ms and 1506 ms were both plain white, so the reader did the
+comparing. P95 was also the one column with a colour — amber whenever it had a value, which said
+nothing about the value.
+
+**Bands.** Green under 300 ms, amber to 1000 ms, red above it, applied to Avg, Min, Max and P95 alike,
+and to the Avg and P95 summary tiles above the table, which had the same always-amber bug.
+
+**Colour is never the only signal.** Every timing cell carries its band in words in a `title` —
+`1303 ms · over 1000 ms` — so the reading survives a colour-blind reader, a greyscale screenshot and a
+screen reader. A cell with no sample stays muted and says so.
+
+**P95 says what it is** in two places: the column header's tooltip, and a line under the table —
+*"P95 is the 95th percentile — 19 of every 20 samples were at least that fast."* Every other column
+header gained a tooltip too, including what Fail counts (a failed check, an error, a timeout, an abort
+or never having run). The existing nearest-rank definition from `TIMING_NOTES` is kept in the header
+tooltip, so the exported JSON and the panel agree.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0. `npm run build` → exit 0, minified 277,367 B.
+- `npx playwright test` → **236 passed in 1.9 min**, Chrome, macOS darwin 25.6.0, Node v24.21.0. One new
+  test in `tests/m8.spec.mjs` runs a fast endpoint and a 1200 ms one and reads the **computed colours**
+  back — `rgb(74, 222, 128)` and `rgb(248, 113, 113)` — then asserts the spoken band in each cell's
+  title and the P95 explanation in the header and under the table.
+- Screenshot read back with three endpoints at 15 ms, 503 ms and 1303 ms: green, amber and red in the
+  same column.
+
+**Thresholds are fixed, not configurable.** 300 ms and 1000 ms are ordinary web-latency bands; they are
+two constants at the top of the breakdown, not settings, until someone needs them to be.
+
+## 2026-09-25 — Every tab screen says what it is for
+
+**Scope.** Follow-on from the Test heading below: the same one-line description on all six tab screens.
+
+**Change.** `MODULE_DESCRIPTION` in `src/ui/rule-screens.ts` gives Mock, Intercept, Route and Chaos a
+line under the title, and `moduleHeader` renders it between the name and the Activate button. Each
+module screen now reads in one order — **name, what it is for, the control, what it is doing** — and
+the last of those is the existing status hint, which is state rather than description and stays where
+it was. Home takes a description too, naming the origin it is showing.
+
+- Mock — answers matching requests from the panel instead of the server, with a status, headers and
+  body you set.
+- Intercept — edits matching requests and responses in flight, and can pause one at a breakpoint.
+- Route — sends matching requests to a different origin or path, without touching the page's own code.
+- Chaos — adds latency, failures and error statuses to matching traffic.
+- Home — every module for this origin, what each is doing, and the ways into endpoints, recording and
+  import.
+
+**Home has no title block,** only the description: it is the index rather than a tool, and a "Home"
+heading would repeat the tab just pressed.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0. `npm run build` → exit 0, minified 275,510 B.
+- `npx playwright test` → **235 passed in 1.9 min**, Chrome, macOS darwin 25.6.0, Node v24.21.0. One new
+  test walks all six tabs and asserts the description is the **first** hint on each screen, so it leads
+  rather than trailing the controls, and that a module screen still carries its state hint as well.
+- All six descriptions printed from the running panel and read back, plus screenshots of Home, Mock and
+  Chaos.
+
+## 2026-09-25 — The Test screen introduces itself
+
+**Reported from screenshots.** Every rule module screen opens with a tile, its name and a line saying
+what it does — `moduleHeader` in `src/ui/rule-screens.ts`. Test opened straight onto the plan picker,
+the one screen that never said what it was.
+
+**Change.** A heading in `testScreen`: the flask tile, **API Tester**, and one line —
+*"Sends requests yourself and checks what comes back: Once for a single request, Load for a plan of
+many."* No status chip, deliberately: a rule module's chip reports whether it is touching traffic, and
+Test has nothing to activate. Built inline rather than extracted from `moduleHeader`, which carries an
+activate button and module state that Test has no use for.
+
+**Found while looking at it.** With no result yet, **Copy body**, **Save as response sample** and **Add
+status check** rendered enabled. Their handlers return early with no result, so all three were live-
+looking controls that did nothing — the defect 1.1 removed elsewhere, reintroduced by the 2.4 entry
+above, which only set `disabled` inside `refresh()` and `refresh()` does not run before the first
+result. They now start disabled and the first result enables them.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0. `npm run build` → exit 0, minified 274,908 B.
+- `npx playwright test` → **234 passed in 1.9 min**, Chrome, macOS darwin 25.6.0, Node v24.21.0. One new
+  test in `tests/ui.spec.mjs`: the heading reads API Tester with its description, the three result
+  actions are disabled before any run, and Copy body is enabled after one.
+- Screenshots of the Test and Mock screens taken and read back, to compare the two headers.
+
+## 2026-09-25 — Load runs can save a response sample too
+
+**Scope.** User request: Once has **Save as response sample**; Load had nothing like it.
+
+**Why it needed a change below the UI.** `StepResult` carries an outcome, a status and timings, never
+a body — deliberately, since a load run produces thousands of them. So there was nothing on a finished
+run to save. `EndpointStats` now keeps one `response` per endpoint: the **last** real one (passed or
+failed-check, so an HTTP response rather than a transport error), bounded at 16 KiB, which is the cap
+the traffic log already uses. One per endpoint, newest wins, so a run of 3 iterations × 29 endpoints
+holds 29 bodies, not 87.
+
+**Results shows them.** A Response samples card under the outcome breakdown lists each endpoint that
+returned one, with its status and whether the body was truncated. Saving writes the status, headers and
+body onto the endpoint — the same shape Once writes, so the 2.3 editor and a mock's "Use recorded
+response" read it the same way.
+
+**Reviewed on a screenshot of a 29-endpoint run, then reworked.** Saving one row at a time is not a
+workflow at that length, and the only feedback was a status line below the whole list, off-screen from
+the row just clicked. Three changes, all in the card:
+
+- **Save all (N)** in the card header saves every row that does not already hold this run's response,
+  and counts what is left. It reads **All saved** and disables itself when there is nothing to do.
+- **Each row states where it stands.** A row whose endpoint already holds this run's exact response
+  shows a green **Saved** badge instead of a button. A row whose endpoint holds a *different* sample
+  offers **Replace sample**, because "has a sample" and "has this run's sample" are different answers.
+  An endpoint deleted since the run says **Endpoint removed** and does nothing.
+- The status line moved **above** the list, under the card's own heading, so a bulk save reports where
+  the eye already is.
+
+**Then: the request side, and labels.** Reported next — the revealed block showed two unlabelled boxes,
+so which one held the headers and which the body was left to the reader, and there was no sign of what
+had been sent to produce the response. `OnceResult` now carries `requestHeaders` — the headers the
+tester actually sent, after the global merge and template resolution, not the configured ones — and the
+run retains them beside the response. The revealed block is three labelled sections: **Request headers
+sent**, **Response headers**, **Response body**. Each header box is addressable by its own label, so a
+screen holding one per endpoint can still be read.
+
+**Before that: the response itself.** Reported next — the card offered to save a response it never showed, so
+saving one was a guess. Each row now carries an expand button, `Show the response <alias> returned`,
+which reveals the retained headers and the body, indented when it is JSON through the same `prettyJson`
+the Once result uses. A truncated body says so where it is read, not only in the row. The button stays
+after a save, because a stored row is still worth looking at, and the revealed block is labelled
+`Response <alias> returned` so it can be addressed on a screen holding one per endpoint.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0. `npm run build` → exit 0, minified 277,655 B.
+- `npx playwright test` → **233 passed in 1.9 min**, Chrome, macOS darwin 25.6.0, Node v24.21.0. One new
+  test in `tests/m8.spec.mjs`: a two-endpoint run offers `Save all (2)`; saving one row turns that row
+  into a Saved badge with no button left on it and drops the header count to 1; Save all then reports
+  what it saved, reads `All saved` and disables; and the stored profile carries the status, a
+  `content-type` header and the body for every endpoint.
+- Four screenshots taken and read back: the mixed state (one row saved, three offering to save), the
+  all-saved state, a revealed response, and the labelled three-section form showing `x-fixture: sent`
+  under Request headers sent and `content-type` under Response headers.
+
+**Bound, stated.** A retained body is capped at 16 KiB and the card says so; a longer response is marked
+truncated rather than silently cut. Run summaries live in `UIState`, not in the stored configuration,
+so these bodies are never written to IndexedDB.
+
+**Not run.** Saved-bookmark installation and all Edge checks.
+
 ## 2026-09-25 — Landing-page usage guide
 
 **Scope.** User-requested enhancement to generated `dist/index.html`; no runtime feature changes or milestone completion claims.
@@ -3257,5 +3472,12 @@ Do not mark a milestone complete solely because its source files exist or its UI
 - Created private `ChetanGk123/api-workbench` and configured origin. GitHub Pages activation failed with HTTP 422 because the current plan does not support Pages for this private repository. No live hosting claimed.
 - Commands: `npm ci && npm run build` passed; `npx playwright test tests/showcase.spec.mjs tests/m0.spec.mjs` passed all 15 tests after retrying outside the sandbox (initial fixture bind failed with EPERM); `git diff --check` passed. Node v24.21.0, npm 11.19.0, Chrome 153.0.8010.53, gh 2.101.0.
 - Latest working-tree build: 277,728 minified bytes; 400,742 encoded bookmark characters. Existing unrelated working-tree edits were preserved; deployment commits only this task's files/log entry.
-- Not run: GitHub-hosted build/deployment, saved-bookmark UI installation, Edge, full browser suite. Hosting destination remains pending the user's choice after the plan restriction.
+- Remote verification: commit `9e9aa63` pushed with `git push -u origin main`; `gh run view 36106547457 --repo ChetanGk123/api-workbench --json status,conclusion,jobs` confirms the Ubuntu build, locked install, bundle checks and artifact upload passed. Deployment failed at configure-pages because Pages could not be enabled. Not run: live-site verification, saved-bookmark UI installation, Edge, full browser suite. Hosting destination remains pending the user's choice.
 - Next: resolve hosting eligibility/destination, push and verify the hosted installer and a subsequent automatic update. This task does not mark M10 or outstanding bookmark feasibility gates complete.
+
+## 2026-09-25 — Repository README
+
+- Added `README.md` covering the implemented feature areas, import contracts, build/install/update steps, fixture walkthrough, commands, generated artifacts, deployment status, browser boundaries, and repository layout.
+- Verified instructions against `package.json`, `playwright.config.mjs`, `scripts/build.mjs`, the fixture routes, import documentation, and the deployment workflow. A Python standard-library link check verified all relative README links resolve; `git diff --check` passed.
+- Documentation only: no build, browser tests, saved-bookmark installation, or deployment rerun; no runtime behavior changed. Existing local edits and staged work were preserved.
+- Next: resolve the private-repository Pages plan restriction and complete hosted-site and real saved-bookmark verification. No product milestone is marked complete by this documentation change.
