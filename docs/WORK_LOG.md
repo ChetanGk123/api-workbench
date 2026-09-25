@@ -1,5 +1,22 @@
 # API Workbench work log
 
+## 2026-09-25 — Landing-page usage guide
+
+**Scope.** User-requested enhancement to generated `dist/index.html`; no runtime feature changes or milestone completion claims.
+
+**Changed files.** `scripts/showcase.mjs` adds a linked guide covering Home, Endpoints, Test, Mock, Intercept, Breakpoints, Route, Chaos, Results, Record, Import and Settings. Includes concrete examples, rule activation, Once versus Load execution, and troubleshooting. Uses static HTML and the existing zinc palette, with no added dependencies or fetched assets. `docs/WORK_LOG.md` records verification. Rebuilt `dist/index.html` (generated artifact).
+
+**Commands and measured outcomes.**
+
+- `npm run build` — PASS; TypeScript and standalone asset checks passed. Landing page 430,803 bytes; encoded bookmark 392,937 characters at verification time.
+- `npx playwright test tests/showcase.spec.mjs` — final run PASS, 2 tests in 1.4 seconds. Initial sandbox attempt could not bind port 4173; first unrestricted retry found the port occupied. An intermediate `npx playwright test tests/showcase.spec.mjs --config=/tmp/aw-showcase.config.mjs` (temporary configuration using the existing server) passed the file-page check but failed the fixture check after that server stopped. The final standard invocation started its own fixture and passed both checks.
+- `node --input-type=module` with an inline Playwright check — PASS outside the sandbox: all 12 usage links resolve to unique articles with at least three steps; guide has no horizontal overflow at 390px. Chrome 153.0.8010.53, Node v24.21.0. Captured `/tmp/api-workbench-guide.png` at 1280×900 and visually checked Test/Mock typography, spacing and wrapping. The sandboxed browser launch was blocked.
+- `git diff --check` — PASS.
+
+**Not run / limitations.** Full runtime regression suite, Edge and actual saved-bookmark installation were not run for this static guide change. The bookmark-source fixture test is not saved-bookmark evidence. Existing runtime edits were left untouched. No milestone gates were advanced.
+
+**Next milestone.** M10 integrated release and outstanding real saved-bookmark/Edge verification.
+
 ## Current state
 
 M0–M9 are implemented and verified in Chrome by automated checks (186 checks). The M0 feasibility
