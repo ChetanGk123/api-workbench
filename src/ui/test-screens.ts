@@ -8,6 +8,7 @@ import {
   card,
   caption,
   group,
+  confirmDialog,
   disclosure,
   numberField,
   selectField,
@@ -18,6 +19,7 @@ import {
 import {
   MAX_CONCURRENCY,
   MAX_ITERATIONS,
+  matchesFilter,
   mergeHeaders,
   RAMP_STEP_MS,
   stepPhase,
@@ -106,12 +108,56 @@ function stepRow(ctx: Ctx, plan: TestPlan, endpoint: Endpoint): HTMLElement {
   return row
 }
 
+/**
+ * The load phase's filter text. The Load view is rebuilt from the store on every plan edit — an
+ * Include toggle is a plan edit — so the box's value cannot live in the DOM it is about to lose.
+ */
+let phaseFilters: Record<string, string> = {}
+
 function phaseList(ctx: Ctx, plan: TestPlan, endpoints: Endpoint[], title: string, empty: string): HTMLElement {
   const list = el("div", "aw-card aw-list")
   list.setAttribute("aria-label", title)
-  for (const endpoint of endpoints) list.append(stepRow(ctx, plan, endpoint))
+  const query = (phaseFilters[title] ?? "").trim().toLowerCase()
+  const shown = query ? endpoints.filter((endpoint) => matchesFilter(endpoint, query)) : endpoints
+  for (const endpoint of shown) list.append(stepRow(ctx, plan, endpoint))
   if (!endpoints.length) list.append(el("div", "aw-empty", empty))
-  return group("aw-col aw-gap6", caption(title), list)
+  else if (!shown.length) list.append(el("div", "aw-empty", `Nothing matches "${phaseFilters[title]?.trim()}".`))
+
+  const heading = group("aw-row", caption(title), el("span", "aw-grow"))
+  // Include all and Exclude all act on what is listed, so the filter is also the way to select.
+  const setAll = (include: boolean) =>
+    editPlan(ctx, (live) => {
+      const ids = new Set(shown.map((endpoint) => endpoint.id))
+      return {
+        excluded: include
+          ? live.excluded.filter((id) => !ids.has(id))
+          : [...new Set([...live.excluded, ...shown.map((endpoint) => endpoint.id)])],
+      }
+    })
+  if (endpoints.length > 1) {
+    const includeAll = button("aw-btn aw-gh aw-xs2", "Include all", () => setAll(true), ctx.signal)
+    const excludeAll = button("aw-btn aw-gh aw-xs2", "Exclude all", () => setAll(false), ctx.signal)
+    for (const control of [includeAll, excludeAll]) control.title = query ? "Applies to the steps listed below" : "Applies to every step below"
+    heading.append(includeAll, excludeAll)
+  }
+  const parts: HTMLElement[] = [heading]
+  if (endpoints.length > 1) {
+    const filter = el("input", "aw-in") as HTMLInputElement
+    filter.type = "search"
+    filter.value = phaseFilters[title] ?? ""
+    filter.placeholder = "Filter by method, name or path"
+    filter.setAttribute("aria-label", `Filter ${title.toLowerCase()}`)
+    // Typing is not a plan edit, so the list is redrawn here rather than through the store.
+    filter.addEventListener("input", () => {
+      phaseFilters = { ...phaseFilters, [title]: filter.value }
+      const next = phaseList(ctx, ctx.plan(), endpoints, title, empty)
+      section.replaceWith(next)
+      next.querySelector<HTMLInputElement>("input[type=search]")?.focus()
+    }, { signal: ctx.signal })
+    parts.push(filter)
+  }
+  const section = group("aw-col aw-gap6", ...parts, list)
+  return section
 }
 
 function preflightCard(check: Preflight, plan: TestPlan): HTMLElement {
@@ -497,7 +543,29 @@ export function testScreen(ctx: Ctx): HTMLElement {
     const iterations = numberField("Iterations", plan.iterations, (value) => editPlan(ctx, () => ({ iterations: value })), ctx.signal, 1, MAX_ITERATIONS)
     const concurrency = numberField("Concurrency", plan.concurrency, (value) => editPlan(ctx, () => ({ concurrency: value })), ctx.signal, 1, MAX_CONCURRENCY)
     const delay = numberField("Batch delay", plan.delayMs, (value) => editPlan(ctx, () => ({ delayMs: value })), ctx.signal, 0, 60000)
-    for (const field of [iterations, concurrency, delay]) field.input.style.width = "110px"
+    const rampStep = numberField(
+      "Ramp-up step",
+      plan.rampStepMs ?? RAMP_STEP_MS,
+      (value) => editPlan(ctx, () => ({ rampStepMs: value })),
+      ctx.signal,
+      0,
+      60000,
+    )
+    rampStep.input.disabled = !plan.rampUp
+    for (const field of [iterations, concurrency, delay, rampStep]) field.input.style.width = "110px"
+    // The switch decides whether workers are staggered at all; the field says by how much, in the
+    // same shape as Iterations and Batch delay above it.
+    // The switch and the field are two controls, so they carry two names: a second "Ramp-up" would
+    // be the Add header mistake again.
+    const rampLabel = el("span", "aw-lbl", "Ramp-up")
+    rampLabel.style.cssText = "width:72px;flex-shrink:0"
+    const rampRow = group(
+      "aw-row",
+      switchBox("Ramp-up", plan.rampUp, (value) => editPlan(ctx, () => ({ rampUp: value })), ctx.signal),
+      rampLabel,
+      rampStep.input,
+      el("span", "aw-xs aw-mu", "ms per worker"),
+    )
     const mode = selectField(
       "Mode",
       [
@@ -532,12 +600,7 @@ export function testScreen(ctx: Ctx): HTMLElement {
       fieldRow("Concurrency", concurrency.input),
       fieldRow("Batch delay", delay.input, el("span", "aw-xs aw-mu", "ms")),
       separator(),
-      group(
-        "aw-row",
-        switchBox("Ramp-up", plan.rampUp, (value) => editPlan(ctx, () => ({ rampUp: value })), ctx.signal),
-        el("span", "aw-lbl", "Ramp-up"),
-        el("span", "aw-xs aw-mu", `Admit a worker every ${RAMP_STEP_MS} ms`),
-      ),
+      rampRow,
       separator(),
       fieldRow("Mode", mode.select),
       fieldRow("On failure", onFailure.select),
@@ -636,6 +699,8 @@ export function testScreen(ctx: Ctx): HTMLElement {
   }
   const refreshPlans = () => {
     const live = ctx.plan()
+    // Only a stored plan can be deleted; the live one that was never saved has nothing to remove.
+    deletePlan.disabled = !storedPlans().some((plan) => plan.id === live.id)
     planPicker.replaceChildren()
     for (const plan of [live, ...storedPlans().filter((plan) => plan.id !== live.id)]) {
       const option = el("option", "", plan.name)
@@ -645,14 +710,21 @@ export function testScreen(ctx: Ctx): HTMLElement {
     planPicker.value = live.id
     planName.value = live.name
   }
-  refreshPlans()
   planPicker.addEventListener("change", () => ctx.selectPlan(planPicker.value), { signal: ctx.signal })
   const rename = iconButton("aw-btn aw-out aw-ic", "edit", "Rename plan", () => {
     planName.hidden = false
     planName.focus()
     planName.select()
   }, ctx.signal)
-  const savePlan = iconButton("aw-btn aw-out aw-ic", "save", "Save plan", () => ctx.savePlanAs(ctx.plan().name), ctx.signal)
+  // savePlanAs always mints a new id and de-duplicates the name, so this copies; it never overwrites.
+  const savePlan = iconButton("aw-btn aw-out aw-ic", "save", "Save as new plan", () => ctx.savePlanAs(ctx.plan().name), ctx.signal)
+  const deletePlan = iconButton("aw-btn aw-out aw-ic", "trash", "Delete plan", () => {
+    const live = ctx.plan()
+    void confirmDialog(deletePlan, "Delete plan", `Delete "${live.name}"? This cannot be undone.`, "Delete", ctx.signal)
+      .then((confirmed) => { if (confirmed) ctx.deletePlan(live.id) })
+  }, ctx.signal)
+  // After the buttons above: the first refresh reads them to decide what can be deleted.
+  refreshPlans()
 
   // An edit anywhere in the plan changes the preflight, the footer and which steps are listed.
   let lastPlan: unknown
@@ -676,7 +748,7 @@ export function testScreen(ctx: Ctx): HTMLElement {
   segment.setAttribute("role", "group")
   segment.setAttribute("aria-label", "Run mode")
   screen.append(
-    group("aw-row", el("span", "aw-dot aw-g"), planPicker, rename, savePlan),
+    group("aw-row", planPicker, rename, savePlan, deletePlan),
     planName,
     segment,
     direct.panel,

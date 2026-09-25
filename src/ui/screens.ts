@@ -1,5 +1,5 @@
 import { el, icon, button, checkFields, confirmDialog, headerFields, iconButton, card, cardHeading, caption, group, labeled, labeledAction, formatJsonButton, disclosure, downloadJson, switchBox, toggleBox, type IconName } from "./dom"
-import { DEFAULT_LOG_LIMIT, logLimit, mergeHeaders, moduleEnabled, nameFromHost, pageProfileName, type Endpoint, type HeaderValue, type Profile, type Rule, type RuleKind, type TestPlan, type WorkbenchConfig } from "../core/model"
+import { DEFAULT_LOG_LIMIT, logLimit, matchesFilter, mergeHeaders, moduleEnabled, nameFromHost, pageProfileName, type Endpoint, type HeaderValue, type Profile, type Rule, type RuleKind, type TestPlan, type WorkbenchConfig } from "../core/model"
 import type { RuleActivity } from "../network/rules"
 import type { PausedEntry } from "../breakpoints/registry"
 import { chaosScreen, interceptScreen, mockScreen, routeScreen } from "./rule-screens"
@@ -112,6 +112,8 @@ export type Ctx = {
   savePlanAs: (name: string) => void
   /** Makes a stored plan live; the plan being left is stored as it stands. */
   selectPlan: (id: string) => void
+  /** Removes a stored plan. The live plan moves to another stored one, or to a fresh default. */
+  deletePlan: (id: string) => void
   startRun: () => void
   stopRun: () => void
   openRun: (id: string) => void
@@ -722,12 +724,6 @@ function endpointEditor(ctx: Ctx, endpoint: Endpoint, options: EditorOptions = {
   name.addEventListener("input", setChrome, { signal: ctx.signal })
   section.addEventListener("keydown", event => { if (event.key === "Escape") { event.preventDefault(); cancel() } }, { signal: ctx.signal })
   return section
-}
-
-/** Every whitespace-separated term must appear, so "get pets" narrows where "get" alone would not. */
-function matchesFilter(endpoint: Endpoint, query: string): boolean {
-  const haystack = `${endpoint.request.method} ${endpoint.name} ${endpoint.alias} ${endpoint.request.path}`.toLowerCase()
-  return query.split(/\s+/).every(term => haystack.includes(term))
 }
 
 function endpoints(ctx: Ctx): HTMLElement {

@@ -66,6 +66,16 @@ export function moduleEnabled(profile: Profile, id: string): boolean {
   return profile.settings?.enabledModules?.[id] !== false;
 }
 
+/**
+ * Endpoint list filtering, shared by Endpoints and the plan's phase lists so one typed query means
+ * the same thing in both. Every whitespace-separated term must appear, so "get pets" narrows where
+ * "get" alone would not.
+ */
+export function matchesFilter(endpoint: Endpoint, query: string): boolean {
+  const haystack = `${endpoint.request.method} ${endpoint.name} ${endpoint.alias} ${endpoint.request.path}`.toLowerCase();
+  return query.split(/\s+/).every(term => haystack.includes(term));
+}
+
 export function logLimit(profile: Profile, kind: RuleKind): number {
   const value = profile.settings.logLimits?.[kind];
   return typeof value === 'number' && value > 0 ? value : DEFAULT_LOG_LIMIT;
@@ -392,6 +402,8 @@ export type TestPlan = {
   /** Wait after a worker finishes one iteration or job, before it takes the next. */
   delayMs: number;
   rampUp: boolean;
+  /** Delay between admitting one worker and the next while ramping. Absent means RAMP_STEP_MS. */
+  rampStepMs?: number;
   onFailure: 'continue' | 'stop';
   notifyOnComplete: boolean;
   /** Page values chosen with Scan page; resolved again at every dispatch. */

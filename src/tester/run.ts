@@ -254,7 +254,7 @@ export async function startRun(options: RunOptions): Promise<RunState> {
   /** Workers share one queue; ramp-up staggers when each worker is admitted. */
   const pool = async (take: () => (() => Promise<void>) | undefined) => {
     const workers = Array.from({ length: concurrency }, async (_unused, worker) => {
-      if (plan.rampUp && worker) await wait(worker * RAMP_STEP_MS, signal)
+      if (plan.rampUp && worker) await wait(worker * (plan.rampStepMs ?? RAMP_STEP_MS), signal)
       for (;;) {
         if (signal.aborted) return
         const job = take()

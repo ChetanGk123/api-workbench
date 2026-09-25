@@ -39,6 +39,7 @@ export type ShellOptions = {
   updatePlan: Ctx["updatePlan"]
   savePlanAs: Ctx["savePlanAs"]
   selectPlan: Ctx["selectPlan"]
+  deletePlan: Ctx["deletePlan"]
   startRun: Ctx["startRun"]
   stopRun: Ctx["stopRun"]
   openRun: Ctx["openRun"]
@@ -259,6 +260,7 @@ export function createShell(options: ShellOptions) {
     updatePlan: options.updatePlan,
     savePlanAs: options.savePlanAs,
     selectPlan: options.selectPlan,
+    deletePlan: options.deletePlan,
     startRun: options.startRun,
     stopRun: options.stopRun,
     openRun: options.openRun,

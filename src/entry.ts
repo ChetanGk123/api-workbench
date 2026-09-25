@@ -492,6 +492,15 @@ if (existing) {
           : [...saved, live],
       })
     },
+    deletePlan: (id) => {
+      const config = store.state.config
+      const saved = (config.savedPlans ?? []).filter((item) => item.id !== id)
+      const live = planOf(config)
+      // Deleting the plan on screen has to leave one in its place: another stored plan, or a new
+      // empty one. Deleting a plan that is not live only shortens the list.
+      const next = live.id === id ? (saved[0] ?? defaultTestPlan(config.profile.id)) : live
+      persist({ ...config, plan: { ...next, profileId: config.profile.id }, savedPlans: saved })
+    },
     startRun: () => beginRun(),
     stopRun: () => stopRun(),
     openRun: (id: string) => {

@@ -30,6 +30,61 @@ when a later milestone lands.
 | M9 — Complete import support | CODE COMPLETE · all M9 acceptance gates PASS in Chrome (38 checks) · saved-bookmark and Edge checks NOT RUN |
 | M10 — Integrated release | NOT STARTED |
 
+## 2026-09-25 — Test → Load: a filter, a real ramp field, and a plan you can delete (UX review 2.5)
+
+**Scope.** `UX_REVIEW.md` 2.5, all four bullets.
+
+**The phase lists filter, and bulk include acts on what is listed.** `Include all` / `Exclude all` sit
+on the phase heading and a search box filters the steps, using `matchesFilter` — the same rule the
+Endpoints screen uses, moved from `src/ui/screens.ts` to `src/core/model.ts` so both screens share it
+rather than importing one UI module into another (that would have made `screens.ts` and
+`test-screens.ts` mutually circular). The filter text lives in a module-scoped record, because the
+Load view is rebuilt from the store on every plan edit and an Include toggle **is** a plan edit; typing
+in the box redraws only that list, since typing is not a plan edit.
+
+**Ramp-up is a number with a unit.** It was a toggle beside the sentence `Admit a worker every 250 ms`,
+which the review read as a button with a sentence for a caption — the 250 was a constant, not a
+setting. `TestPlan.rampStepMs` is new and optional, `run.ts` waits `plan.rampStepMs ?? RAMP_STEP_MS`,
+and the row is now a switch, a label, a number field and `ms per worker`, in the shape of Iterations and
+Batch delay above it. The switch and the field carry different accessible names — a second control
+called "Ramp-up" would be the Add header mistake again.
+
+**The save button says what it does.** `savePlanAs` always mints a new id and de-duplicates the name,
+so the disk button never overwrote anything: it is **Save as new plan**. There is no "Save" to confuse
+it with, because an edit to the live plan is persisted as it is made and `selectPlan` writes the plan
+being left back to storage.
+
+**A stored plan can be deleted.** New `deletePlan` through `Ctx`, the shell and `entry.ts`, behind the
+same confirmation as an endpoint delete, disabled while the live plan has never been stored. Deleting
+the live plan moves to another stored plan, or to a fresh default: the picker is never left empty.
+
+**The green dot is gone.** It was hardcoded `aw-dot aw-g`, always green whatever the state. The review
+asked for a legend; there was nothing to explain.
+
+**A runtime bug I introduced and caught.** `refreshPlans()` reads the new delete button to decide
+whether it can be enabled, and it was being called before that `const` existed — a temporal dead zone
+error that blanked the whole Test screen. It surfaced as 19 failing tests, and a probe reading
+`pageerror` named it: `ReferenceError: Cannot access '$' before initialization`. The first refresh now
+runs after the buttons are built.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0. `npm run build` → exit 0, minified 265,646 B.
+- `npx playwright test` → **225 passed in 1.8 min**, Chrome, macOS darwin 25.6.0, Node v24.21.0.
+  Three new tests in `tests/plans.spec.mjs`: delete asks, Cancel keeps and deleting the live plan leaves
+  another in its place; ramp-up is disabled until the switch is on and the step it sets survives an
+  export; the load filter narrows and Exclude all leaves a filtered-out step alone. Three existing
+  assertions follow the renamed save button.
+- Screenshot of the Load view taken and read back: the ramp row lines up with Batch delay above it and
+  the bulk buttons sit on the phase heading.
+
+**Still open.** The `node:test` file whose failures the suite ignores, and its pre-existing `M4 recorder`
+failure.
+
+**Not run.** Saved-bookmark installation and all Edge checks.
+
+**Next task.** UX review 2.6 — the recorder.
+
 ## 2026-09-25 — The two Add header buttons say which list they add to
 
 **Reported from a screenshot.** Test → Once showed two identical **Add header** buttons and read as a
