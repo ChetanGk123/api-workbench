@@ -27,6 +27,7 @@ import { failedCount, runToCsv, runToJson } from "./tester/results"
 import { createScope } from "./tester/expressions"
 import { downloadFile } from "./ui/dom"
 import { createRecorder, DEFAULT_RECORD_LIMIT } from "./recorder/recorder"
+import { candidateKey, endpointFromRecording } from "./recorder/promote"
 import { createBreakpoints } from "./breakpoints/registry"
 
 const version = __AW_VERSION__
@@ -514,6 +515,43 @@ if (existing) {
       if (format === "json")
         downloadFile(runToJson(run, store.state.config.profile.revision), name, "json", "application/json")
       else downloadFile(runToCsv(run), name, "csv", "text/csv")
+    },
+    removeRecordings: (key) => {
+      const profileId = store.state.config.profile.id
+      recorder.remove((recording) => {
+        const endpoint = endpointFromRecording(recording, profileId)
+        return !!endpoint && candidateKey(endpoint) === key
+      })
+      store.set({ recordings: recorder.records })
+    },
+    addRecordingsToProfile: (endpoints, hosts, bindings = []) => {
+      const config = store.state.config
+      const profile = config.profile
+      const environment = profile.activeEnvironment
+      // An alias has to stay unique inside the profile it joins, so a collision is renamed rather
+      // than silently overwriting the endpoint already there.
+      const taken = config.endpoints.map((endpoint) => endpoint.alias)
+      const owned = endpoints.map((endpoint) => {
+        const alias = suggestProfileName(endpoint.alias, taken)
+        taken.push(alias)
+        return { ...endpoint, id: createId("endpoint"), profileId: profile.id, alias }
+      })
+      // Recorded hosts join the active environment; a key already mapped keeps the mapping the
+      // profile already has.
+      const merged = { ...hosts, ...(profile.environments[environment] ?? {}) }
+      const plan = planOf(config)
+      const names = new Set(plan.bindings.map((binding) => binding.name))
+      persist({
+        ...config,
+        profile: {
+          ...profile,
+          environments: { ...profile.environments, [environment]: merged },
+          revision: profile.revision + 1,
+          updatedAt: Date.now(),
+        },
+        endpoints: [...config.endpoints, ...owned],
+        plan: { ...plan, bindings: [...plan.bindings, ...bindings.filter((binding) => !names.has(binding.name))] },
+      })
     },
     createProfileFromRecordings: (name, endpoints, hosts, bindings = []) => {
       const config = store.state.config

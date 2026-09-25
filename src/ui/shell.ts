@@ -26,6 +26,8 @@ export type ShellOptions = {
   stopRecording: Ctx["stopRecording"]
   resetRecorder: Ctx["resetRecorder"]
   createProfileFromRecordings: Ctx["createProfileFromRecordings"]
+  removeRecordings: Ctx["removeRecordings"]
+  addRecordingsToProfile: Ctx["addRecordingsToProfile"]
   saveRule: Ctx["saveRule"]
   deleteRule: Ctx["deleteRule"]
   toggleRule: Ctx["toggleRule"]
@@ -247,6 +249,8 @@ export function createShell(options: ShellOptions) {
     stopRecording: options.stopRecording,
     resetRecorder: options.resetRecorder,
     createProfileFromRecordings: options.createProfileFromRecordings,
+    removeRecordings: options.removeRecordings,
+    addRecordingsToProfile: options.addRecordingsToProfile,
     saveRule: options.saveRule,
     deleteRule: options.deleteRule,
     toggleRule: options.toggleRule,

@@ -134,3 +134,63 @@ test('M4 records native XHR traffic and restores the review draft after relaunch
   await expect(page.getByText(/1 captured · reviewable draft/)).toBeVisible();
   await expect(page.locator(`${panel}`).getByText('/api/fixture', { exact: true })).toBeVisible();
 });
+
+test('M4 recorded endpoints can join the profile already open instead of minting a new one', async ({ page }) => {
+  await launch(page);
+  // Start from a profile that already holds an endpoint, which is the case the review names.
+  await page.locator(panel).getByRole('button', { name: /^Endpoints/ }).click();
+  await page.locator(panel).getByRole('button', { name: 'Add endpoint', exact: true }).click();
+  await page.locator(panel).locator('.aw-sub').getByRole('button', { name: 'Back to Home' }).click();
+
+  await openRecorder(page);
+  await page.getByRole('button', { name: 'Start recording', exact: true }).click();
+  await page.evaluate(() => fetch('/api/fixture').then(response => response.text()));
+  await page.getByRole('button', { name: 'Stop recording', exact: true }).click();
+  await expect(page.locator(`${panel} .aw-endpoint-row`)).toHaveCount(1);
+  await page.getByRole('button', { name: 'Add to this profile', exact: true }).click();
+
+  await expect(page.locator(`${panel} .aw-h`)).toHaveText('Endpoints');
+  const config = await page.evaluate(async () => {
+    const request = indexedDB.open('api-workbench');
+    return new Promise(resolve => {
+      request.onsuccess = () => {
+        const database = request.result;
+        const read = database.transaction('configs', 'readonly').objectStore('configs').get(location.origin);
+        read.onsuccess = () => { database.close(); resolve(read.result); };
+      };
+    });
+  });
+  // The profile is the one that was already open, now two endpoints long.
+  expect(config.profile.id).toBe('default');
+  expect(config.endpoints).toHaveLength(2);
+  expect(config.endpoints[1].request.path).toBe('/api/fixture');
+  expect(config.endpoints[1].profileId).toBe('default');
+  // A recorded alias that collides with one already in the profile is renamed, never merged over.
+  expect(new Set(config.endpoints.map(endpoint => endpoint.alias)).size).toBe(2);
+});
+
+test('M4 a review row deletes the captures behind it, and Reset asks before discarding everything', async ({ page }) => {
+  await launch(page);
+  await openRecorder(page);
+  await page.getByRole('button', { name: 'Start recording', exact: true }).click();
+  await page.evaluate(() => fetch('/api/fixture').then(response => response.text()));
+  await page.evaluate(() => fetch('/api/echo', { method: 'POST', body: 'hello' }));
+  await page.getByRole('button', { name: 'Stop recording', exact: true }).click();
+  const rows = page.locator(`${panel} .aw-endpoint-row`);
+  await expect(rows).toHaveCount(2);
+
+  // Deleting a row drops its captures, so the count falls with it and it does not return.
+  await rows.filter({ hasText: '/api/echo' }).getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(rows).toHaveCount(1);
+  await expect(page.getByText(/1 captured · reviewable draft/)).toBeVisible();
+
+  await page.getByRole('button', { name: 'Reset recorder', exact: true }).click();
+  const dialog = page.locator(`${panel} dialog.aw-dlg`);
+  await expect(dialog).toContainText('Discard 1 captured call');
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(rows).toHaveCount(1);
+
+  await page.getByRole('button', { name: 'Reset recorder', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Reset recorder', exact: true }).click();
+  await expect(rows).toHaveCount(0);
+});

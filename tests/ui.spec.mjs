@@ -213,7 +213,9 @@ test('UI Record screen supports capture, review and resetting the draft', async 
   await panel(page).getByRole('button', { name: 'Stop recording', exact: true }).click();
   await expect(panel(page).getByText(/1 captured · reviewable draft/)).toBeVisible();
   await expect(panel(page).getByText('/api/fixture', { exact: true })).toBeVisible();
-  await panel(page).getByRole('button', { name: /Reset/i }).click();
+  await panel(page).getByRole('button', { name: 'Reset recorder', exact: true }).click();
+  // Resetting discards captures, so it asks before it does.
+  await panel(page).locator('dialog.aw-dlg').getByRole('button', { name: 'Reset recorder', exact: true }).click();
   await expect(panel(page).getByText('/api/fixture', { exact: true })).toHaveCount(0);
   await expect(panel(page).getByRole('button', { name: 'Start recording', exact: true })).toBeEnabled();
 });

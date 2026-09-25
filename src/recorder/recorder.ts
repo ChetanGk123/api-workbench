@@ -188,6 +188,16 @@ export function createRecorder(pipeline: Pipeline, onChange?: (records: readonly
       onChange?.(records.slice());
       return records.slice();
     },
+    /** Drops the captures a review row stands for. Their bytes go with them. */
+    remove(match: (recording: Recording) => boolean) {
+      const kept = records.filter(record => !match(record));
+      if (kept.length === records.length) return;
+      records.length = 0;
+      records.push(...kept);
+      bytes = records.reduce((total, record) => total + JSON.stringify(record).length, 0);
+      persist();
+      onChange?.(records.slice());
+    },
     reset() {
       records.length = 0;
       bytes = 0;

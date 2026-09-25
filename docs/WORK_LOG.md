@@ -30,6 +30,49 @@ when a later milestone lands.
 | M9 — Complete import support | CODE COMPLETE · all M9 acceptance gates PASS in Chrome (38 checks) · saved-bookmark and Edge checks NOT RUN |
 | M10 — Integrated release | NOT STARTED |
 
+## 2026-09-25 — The recorder keeps what you choose, where you choose it (UX review 2.6)
+
+**Scope.** `UX_REVIEW.md` 2.6, all three bullets.
+
+**Recorded endpoints can join the profile already open.** The Record screen's only commit was
+`createProfileFromRecordings`, which always mints a profile: recording three calls on a page you
+already have a profile for forced a profile you did not want. **Add to this profile** sits beside the
+new-profile field and calls the new `addRecordingsToProfile`, which appends the chosen endpoints to the
+live profile, renames an alias that collides with one already there rather than overwriting it, merges
+the recorded hosts into the active environment without disturbing a mapping the profile already has,
+and adds only the bindings the plan does not already carry. The 2.1 entry kept the Import path for the
+same capability; this is the same thing offered where the recording happens.
+
+**A review row deletes the captures behind it.** Rows had only checkbox exclusion while Endpoints rows
+had Delete — the review's "two list patterns for the same mental model". A row now carries a trash
+button beside Edit. It drops the recordings themselves through the new `recorder.remove()` and
+`removeRecordings`, not just the row: the review list is rebuilt from the capture buffer on every
+capture, so a row removed from the list alone would come back, and captured traffic the user deleted
+should not sit on in the buffer. The key that decides which captures belong to a row is now
+`candidateKey()` in `src/recorder/promote.ts`, used both where candidates are grouped and where they
+are deleted, rather than the same template string written twice.
+
+**Reset recorder asks first,** naming how many captures and that every edit to the review goes with
+them. A single row is not behind a dialog: it removes captured traffic, which the page can produce
+again, where Reset discards the whole draft including hand edits.
+
+**Commands and outcomes.**
+
+- `npx tsc --noEmit` → exit 0. `npm run build` → exit 0, minified 267,203 B.
+- `npx playwright test` → **227 passed in 1.8 min**, Chrome, macOS darwin 25.6.0, Node v24.21.0.
+  Two new tests in `tests/m4.spec.mjs`: recorded endpoints join the open profile, which stays `default`
+  and ends two endpoints long with distinct aliases; a row delete drops its captures and the capture
+  count falls with it, and Reset asks, keeps on Cancel and clears on confirm. One existing test now
+  confirms the reset dialog.
+
+**Still open.** The `node:test` file whose failures the suite ignores, and its pre-existing `M4 recorder`
+failure — which is in `m2-core.spec.mjs`, not in the `m4.spec.mjs` touched here.
+
+**Not run.** Saved-bookmark installation and all Edge checks.
+
+**Next task.** UX review 2.7 — Settings, persistence and data safety, which the review calls its most
+serious defect: the storage status line cannot report a failure, and writes fail silently.
+
 ## 2026-09-25 — Test → Load: a filter, a real ramp field, and a plan you can delete (UX review 2.5)
 
 **Scope.** `UX_REVIEW.md` 2.5, all four bullets.

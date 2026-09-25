@@ -86,6 +86,10 @@ export type Ctx = {
   startRecording: () => void
   stopRecording: () => void
   resetRecorder: () => void
+  /** Drops every capture behind one review row. */
+  removeRecordings: (candidateKey: string) => void
+  /** Appends recorded endpoints to the live profile instead of minting a new one. */
+  addRecordingsToProfile: (endpoints: Endpoint[], hosts: Record<string, string>, bindings?: ContextBinding[]) => void
   createProfileFromRecordings: (
     name: string,
     endpoints: Endpoint[],
@@ -411,7 +415,12 @@ function recorderControls(ctx: Ctx): HTMLElement {
   const start = button("aw-btn aw-pri aw-sm", "Start recording", ctx.startRecording, ctx.signal)
   start.prepend(icon("record", "aw-i14"))
   const stop = button("aw-btn aw-out aw-sm", "Stop recording", ctx.stopRecording, ctx.signal)
-  const reset = button("aw-btn aw-gh aw-sm", "Reset recorder", () => { recordDrafts.clear(); ctx.resetRecorder(); ctx.go("record") }, ctx.signal)
+  const reset = button("aw-btn aw-gh aw-sm", "Reset recorder", () => {
+    void confirmDialog(reset, "Reset recorder",
+      `Discard ${ctx.state().recordings.length} captured call${ctx.state().recordings.length === 1 ? "" : "s"} and every edit made to the review below?`,
+      "Reset recorder", ctx.signal)
+      .then(confirmed => { if (confirmed) { recordDrafts.clear(); ctx.resetRecorder(); ctx.go("record") } })
+  }, ctx.signal)
   ctx.watch(state => {
     status.textContent = state.recording ? `Recording · ${state.recordings.length} captured` : `${state.recordings.length} captured · reviewable draft`
     start.disabled = state.recording
@@ -462,7 +471,13 @@ function recordScreen(ctx: Ctx): HTMLElement {
       row.append(group("aw-row aw-gap8", select, el("span", `aw-bd aw-m aw-${draft.endpoint.request.method}`, draft.endpoint.request.method), name,
         el("span", "aw-xs aw-mu", draft.count > 1 ? `×${draft.count}` : ""),
         el("span", "aw-xs aw-mu", sample ? String(sample.status) : "no response"),
-        iconButton("aw-btn aw-gh aw-ic aw-xs2", "edit", "Edit", () => editDraft(recordDrafts.get(draft.key) ?? draft), ctx.signal)))
+        iconButton("aw-btn aw-gh aw-ic aw-xs2", "edit", "Edit", () => editDraft(recordDrafts.get(draft.key) ?? draft), ctx.signal),
+        // Deletes the captures behind the row, not just the row: a candidate the user removed must
+        // not sit on in the buffer, and must not come back when the next capture rebuilds this list.
+        iconButton("aw-btn aw-gh aw-ic aw-xs2", "trash", "Delete", () => {
+          recordDrafts.delete(draft.key)
+          ctx.removeRecordings(draft.key)
+        }, ctx.signal)))
       const path = el("span", "aw-grow aw-tr aw-mono aw-xs aw-mu", draft.endpoint.request.path)
       path.title = draft.endpoint.request.path
       row.append(group("aw-row aw-endpoint-meta", path, el("span", "aw-xs aw-mu", draft.endpoint.hostKey)))
@@ -522,13 +537,30 @@ function recordScreen(ctx: Ctx): HTMLElement {
     ctx.go("endpoints")
   }, ctx.signal)
 
+  /** The selected drafts, or a reason the commit cannot run. */
+  const chosenDrafts = () => [...recordDrafts.values()].filter(draft => draft.selected)
+  const addToProfile = button("aw-btn aw-out aw-sm", "Add to this profile", () => {
+    const chosen = chosenDrafts()
+    if (!chosen.length) { notice.textContent = "Select at least one endpoint to add."; return }
+    if (ctx.state().recording) ctx.stopRecording()
+    const bindings = [...new Map(chosen.flatMap(draft => draft.bindings).map(binding => [binding.name, binding])).values()]
+    ctx.addRecordingsToProfile(chosen.map(draft => draft.endpoint), hosts, bindings)
+    recordDrafts.clear()
+    ctx.resetRecorder()
+    ctx.go("endpoints")
+  }, ctx.signal)
+
   const selection = card()
   selection.append(group("aw-row aw-actions", el("span", "aw-lbl aw-grow", "Captured endpoints"),
     button("aw-btn aw-gh aw-sm", "Select all", () => setAll(true), ctx.signal),
     button("aw-btn aw-gh aw-sm", "Clear", () => setAll(false), ctx.signal)),
-    el("p", "aw-hint", "Repeated calls to the same method and path are one endpoint. Edit any row before creating the profile."))
+    el("p", "aw-hint", "Repeated calls to the same method and path are one endpoint. Edit any row before committing it."))
   const commit = card()
-  commit.append(el("span", "aw-lbl", "Create a profile from the selected endpoints"),
+  // Two destinations, because recording on a page you already have a profile for should not force
+  // a profile you did not want.
+  commit.append(el("span", "aw-lbl", "Keep the selected endpoints"),
+    el("p", "aw-hint", "Add them to the profile you are on, or name a new profile for them."),
+    group("aw-row aw-actions", addToProfile),
     group("aw-row", profileName), notice)
   screen.append(recorderControls(ctx), selection, list, commit)
   ctx.chrome({ actions: [create, button("aw-btn aw-out aw-grow", "Back", () => ctx.go("home"), ctx.signal)] })

@@ -138,6 +138,11 @@ export function endpointFromRecording(recording: Recording, profileId: string): 
  * pathname are one endpoint — query strings differ per call, so the most recent one wins and the
  * count keeps the repetition visible. Aliases are made unique within the returned set.
  */
+/** How captures collapse into one candidate: same method, same path, query ignored. */
+export function candidateKey(endpoint: Endpoint): string {
+  return `${endpoint.request.method} ${endpoint.request.path.split("?")[0]}`
+}
+
 export function candidatesFrom(
   recordings: readonly Recording[],
   profileId: string,
@@ -151,7 +156,7 @@ export function candidatesFrom(
       skipped++
       continue
     }
-    const key = `${endpoint.request.method} ${endpoint.request.path.split("?")[0]}`
+    const key = candidateKey(endpoint)
     const existing = byKey.get(key)
     // The latest call carries the freshest sample, so it replaces the draft and keeps the count.
     byKey.set(key, {
