@@ -381,3 +381,40 @@ test('M8 a load run keeps one response per endpoint, and Results saves them one 
   expect(saved.sampleResponse.headers.some(header => header.name === 'content-type')).toBe(true);
   expect(config.endpoints.every(item => item.sampleResponse)).toBe(true);
 });
+test('M8 latency is banded by colour and stated in words, and P95 says what it means', async ({ page }) => {
+  await install(page, [endpoint('fast_one', 'GET', '/api/fixture'), endpoint('slow_one', 'GET', '/api/test/delay?ms=1200')], { iterations: 1 });
+  await openLoad(page);
+  await panel(page).getByRole('button', { name: 'Run Load' }).click();
+  await expect(panel(page).locator('.aw-bd.aw-s')).toHaveText('completed', { timeout: 20000 });
+
+  const rowOf = alias => panel(page).locator('tr', { hasText: alias });
+  const cellColour = cell => cell.evaluate(node => getComputedStyle(node).color);
+  // Green under 300ms, red over 1000ms: the same number is no longer the same white either way.
+  expect(await cellColour(rowOf('fast_one').locator('td.aw-num').nth(2))).toBe('rgb(74, 222, 128)');
+  expect(await cellColour(rowOf('slow_one').locator('td.aw-num').nth(2))).toBe('rgb(248, 113, 113)');
+
+  // Colour is never the only signal: each timing cell carries its band in words.
+  await expect(rowOf('slow_one').locator('td.aw-num').nth(2)).toHaveAttribute('title', /over 1000 ms/);
+  await expect(rowOf('fast_one').locator('td.aw-num').nth(2)).toHaveAttribute('title', /under 300 ms/);
+
+  // P95 explains itself in the header and under the table, rather than being an unexplained column.
+  await expect(panel(page).locator('th', { hasText: 'P95' })).toHaveAttribute('title', /95th percentile/);
+  await expect(panel(page).getByText(/19 of every 20 samples were at least that fast/)).toBeVisible();
+});
+
+test('M8 Results offers Stop only while a run is running', async ({ page }) => {
+  await install(page, [endpoint('slow_one', 'GET', '/api/test/delay?ms=1500')], { iterations: 2 });
+  await openLoad(page);
+  const stop = panel(page).locator('.aw-foot').getByRole('button', { name: 'Stop', exact: true });
+  await panel(page).getByRole('button', { name: 'Run Load' }).click();
+  // Mid-run it is there and it works.
+  await expect(stop).toBeVisible();
+  await stop.click();
+  await expect(panel(page).locator('.aw-bd.aw-s')).toHaveText('stopped', { timeout: 15000 });
+  await expect(stop).toBeHidden();
+
+  // And a finished run reached from history does not offer it either.
+  await panel(page).getByRole('button', { name: 'Run again', exact: true }).click();
+  await expect(panel(page).locator('.aw-bd.aw-s')).toHaveText('completed', { timeout: 25000 });
+  await expect(stop).toBeHidden();
+});

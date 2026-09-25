@@ -747,6 +747,7 @@ export function testScreen(ctx: Ctx): HTMLElement {
   segment.style.alignSelf = "flex-start"
   segment.setAttribute("role", "group")
   segment.setAttribute("aria-label", "Run mode")
+
   screen.append(
     group("aw-row", planPicker, rename, savePlan, deletePlan),
     planName,
@@ -810,15 +811,38 @@ function tile(label: string, value: string, unit = "", color = ""): HTMLElement 
 
 const show = (value: number | undefined) => (value === undefined ? "—" : String(value))
 
-/** Header cells, in order, with the reference's fixed widths. */
-const COLUMNS: readonly (readonly [string, string])[] = [
-  ["Endpoint", "text-align:left;padding-left:12px"],
-  ["Pass", "width:38px"],
-  ["Fail", "width:36px"],
-  ["Avg", "width:50px"],
-  ["Min", "width:50px"],
-  ["Max", "width:50px"],
-  ["P95", "width:62px;padding-right:12px"],
+/**
+ * Latency bands. A table where 1 ms and 1506 ms are both plain white makes the reader do the
+ * comparing. The colour is never the only signal: every timing cell also carries its band in a
+ * `title`, so it survives a colour-blind reader and a screenshot in greyscale.
+ */
+const FAST_MS = 300
+const SLOW_MS = 1000
+function latency(value: number | undefined): { text: string; color: string; note: string } {
+  if (value === undefined) return { text: "—", color: "", note: "No latency sample for this endpoint." }
+  if (value < FAST_MS) return { text: `${value}ms`, color: PASS_GREEN, note: `${value} ms · under ${FAST_MS} ms` }
+  if (value < SLOW_MS) return { text: `${value}ms`, color: SLOW_AMBER, note: `${value} ms · between ${FAST_MS} ms and ${SLOW_MS} ms` }
+  return { text: `${value}ms`, color: FAIL_RED, note: `${value} ms · over ${SLOW_MS} ms` }
+}
+
+/** One timing cell: its band's colour, and the same band in words. */
+function latencyCell(value: number | undefined, style = ""): HTMLElement {
+  const band = latency(value)
+  const cell = numberCell(band.text, `${style}${band.color ? `${style ? ";" : ""}color:${band.color}` : ""}`)
+  if (!band.color) cell.classList.add("aw-mu")
+  cell.title = band.note
+  return cell
+}
+
+/** Header cells, in order, with the reference's fixed widths, and what each column means. */
+const COLUMNS: readonly (readonly [string, string, string])[] = [
+  ["Endpoint", "text-align:left;padding-left:12px", "The endpoint this row reports, by alias."],
+  ["Pass", "width:38px", "Requests whose checks all passed."],
+  ["Fail", "width:36px", "Requests that failed a check, errored, timed out, were aborted or never ran."],
+  ["Avg", "width:50px", "Mean latency across this endpoint's samples, dispatch to response body read."],
+  ["Min", "width:50px", "Fastest sample."],
+  ["Max", "width:50px", "Slowest sample."],
+  ["P95", "width:62px;padding-right:12px", "95th percentile: 19 of every 20 samples were at least this fast. Nearest rank — the sorted sample at ceil(0.95 × n) − 1."],
 ] as const
 
 /** One numeric cell: muted when the run has no sample for it. */
@@ -955,9 +979,10 @@ function breakdownTable(run: RunState): HTMLElement {
   table.style.cssText = "width:100%;border-collapse:collapse;table-layout:fixed"
   const header = el("tr")
   header.style.cssText = "height:32px;border-bottom:1px solid var(--aw-zinc-800);background:var(--aw-zinc-950)"
-  for (const [label, width] of COLUMNS) {
+  for (const [label, width, meaning] of COLUMNS) {
     const cell = el("th", label === "Endpoint" ? "" : "aw-num", label)
     cell.style.cssText = `${width};font-size:11px;font-weight:500;color:var(--aw-zinc-400)`
+    cell.title = meaning
     header.append(cell)
   }
   const head = el("thead")
@@ -986,10 +1011,10 @@ function breakdownTable(run: RunState): HTMLElement {
       first,
       numberCell(String(endpoint.counts.passed), `color:${PASS_GREEN}`),
       numberCell(String(notPassed), `color:${FAIL_RED}`),
-      numberCell(show(stats.avgMs)),
-      numberCell(show(stats.minMs)),
-      numberCell(show(stats.maxMs)),
-      numberCell(stats.p95Ms === undefined ? "—" : `${stats.p95Ms}ms`, `padding-right:12px${stats.p95Ms === undefined ? "" : `;color:${SLOW_AMBER}`}`),
+      latencyCell(stats.avgMs),
+      latencyCell(stats.minMs),
+      latencyCell(stats.maxMs),
+      latencyCell(stats.p95Ms, "padding-right:12px"),
     )
     rows.append(row)
   }
@@ -998,7 +1023,8 @@ function breakdownTable(run: RunState): HTMLElement {
   box.style.overflow = "hidden"
   box.setAttribute("aria-label", "Per-endpoint breakdown")
   box.append(table)
-  return box
+  return group("aw-col aw-gap6", box,
+    el("p", "aw-hint", `Timings are milliseconds from dispatch to the response body being read: green under ${FAST_MS}, amber to ${SLOW_MS}, red above it. P95 is the 95th percentile — 19 of every 20 samples were at least that fast.`))
 }
 
 export function resultsScreen(ctx: Ctx): HTMLElement {
@@ -1046,8 +1072,9 @@ export function resultsScreen(ctx: Ctx): HTMLElement {
     tiles.append(
       tile("Passed", String(passedCount(run)), "", PASS_GREEN),
       tile("Failed", String(failedCount(run)), "", FAIL_RED),
-      tile("Avg latency", show(overall.avgMs), "ms"),
-      tile("P95 latency", show(overall.p95Ms), "ms", overall.p95Ms === undefined ? "" : SLOW_AMBER),
+      // Banded like the table below them, rather than amber whatever the number says.
+      tile("Avg latency", show(overall.avgMs), "ms", latency(overall.avgMs).color),
+      tile("P95 latency", show(overall.p95Ms), "ms", latency(overall.p95Ms).color),
     )
     body.append(header, tiles, caption("Per-endpoint breakdown"), breakdownTable(run))
 
@@ -1070,7 +1097,12 @@ export function resultsScreen(ctx: Ctx): HTMLElement {
     if (samples) body.append(samples)
   }
 
+  // Results also shows finished and historical runs, where there is nothing to stop. The button is
+  // hidden rather than disabled: on this screen it is not a control waiting to be used, it is a
+  // control that does not apply.
+  const stop = button("aw-btn aw-out", "Stop", () => ctx.stopRun(), ctx.signal)
   ctx.watch((state) => {
+    stop.hidden = state.run?.state !== "running"
     const run = state.openRun
     if (rendered && run === seen) return
     seen = run
@@ -1084,7 +1116,7 @@ export function resultsScreen(ctx: Ctx): HTMLElement {
     actions: [
       button("aw-btn aw-out aw-sm", "JSON", () => ctx.exportRun("json"), ctx.signal),
       button("aw-btn aw-out aw-sm", "CSV", () => ctx.exportRun("csv"), ctx.signal),
-      button("aw-btn aw-out", "Stop", () => ctx.stopRun(), ctx.signal),
+      stop,
       button("aw-btn aw-pri aw-grow", "Run again", () => ctx.startRun(), ctx.signal),
     ],
   })
