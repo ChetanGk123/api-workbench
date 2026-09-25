@@ -8,6 +8,12 @@ const panel = page => page.locator('#api-workbench .aw-root:not(.aw-min)');
 const body = page => panel(page).locator('.aw-body');
 const launch = page => page.evaluate(source); // UI checks only, not saved-bookmark installation evidence.
 const headerButton = (page, name) => panel(page).locator('.aw-tb').getByRole('button', { name, exact: true });
+// The update check reads the published package.json. Every test that presses the button decides
+// what that read returns, so no test depends on the repository's real contents or on being online.
+const MANIFEST = 'https://raw.githubusercontent.com/ChetanGk123/api-workbench/main/package.json';
+const publishes = (page, version) => page.route(MANIFEST, route =>
+  version === null ? route.abort('failed') : route.fulfill({ contentType: 'application/json', body: JSON.stringify({ version }) }));
+const buildVersion = JSON.parse(await readFile('package.json', 'utf8')).version;
 
 let seq = 0;
 const base = (label, url, kind) => ({
@@ -181,7 +187,33 @@ test('Save stores the live profile so a switch away and back returns to it', asy
   await expect(panel(page).locator('.aw-endpoint-row')).toHaveCount(sample.endpoints.length);
 });
 
-test('Check for update compares this build against the one recorded for the origin', async ({ page }) => {
+test('Check for update reports a newer published version, and where to get it', async ({ page }) => {
+  await publishes(page, '99.9.9');
+  await launch(page);
+  await openSettings(page);
+  await body(page).getByRole('button', { name: 'Check for update', exact: true }).click();
+  await expect(body(page).getByText(/Version 99\.9\.9 has been published/)).toBeVisible();
+  await expect(body(page).getByText(/Re-install the bookmarklet from the landing page/)).toBeVisible();
+
+  // The published version matching this build is the one answer the origin note cannot give.
+  await publishes(page, buildVersion);
+  await body(page).getByRole('button', { name: 'Check for update', exact: true }).click();
+  await expect(body(page).getByText(`Up to date: ${buildVersion} is the published version.`)).toBeVisible();
+});
+
+test("Check for update survives a page whose CSP refuses the manifest", async ({ page }) => {
+  // connect-src 'self' is the ordinary reason the read fails in a real application: the request is
+  // refused by the host page, not by the network, and the check has to report rather than throw.
+  await page.goto('/policy/strict');
+  await launch(page);
+  await openSettings(page);
+  await body(page).getByRole('button', { name: 'Check for update', exact: true }).click();
+  await expect(body(page).locator('.aw-card', { hasText: 'About API Workbench' }).locator('[role=status]'))
+    .toHaveText(`Up to date: no build newer than ${buildVersion} has run on this origin.`);
+});
+
+test('Check for update falls back to the origin note when the published version cannot be read', async ({ page }) => {
+  await publishes(page, null);
   await launch(page);
   await openSettings(page);
   await body(page).getByRole('button', { name: 'Check for update', exact: true }).click();
@@ -296,7 +328,6 @@ test('a backup carries every stored profile, and restoring one replaces the lot'
 });
 
 /** The build under test, so a version bump in package.json does not have to be repeated here. */
-const buildVersion = JSON.parse(await readFile('package.json', 'utf8')).version;
 
 const storedVersion = page => page.evaluate(() => new Promise(resolve => {
   const request = indexedDB.open('api-workbench');
@@ -337,5 +368,5 @@ test('a newer bookmark launched over a running one is recorded, so the check can
 
   // And the button says what it compares, rather than implying it asks a server.
   await openSettings(page);
-  await expect(body(page).getByText(/Nothing is requested from the network/)).toBeVisible();
+  await expect(body(page).getByText(/Reads the published version from the public repository/)).toBeVisible();
 });

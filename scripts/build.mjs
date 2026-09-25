@@ -13,9 +13,13 @@ const raw = await build(options);
 const min = await build({ ...options, minify: true });
 const code = min.outputFiles[0].text;
 for (const output of Object.values(min.metafile.outputs)) assert.equal(output.imports.length, 0);
-// The SVG namespace is an XML identifier, never fetched; no other absolute URL may survive.
-const withoutSVGNamespace = code.replaceAll('http://www.w3.org/2000/svg', '');
-assert(!/\bimport\s*\(|\beval\s*\(|new Function\b|https?:\/\//.test(withoutSVGNamespace), 'Unexpected runtime loader, executable evaluator or external URL');
+// The SVG namespace is an XML identifier, never fetched. The published-version manifest is the one
+// URL the bundle may request: it is read as data for the update check, never loaded as code, and a
+// failed read falls back to the origin-recorded comparison. No other absolute URL may survive.
+const VERSION_MANIFEST_URL = 'https://raw.githubusercontent.com/ChetanGk123/api-workbench/main/package.json';
+assert(code.includes(VERSION_MANIFEST_URL), 'The published-version manifest URL is missing from the bundle');
+const withoutKnownURLs = code.replaceAll('http://www.w3.org/2000/svg', '').replaceAll(VERSION_MANIFEST_URL, '');
+assert(!/\bimport\s*\(|\beval\s*\(|new Function\b|https?:\/\//.test(withoutKnownURLs), 'Unexpected runtime loader, executable evaluator or external URL');
 for (const path of ['design/reference/aw-theme.css', 'src/ui/theme.css'])
   assert(!/url\s*\(|@import/i.test(await readFile(path, 'utf8')), 'External CSS asset');
 export const encode = source => 'javascript:' + encodeURIComponent('void function(){\n' + source + '\n}()');

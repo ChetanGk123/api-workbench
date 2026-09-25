@@ -43,6 +43,26 @@ const compareVersions = (left: string, right: string) => {
   return 0
 }
 
+/**
+ * The published version, read from `package.json` on the public repository. raw.githubusercontent
+ * answers with `Access-Control-Allow-Origin: *`, so the read works from any page, but a host page's
+ * `connect-src` can still refuse it and the request is cross-origin over a network the user did not
+ * ask about. Every failure resolves to `undefined` so the caller falls back to what this origin has
+ * recorded locally, and the pristine `fetch` captured at launch is used so the check cannot be
+ * mocked, delayed or recorded by the workbench's own rules.
+ */
+const PUBLISHED_VERSION_URL = "https://raw.githubusercontent.com/ChetanGk123/api-workbench/main/package.json"
+const publishedVersion = async (fetcher: typeof window.fetch): Promise<string | undefined> => {
+  try {
+    const response = await fetcher(PUBLISHED_VERSION_URL, { cache: "no-store", signal: AbortSignal.timeout(5000) })
+    if (!response.ok) return undefined
+    const manifest = (await response.json()) as { version?: unknown }
+    return typeof manifest.version === "string" && /^\d+(\.\d+)*$/.test(manifest.version) ? manifest.version : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /** `notify` is optional: a build launched over an older one has to cope with it being absent. */
 type Instance = { version: string; restore: () => void; notify?: (title: string, message: string) => void }
 const registry = window as unknown as Record<string, Instance | undefined>
@@ -453,11 +473,16 @@ if (existing) {
       rulesOf(store.state.config).reduce((highest, rule) => Math.max(highest, rule.seq), 0) + 1,
     continueAllPaused: () => breakpoints.continueAll(),
     /**
-     * An inline bookmarklet fetches nothing, so there is no remote manifest to ask. What this
-     * origin does know is the newest build that has ever run here, recorded at launch: a bookmark
-     * older than that note is a stale copy the user saved before re-installing.
+     * The published `package.json` is the only source that knows about builds this origin has never
+     * seen, so it is asked first. When it cannot be reached — an offline page, a `connect-src` that
+     * refuses raw.githubusercontent — the fallback is what this origin recorded at launch: a
+     * bookmark older than that note is a stale copy the user saved before re-installing.
      */
     checkForUpdate: async () => {
+      const published = await publishedVersion(directFetch)
+      if (published && compareVersions(published, version) > 0)
+        return `Version ${published} has been published; this bookmark runs ${version}. Re-install the bookmarklet from the landing page to replace it.`
+      if (published === version) return `Up to date: ${version} is the published version.`
       const seen = await readLaunchVersion()
       if (!seen) {
         void recordLaunchVersion(version)

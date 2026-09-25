@@ -274,7 +274,7 @@ const SCREEN_DATA = {
     points: [
       "Profile management and origin-scoped storage",
       "Body and log limits, recorder recovery",
-      "Bundled version; replace the bookmark to update",
+      "Published-version check; replace the bookmark to update",
     ],
   },
 } as const satisfies Record<ScreenId, Screen>
@@ -1163,7 +1163,7 @@ function aboutCard(ctx: Ctx): HTMLElement {
   const newest = ctx.state().newestVersion
   const check = button("aw-btn aw-out aw-sm", "Check for update", () => {
     check.disabled = true
-    status.textContent = "Checking the build recorded for this origin…"
+    status.textContent = "Checking the published version…"
     void ctx.checkForUpdate().then(message => { status.textContent = message; check.disabled = false })
   }, ctx.signal)
   check.prepend(icon("refresh", "aw-i14"))
@@ -1228,7 +1228,7 @@ function aboutCard(ctx: Ctx): HTMLElement {
       el("span", "aw-mu", newest ? (newest === ctx.version ? "this build" : `${newest} has run on this origin`) : "not recorded yet")),
     group("aw-row aw-xs", el("span", "aw-mu aw-w64", "Storage"), usage),
     group("aw-row aw-gap6", check, clear),
-    el("p", "aw-hint", "Compares this bookmark against the newest build that has launched on this origin. Nothing is requested from the network: launch the new bookmarklet here once, then check again."),
+    el("p", "aw-hint", "Reads the published version from the public repository. If that request is blocked — offline, or the page's content security policy refuses it — this falls back to comparing against the newest build that has launched on this origin."),
     group("aw-row aw-gap6", backup, restore),
     el("p", "aw-hint", "A backup carries every profile, plan and rule this origin holds. Export profile + endpoints above carries the active profile alone, for sharing it."),
     status,

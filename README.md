@@ -31,7 +31,7 @@ npm run build
 npm run server
 ```
 
-The source repository is private, so cloning requires repository access.
+The repository is public; cloning needs no access grant.
 
 1. Open [the local landing page](http://127.0.0.1:4173/index.html) or [the installer](http://127.0.0.1:4173/install.html).
 2. Show your browser's bookmarks bar and drag the **API Workbench** link onto it.
@@ -40,7 +40,7 @@ The source repository is private, so cloning requires repository access.
 
 You can also open `dist/install.html` directly without starting the local server. For manual installation, copy the entire contents of `dist/bookmarklet.txt`, including `javascript:`, into a bookmark's URL field.
 
-**Updates:** rebuild and replace the saved bookmark with the new install link. Reload the application before launching the new version. Existing bookmarks do not update automatically.
+**Updates:** **Check for update** in Settings reads the published version from `package.json` on the public repository and reports when a newer one exists. The check needs the host page's content security policy to permit the request; when it cannot be read, the panel falls back to comparing against the newest build that has launched on this origin. A bookmarklet cannot rewrite a saved bookmark, so updating is still manual: rebuild or open the install page, replace the bookmark with the new link, and reload the application before launching it.
 
 ## Try it locally
 
@@ -92,7 +92,7 @@ Browser tests that inject the bookmarklet source do **not** prove saved-bookmark
 
 [GitHub Actions](.github/workflows/deploy.yml) builds every push and pull request with `npm ci` and `npm run build`, then uploads the generated public files as an artifact. Successful builds on `main` are configured to deploy through GitHub Pages. Browser tests are separate from this deployment workflow.
 
-**Hosting status, 25 September 2026:** the GitHub build and artifact upload passed, but the site is not live. GitHub rejected Pages activation because the current account plan does not support Pages for this private repository. An eligible plan or another publishing destination is needed.
+**Hosting status, 25 September 2026:** the repository was made public and Pages is enabled with GitHub Actions as its source, which cleared the earlier plan restriction. The site is at `https://chetangk123.github.io/api-workbench/`, with the installer at `install.html`.
 
 Once hosting is enabled, pushing committed changes to `main` will update the landing page and installer. It will not replace bookmarks users have already saved. See [deployment setup and rollback instructions](docs/DEPLOYMENT.md).
 
