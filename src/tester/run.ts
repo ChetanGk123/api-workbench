@@ -67,6 +67,19 @@ export type EndpointStats = {
   /** Bounded latency samples; `sampleCount` says how many requests they represent. */
   samples: number[]
   sampleCount: number
+  /**
+   * The last real response this endpoint returned in the run, kept so Results can offer it as the
+   * endpoint's response sample. One per endpoint and bounded: a load run answers thousands of
+   * times, and keeping every body would cost the run's memory for no extra information.
+   */
+  response?: {
+    status: number
+    headers: Record<string, string>
+    /** What the tester sent, so a saved sample can be read against the request that produced it. */
+    requestHeaders: Record<string, string>
+    body: string
+    truncated: boolean
+  }
 }
 
 export const OUTCOMES: RequestOutcome[] = [
@@ -108,6 +121,8 @@ export type RunOptions = {
 }
 
 const MAX_RECENT = 200
+/** Per endpoint, per run. Matches the traffic log's body cap, so one bound governs both. */
+const MAX_SAMPLE_BODY = 16 * 1024
 
 export async function startRun(options: RunOptions): Promise<RunState> {
   const { plan, profile, endpoints, fetcher } = options
@@ -189,6 +204,15 @@ export async function startRun(options: RunOptions): Promise<RunState> {
         stats.sampleCount += 1
         if (stats.samples.length < MAX_SAMPLES_PER_ENDPOINT) stats.samples.push(entry.durationMs)
       }
+      // The newest response wins, so the sample matches the run's final state of that endpoint.
+      if (result.status !== undefined && (entry.outcome === "passed" || entry.outcome === "failed-check"))
+        stats.response = {
+          status: result.status,
+          headers: result.headers ?? {},
+          requestHeaders: result.requestHeaders ?? {},
+          body: result.body.slice(0, MAX_SAMPLE_BODY),
+          truncated: result.truncated || result.body.length > MAX_SAMPLE_BODY,
+        }
     }
     state.recent = [entry, ...state.recent].slice(0, MAX_RECENT)
     publish()

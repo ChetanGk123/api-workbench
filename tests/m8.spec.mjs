@@ -320,3 +320,64 @@ test('M8 a notified run restores a minimized panel to show the dialog', async ({
   await expect(dialog).toHaveCount(0);
   await expect(panel(page)).toBeVisible();
 });
+});
+
+test('M8 a load run keeps one response per endpoint, and Results saves them one or all at once', async ({ page }) => {
+  await install(page, [endpoint('echo_once', 'GET', '/api/fixture'), endpoint('echo_post', 'POST', '/api/echo')], { iterations: 2 });
+  await openLoad(page);
+  await panel(page).getByRole('button', { name: 'Run Load' }).click();
+  await expect(panel(page).locator('.aw-bd.aw-s')).toHaveText('completed', { timeout: 15000 });
+
+  const samples = panel(page).locator('.aw-card', { hasText: 'Response samples' });
+  await expect(samples).toContainText('up to 16 KiB');
+  // Located by its place in the card header, because its label carries the count and changes.
+  const saveAll = samples.locator('.aw-row.aw-actions').getByRole('button');
+  await expect(saveAll).toHaveText('Save all (2)');
+
+  // One row at a time: the row itself reports the outcome, without a trip to a status line.
+  const rows = samples.locator('.aw-row.aw-gap8');
+  await rows.filter({ hasText: 'echo_once' }).getByRole('button', { name: 'Save as sample', exact: true }).click();
+  await expect(rows.filter({ hasText: 'echo_once' }).getByText('Saved', { exact: true })).toBeVisible();
+  // The save button is gone; the one that reads the response stays, because a saved row is still
+  // worth looking at.
+  await expect(rows.filter({ hasText: 'echo_once' }).getByRole('button', { name: /sample/ })).toHaveCount(0);
+  await expect(rows.filter({ hasText: 'echo_once' }).getByRole('button', { name: /^Show the response/ })).toBeVisible();
+  await expect(saveAll).toHaveText('Save all (1)');
+  await expect(panel(page).getByRole('status', { name: 'Response sample status' })).toContainText('Saved the response sample for echo_once');
+
+  // The rest in one go, and then there is nothing left to save.
+  await saveAll.click();
+  await expect(panel(page).getByRole('status', { name: 'Response sample status' })).toContainText('Saved 1 response sample');
+  await expect(saveAll).toHaveText('All saved');
+  await expect(saveAll).toBeDisabled();
+  await expect(rows.filter({ hasText: 'echo_post' }).getByText('Saved', { exact: true })).toBeVisible();
+
+  // The response is readable before it is saved: a sample saved unseen is a guess.
+  const echoRow = rows.filter({ hasText: 'echo_once' });
+  const reveal = echoRow.getByRole('button', { name: /^Show the response echo_once returned/ });
+  await expect(reveal).toHaveAttribute('aria-expanded', 'false');
+  await reveal.click();
+  await expect(reveal).toHaveAttribute('aria-expanded', 'true');
+  const shown = samples.locator('[aria-label="Response echo_once returned"]');
+  await expect(shown.locator('pre.aw-code').last()).toContainText('"source": "network"');
+  // Both header sides, each labelled, so neither block is a wall of text the reader has to identify.
+  await expect(shown).toContainText('Request headers sent');
+  await expect(shown).toContainText('Response headers');
+  await expect(shown).toContainText('Response body');
+  await expect(shown.getByLabel('Response headers for echo_once')).toContainText('content-type:');
+  await expect(shown.getByLabel('Request headers sent for echo_once')).toContainText('x-workbench-import:');
+
+  const config = await page.evaluate(() => new Promise(resolve => {
+    const request = indexedDB.open('api-workbench');
+    request.onsuccess = () => {
+      const database = request.result;
+      const read = database.transaction('configs', 'readonly').objectStore('configs').get(location.origin);
+      read.onsuccess = () => { database.close(); resolve(read.result); };
+    };
+  }));
+  const saved = config.endpoints.find(item => item.alias === 'echo_once');
+  expect(saved.sampleResponse.status).toBe(200);
+  expect(saved.sampleResponse.body).toContain('fixture');
+  expect(saved.sampleResponse.headers.some(header => header.name === 'content-type')).toBe(true);
+  expect(config.endpoints.every(item => item.sampleResponse)).toBe(true);
+});

@@ -23,6 +23,8 @@ export type OnceResult = {
   truncated: boolean
   /** Response headers as delivered. Absent when the request never produced a response. */
   headers?: Record<string, string>
+  /** The headers the tester sent, after global merge and template resolution. */
+  requestHeaders?: Record<string, string>
   /** Decoded body size in bytes, before any truncation to the profile's limit. */
   size?: number
   checks: Array<{ check: Check; state: "passed" | "failed" | "not-evaluated"; detail: string }>
@@ -147,6 +149,7 @@ export async function executeRequest(
     return {
       endpointId: endpoint.id, outcome, status: response.status, durationMs, headersMs, body,
       truncated: raw.length > body.length, headers: Object.fromEntries(response.headers.entries()),
+      requestHeaders: Object.fromEntries(headers.entries()),
       size: new TextEncoder().encode(raw).length, checks, value,
     }
   } catch (error) {

@@ -829,6 +829,127 @@ function numberCell(value: string, style = ""): HTMLElement {
   return cell
 }
 
+/**
+ * Load's answer to Once's Save as response sample. A run keeps one response per endpoint — the last
+ * real one — so a sample can be taken from a run without re-sending anything. A long list makes two
+ * things matter: saving the lot in one go, and each row saying where it stands without scrolling to
+ * a status line at the bottom.
+ */
+function responseSamplesCard(ctx: Ctx, run: RunState): HTMLElement | undefined {
+  const kept = run.endpoints.filter((endpoint) => endpoint.response)
+  if (!kept.length) return undefined
+  const box = card()
+  const note = el("p", "aw-hint")
+  note.setAttribute("role", "status")
+  note.setAttribute("aria-label", "Response sample status")
+
+  /** Writes this run's response onto the endpoint; returns its name, or undefined if it is gone. */
+  const save = (stats: (typeof kept)[number]): string | undefined => {
+    const current = ctx.state().config.endpoints.find((item) => item.id === stats.endpointId)
+    const response = stats.response
+    if (!current || !response) return undefined
+    ctx.updateEndpoint({
+      ...current,
+      sampleResponse: {
+        status: response.status,
+        headers: Object.entries(response.headers).map(([name, value]) => ({ name, value })),
+        body: response.body,
+      },
+      updatedAt: Date.now(),
+    })
+    return current.name
+  }
+
+  /** Whether the endpoint already holds exactly this run's response. */
+  const isSaved = (stats: (typeof kept)[number]): boolean => {
+    const current = ctx.state().config.endpoints.find((item) => item.id === stats.endpointId)
+    return current?.sampleResponse?.body === stats.response?.body && current?.sampleResponse?.status === stats.response?.status
+  }
+
+  const repaints: Array<() => void> = []
+  const saveAll = button("aw-btn aw-out aw-sm", "Save all", () => {
+    const pending = kept.filter((stats) => !isSaved(stats))
+    const saved = pending.map(save).filter((name): name is string => !!name)
+    // Repaints the rows and this button's own count; it is defined below and only runs on a click.
+    repaintAll()
+    note.textContent = saved.length
+      ? `Saved ${saved.length} response sample${saved.length === 1 ? "" : "s"}.`
+      : "Every endpoint already holds this run's response."
+  }, ctx.signal)
+
+  const repaintAll = () => {
+    for (const repaint of repaints) repaint()
+    const pending = kept.filter((stats) => !isSaved(stats)).length
+    saveAll.textContent = pending ? `Save all (${pending})` : "All saved"
+    saveAll.disabled = !pending
+  }
+
+  box.append(
+    group("aw-row aw-actions", el("span", "aw-lbl aw-grow", "Response samples"), saveAll),
+    el("p", "aw-hint", "The last response each endpoint returned in this run, up to 16 KiB. Saving one stores it on the endpoint, where the editor and a mock can use it."),
+    note,
+  )
+
+  for (const stats of kept) {
+    const response = stats.response!
+    const state = el("span", "aw-bd aw-xs aw-gr", "Saved")
+    const action = button("aw-btn aw-out aw-xs2", "Save as sample", () => {
+      const name = save(stats)
+      note.textContent = name ? `Saved the response sample for ${name}.` : `${stats.name} is no longer in this profile.`
+      repaintAll()
+    }, ctx.signal)
+    const repaint = () => {
+      const current = ctx.state().config.endpoints.find((item) => item.id === stats.endpointId)
+      const saved = isSaved(stats)
+      // Three states, because "has a sample" and "has this run's sample" are different answers.
+      state.hidden = !saved
+      action.hidden = saved
+      action.textContent = current?.sampleResponse ? "Replace sample" : "Save as sample"
+      action.disabled = !current
+      if (!current) action.textContent = "Endpoint removed"
+    }
+    repaints.push(repaint)
+    repaint()
+
+    // Saving a response you cannot read is a guess. The body is already retained, so the row shows
+    // it on request rather than only offering to store it.
+    const detail = el("div", "aw-col aw-gap6")
+    detail.hidden = true
+    detail.setAttribute("aria-label", `Response ${stats.alias} returned`)
+    // Three unlabelled boxes are a wall of text: each block says what it is, and the request side is
+    // here too, so a response can be read against what was actually sent to produce it.
+    const headerBlock = (label: string, headers: Record<string, string>) => {
+      const lines = Object.entries(headers).map(([name, value]) => `${name}: ${value}`).join("\n")
+      const box = el("pre", "aw-code aw-wrap aw-xs aw-mu", lines || "None.")
+      box.setAttribute("aria-label", `${label} for ${stats.alias}`)
+      return [el("span", "aw-lbl", label), box]
+    }
+    detail.append(
+      ...headerBlock("Request headers sent", response.requestHeaders),
+      ...headerBlock("Response headers", response.headers),
+      el("span", "aw-lbl", "Response body"),
+    )
+    detail.append(el("pre", "aw-code aw-wrap", response.body ? (prettyJson(response.body) ?? response.body) : "No response body."))
+    if (response.truncated) detail.append(el("p", "aw-hint aw-am", "Body truncated to 16 KiB; saving stores what is shown."))
+    const reveal = iconButton("aw-btn aw-gh aw-ic aw-xs2", "expand", `Show the response ${stats.alias} returned`, () => {
+      detail.hidden = !detail.hidden
+      reveal.title = detail.hidden ? `Show the response ${stats.alias} returned` : `Hide the response ${stats.alias} returned`
+      reveal.setAttribute("aria-expanded", String(!detail.hidden))
+    }, ctx.signal)
+    reveal.setAttribute("aria-expanded", "false")
+
+    box.append(group("aw-row aw-gap8",
+      methodBadge(stats.method),
+      el("span", "aw-grow aw-tr aw-xs aw-mono", stats.alias),
+      el("span", "aw-xs aw-mu", `${response.status}${response.truncated ? " · truncated" : ""}`),
+      state,
+      reveal,
+      action), detail)
+  }
+  repaintAll()
+  return box
+}
+
 function breakdownTable(run: RunState): HTMLElement {
   const table = el("table")
   table.style.cssText = "width:100%;border-collapse:collapse;table-layout:fixed"
@@ -945,6 +1066,8 @@ export function resultsScreen(ctx: Ctx): HTMLElement {
     for (const message of run.errors) breakdown.append(el("p", "aw-hint aw-rd", message))
     for (const message of run.warnings) breakdown.append(el("p", "aw-hint aw-am", message))
     body.append(breakdown)
+    const samples = responseSamplesCard(ctx, run)
+    if (samples) body.append(samples)
   }
 
   ctx.watch((state) => {
