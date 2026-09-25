@@ -3248,3 +3248,14 @@ After each implementation task, append a dated entry containing:
 - Next concrete task.
 
 Do not mark a milestone complete solely because its source files exist or its UI is visible. Use the acceptance criteria in the build plan and the assigned task.
+
+## 2026-09-25 — GitHub deployment setup
+
+- Added `.github/workflows/deploy.yml`: build every push/PR with Node 24, `npm ci`, and `npm run build`; upload only public artifacts; deploy main through Pages.
+- Updated `scripts/build.mjs`: public installer instructions and relative bookmark download; retained experimental links in local `install-probes.html`.
+- Added `docs/DEPLOYMENT.md` with publishing, update, rollback, and hosting prerequisites.
+- Created private `ChetanGk123/api-workbench` and configured origin. GitHub Pages activation failed with HTTP 422 because the current plan does not support Pages for this private repository. No live hosting claimed.
+- Commands: `npm ci && npm run build` passed; `npx playwright test tests/showcase.spec.mjs tests/m0.spec.mjs` passed all 15 tests after retrying outside the sandbox (initial fixture bind failed with EPERM); `git diff --check` passed. Node v24.21.0, npm 11.19.0, Chrome 153.0.8010.53, gh 2.101.0.
+- Latest working-tree build: 277,728 minified bytes; 400,742 encoded bookmark characters. Existing unrelated working-tree edits were preserved; deployment commits only this task's files/log entry.
+- Not run: GitHub-hosted build/deployment, saved-bookmark UI installation, Edge, full browser suite. Hosting destination remains pending the user's choice after the plan restriction.
+- Next: resolve hosting eligibility/destination, push and verify the hosted installer and a subsequent automatic update. This task does not mark M10 or outstanding bookmark feasibility gates complete.
