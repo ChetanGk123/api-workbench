@@ -3527,3 +3527,13 @@ Do not mark a milestone complete solely because its source files exist or its UI
 - Version bumped to 1.0.6. Commands: `npm run build` passed (279,263 minified bytes; 402,927 encoded characters). `npx playwright test` passed 242/242 in 2.0m. Node v24.21.0.
 - Limitations: the overflow check covers this card at the panel's default width only; no other screen was measured, and no manual pass was made in Edge.
 - Next: install 1.0.6 by hand from the deployed installer and confirm the copy-and-paste cycle on a genuine saved bookmark, in Chrome and Edge.
+
+## 2026-09-25 — Module activation state reads at a glance
+
+- Reported from a running panel: on Mock, Intercept, Route and Chaos the activate control kept the same play icon in both states, carried no colour once active, and the live-module dot on the tab strip was amber even though Home and the title bar use green for a running module.
+- `src/ui/rule-screens.ts` (`moduleHeader`): the control now mirrors Home's module cards — `play` + `aw-pri` for **Activate**, `stop` + `aw-dst` for **Deactivate** — and the status badge turns green (`aw-bd aw-gr`, `aw-dot aw-g`) when the module is active instead of amber.
+- `src/ui/theme.css`: one rule overriding the reference's `.aw-tt .aw-d` amber with `#22c55e`. The tab dot is only rendered while a module is running, so green is the only state it has.
+- Commands: `npx tsc --noEmit` clean; `npm run build` passed (279,493 minified bytes; 403,269 encoded characters); `npx playwright test tests/m5 m6 m7 settings ui` passed 88/88 in 1.3m. A throwaway spec captured the Mock screen in both states and was deleted; both screenshots show the intended icons, button colours, badge and tab dot.
+- Version bumped to 1.0.8.
+- Not run: the full 242-test suite, and any pass in Edge.
+- Next: unchanged — install the published build by hand in Chrome and Edge.

@@ -727,3 +727,9 @@ p {
     box-shadow: 0 12px 40px #0006, 0 0 0 3px var(--aw-zinc-50);
   }
 }
+
+/* The tab strip only dots a module while it is live, so the dot is green like the title-bar
+ * indicator and the module badge, not the reference's amber. */
+.aw-root .aw-tt .aw-d {
+  background: #22c55e;
+}

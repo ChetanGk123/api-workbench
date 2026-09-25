@@ -88,17 +88,18 @@ function moduleHeader(ctx: Ctx, kind: RuleKind, title: string, onToggle: () => v
   const label = document.createTextNode("Inactive")
   badge.append(dot, label)
   head.append(tile, el("span", "aw-h", title), badge)
-  const activate = button("aw-btn aw-pri aw-sm aw-self", "Activate", onToggle, ctx.signal)
-  activate.prepend(icon("play", "aw-i12"))
+  const activate = button("aw-btn aw-pri aw-sm aw-self", "", onToggle, ctx.signal)
   const hint = el("p", "aw-hint")
   hint.setAttribute("role", "status")
   ctx.watch((state) => {
     const on = state.moduleActive[kind]
     label.textContent = on ? "Active" : "Inactive"
-    dot.className = on ? "aw-dot aw-a" : "aw-dot"
-    activate.textContent = on ? "Deactivate" : "Activate"
-    activate.prepend(icon("play", "aw-i12"))
-    activate.className = `aw-btn ${on ? "aw-out" : "aw-pri"} aw-sm aw-self`
+    badge.className = on ? "aw-bd aw-gr" : "aw-bd"
+    dot.className = on ? "aw-dot aw-g" : "aw-dot"
+    // Same stop/play pair and colouring as Home's module cards, so one module reads the same way
+    // on both screens.
+    activate.replaceChildren(icon(on ? "stop" : "play", "aw-i12"), document.createTextNode(on ? "Deactivate" : "Activate"))
+    activate.className = `aw-btn ${on ? "aw-dst" : "aw-pri"} aw-sm aw-self`
     const enabled = state.config.rules?.filter((rule) => rule.kind === kind && rule.enabled).length ?? 0
     hint.textContent = on
       ? `${enabled} enabled rule${enabled === 1 ? "" : "s"} apply to this frame's fetch and XHR traffic.`

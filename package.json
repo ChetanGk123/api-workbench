@@ -1,6 +1,6 @@
 {
   "name": "api-workbench",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Self-contained API Workbench bookmarklet — M9 complete import support",
   "scripts": {
     "build": "tsc && node scripts/build.mjs",
