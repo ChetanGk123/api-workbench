@@ -205,7 +205,7 @@ test('Check for update reports a newer published version, and offers its bookmar
 
   // Copied, never applied: the clipboard carries the new text and this build keeps running.
   await copyButton(page).click();
-  await expect(body(page).getByText(/Version 99\.9\.9 is on the clipboard/)).toBeVisible();
+  await expect(body(page).getByText(/Version 99\.9\.9 copied/)).toBeVisible();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('javascript:void%20function()%7B/*99.9.9*/%7D()');
   await expect(body(page).locator('.aw-card', { hasText: 'About API Workbench' })).toContainText(buildVersion);
 
@@ -398,5 +398,5 @@ test('a newer bookmark launched over a running one is recorded, so the check can
 
   // And the button says what it compares, rather than implying it asks a server.
   await openSettings(page);
-  await expect(body(page).getByText(/Reads the published version from the deployed installer/)).toBeVisible();
+  await expect(body(page).getByText(/Compares this build against the deployed installer/)).toBeVisible();
 });

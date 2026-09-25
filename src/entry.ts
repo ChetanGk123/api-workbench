@@ -520,7 +520,7 @@ if (existing) {
     /** Rejects with the reason, which the caller shows: nothing about the running build changes. */
     copyUpdate: async (published: string) => {
       const length = await copyPublishedBookmarklet(directFetch, published)
-      return `Version ${published} is on the clipboard (${length} characters). Right-click the saved bookmark, choose Edit, replace its URL with the clipboard contents, then reload this page before launching it.`
+      return `Version ${published} copied (${length} characters). Paste it into the saved bookmark's URL field, then reload this page.`
     },
     clearStoredData: async () => {
       await clearStoredConfig()

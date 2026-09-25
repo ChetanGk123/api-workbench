@@ -3518,3 +3518,12 @@ Do not mark a milestone complete solely because its source files exist or its UI
 - End-to-end, run once from a throwaway spec with no routing: a 1.0.3 bookmarklet, built locally for this purpose, launched on the fixture page and pressed against the live site. It reported `Version 1.0.4 has been published; this bookmark runs 1.0.3.`, then `Version 1.0.4 is on the clipboard (403271 characters)…`; exactly two 200 responses were observed (`version.json`, `bookmarklet.txt`), the clipboard contents matched the deployed file byte for byte, and the About card still showed 1.0.3 — the copy is not an install. The spec was deleted and `package.json` restored to 1.0.4.
 - Still not done by hand: pasting the copied text into a real saved bookmark and relaunching it, and anything in Edge. Clipboard permission was granted by the test context; a real page may prompt.
 - Next: paste into a genuine saved bookmark in Chrome and confirm 1.0.4 launches, then repeat the install in Edge.
+
+## 2026-09-25 — About card layout and wording
+
+- Reported from a running 1.0.5 bookmark: with the copy button present, the About card's three buttons did not fit one row and **Clear stored data** was cut off by the card edge, and the card carried too much prose.
+- `src/ui/screens.ts`: the button row now also carries `aw-actions`, the existing `flex-wrap: wrap` helper, so **Clear stored data** drops to its own line instead of overflowing. No new CSS. Shortened the update hint, the backup hint and the fetching status; `src/entry.ts` shortens the copy confirmation to `Version X copied (N characters). Paste it into the saved bookmark's URL field, then reload this page.`
+- Measured rather than eyeballed: a throwaway spec forced the copy button to appear and compared every button's right edge against the card's, which returned an empty overflow list, and captured the card as a screenshot. The spec was deleted.
+- Version bumped to 1.0.6. Commands: `npm run build` passed (279,263 minified bytes; 402,927 encoded characters). `npx playwright test` passed 242/242 in 2.0m. Node v24.21.0.
+- Limitations: the overflow check covers this card at the panel's default width only; no other screen was measured, and no manual pass was made in Edge.
+- Next: install 1.0.6 by hand from the deployed installer and confirm the copy-and-paste cycle on a genuine saved bookmark, in Chrome and Edge.

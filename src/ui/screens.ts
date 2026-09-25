@@ -1168,7 +1168,7 @@ function aboutCard(ctx: Ctx): HTMLElement {
   let available = ""
   const copy = button("aw-btn aw-pri aw-sm", "Copy new bookmarklet", () => {
     copy.disabled = true
-    status.textContent = `Fetching ${available} from the published site…`
+    status.textContent = `Fetching ${available}…`
     void ctx.copyUpdate(available).then(
       message => { status.textContent = message },
       (error: unknown) => { status.textContent = `Could not copy ${available}: ${error instanceof Error ? error.message : String(error)}. This bookmark is unchanged.` },
@@ -1247,10 +1247,10 @@ function aboutCard(ctx: Ctx): HTMLElement {
     group("aw-row aw-xs", el("span", "aw-mu aw-w64", "Newest"),
       el("span", "aw-mu", newest ? (newest === ctx.version ? "this build" : `${newest} has run on this origin`) : "not recorded yet")),
     group("aw-row aw-xs", el("span", "aw-mu aw-w64", "Storage"), usage),
-    group("aw-row aw-gap6", check, copy, clear),
-    el("p", "aw-hint", "Reads the published version from the deployed installer. If that request is blocked — offline, or the page's content security policy refuses it — this falls back to comparing against the newest build that has launched on this origin. An update is copied, never applied: paste it into the saved bookmark's URL field."),
+    group("aw-row aw-gap6 aw-actions", check, copy, clear),
+    el("p", "aw-hint", "Compares this build against the deployed installer, or against the newest build launched on this origin when that is blocked. An update is copied, never applied: paste it into the bookmark's URL field."),
     group("aw-row aw-gap6", backup, restore),
-    el("p", "aw-hint", "A backup carries every profile, plan and rule this origin holds. Export profile + endpoints above carries the active profile alone, for sharing it."),
+    el("p", "aw-hint", "A backup carries everything this origin holds. Export profile + endpoints above carries the active profile alone."),
     status,
   )
   return section
